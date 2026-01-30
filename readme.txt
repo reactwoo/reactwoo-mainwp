@@ -27,6 +27,13 @@ Maintenance hub automation:
   MainWP lifecycle actions.
 - Disconnected sites are purged after 14 days by the daily cleanup task.
 
+MainWP REST integration:
+- Configure MainWP API base URL + credentials under Settings -> ReactWoo Maintenance.
+- Default API base path is `wp-json/mainwp/v2` (override via `rw_maint_mainwp_api_path`).
+- Auth defaults to HTTP Basic; query-param auth is available via settings and
+  `rw_maint_mainwp_query_params` filter. Payloads are filterable via
+  `rw_maint_mainwp_create_payload` and `rw_maint_mainwp_reporting_payload`.
+
 Client portal UI:
 - My Account -> Maintenance lists subscriptions and sites.
 - Clients can create sites, generate enrollment tokens, resync identity, and

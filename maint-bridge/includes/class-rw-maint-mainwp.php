@@ -24,7 +24,8 @@ class RW_Maint_MainWP {
 			return;
 		}
 
-		$mainwp_site_id = apply_filters( 'rw_maint_mainwp_create_site', null, $site, $payload );
+		$groups         = self::build_groups( $site, $payload );
+		$mainwp_site_id = apply_filters( 'rw_maint_mainwp_create_site', null, $site, $payload, $groups );
 		$mainwp_site_id = absint( $mainwp_site_id );
 
 		if ( $mainwp_site_id ) {
@@ -41,7 +42,7 @@ class RW_Maint_MainWP {
 			);
 		}
 
-		do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload );
+		do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload, $groups );
 	}
 
 	public static function handle_suspend( $portal_site_id, $site = null ) {
@@ -86,5 +87,16 @@ class RW_Maint_MainWP {
 		}
 
 		do_action( 'rw_maint_mainwp_purge_site', $site );
+	}
+
+	private static function build_groups( $site, $payload ) {
+		$groups = array();
+
+		if ( $site ) {
+			$groups[] = 'client-' . (int) $site->user_id;
+			$groups[] = 'subscription-' . (int) $site->subscription_id;
+		}
+
+		return apply_filters( 'rw_maint_mainwp_groups', $groups, $site, $payload );
 	}
 }

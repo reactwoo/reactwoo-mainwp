@@ -15,5 +15,13 @@ Configuration notes:
   `rw_portal_maint_url` and `rw_portal_maint_secret`.
 - Maintenance hub: set `rw_maint_portal_secret` (same secret) or provide a
   `rw_maint_portal_secret` filter.
+
+Maintenance hub automation:
+- Hook `rw_maint_mainwp_create_site` to create MainWP child sites and return the
+  MainWP site ID (stored on the maint site row).
+- Hooks `rw_maint_mainwp_suspend_site`, `rw_maint_mainwp_resume_site`,
+  `rw_maint_mainwp_disconnect_site`, and `rw_maint_mainwp_purge_site` allow
+  MainWP lifecycle actions.
+- Disconnected sites are purged after 14 days by the daily cleanup task.
 It also registers subscription lifecycle hooks (including payment-failed grace
 period handling) and scheduled cleanup for expired enrollment tokens.

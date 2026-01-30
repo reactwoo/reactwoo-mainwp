@@ -38,6 +38,16 @@ class RW_Maint_Sites {
 		);
 	}
 
+	public static function get_site( $site_id ) {
+		global $wpdb;
+
+		$table = RW_Maint_DB::table( 'sites' );
+
+		return $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $site_id )
+		);
+	}
+
 	public static function update_site( $site_id, array $data ) {
 		global $wpdb;
 

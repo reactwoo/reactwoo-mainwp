@@ -169,6 +169,8 @@ class RW_Maint_Rest_Controller {
 			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
 		}
 
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+
 		RW_Maint_Audit::log(
 			'site_suspended',
 			array(
@@ -176,7 +178,7 @@ class RW_Maint_Rest_Controller {
 			)
 		);
 
-		do_action( 'rw_maint_site_suspended', $portal_site_id );
+		do_action( 'rw_maint_site_suspended', $portal_site_id, $site );
 
 		return rest_ensure_response(
 			array(
@@ -197,6 +199,8 @@ class RW_Maint_Rest_Controller {
 			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
 		}
 
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+
 		RW_Maint_Audit::log(
 			'site_resumed',
 			array(
@@ -204,7 +208,7 @@ class RW_Maint_Rest_Controller {
 			)
 		);
 
-		do_action( 'rw_maint_site_resumed', $portal_site_id );
+		do_action( 'rw_maint_site_resumed', $portal_site_id, $site );
 
 		return rest_ensure_response(
 			array(
@@ -225,6 +229,8 @@ class RW_Maint_Rest_Controller {
 			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
 		}
 
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+
 		RW_Maint_Audit::log(
 			'site_disconnected',
 			array(
@@ -232,7 +238,7 @@ class RW_Maint_Rest_Controller {
 			)
 		);
 
-		do_action( 'rw_maint_site_disconnected', $portal_site_id );
+		do_action( 'rw_maint_site_disconnected', $portal_site_id, $site );
 
 		return rest_ensure_response(
 			array(

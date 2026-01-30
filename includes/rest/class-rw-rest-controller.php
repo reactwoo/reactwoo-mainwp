@@ -144,6 +144,16 @@ class RW_Rest_Controller {
 			)
 		);
 
+		RW_Audit::log(
+			'token_created',
+			array(
+				'user_id'         => $user_id,
+				'subscription_id' => $subscription_id,
+				'managed_site_id' => $site_id,
+				'expires_at'      => $token['expires_at'],
+			)
+		);
+
 		return new WP_REST_Response(
 			array(
 				'managed_site_id' => $site_id,

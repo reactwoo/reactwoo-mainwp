@@ -70,6 +70,31 @@ class RW_Sites {
 		);
 	}
 
+	public static function update_status_by_subscription( $subscription_id, $status, array $exclude_statuses = array( 'disconnected' ) ) {
+		global $wpdb;
+
+		$table = RW_DB::table( 'managed_sites' );
+		$now   = current_time( 'mysql', true );
+
+		$where_parts = array( 'subscription_id = %d' );
+		$params      = array( (int) $subscription_id );
+
+		if ( ! empty( $exclude_statuses ) ) {
+			$placeholders = implode( ',', array_fill( 0, count( $exclude_statuses ), '%s' ) );
+			$where_parts[] = "status NOT IN ({$placeholders})";
+			$params        = array_merge( $params, array_map( 'strval', $exclude_statuses ) );
+		}
+
+		$where_sql = implode( ' AND ', $where_parts );
+		$values    = array_merge( array( $status, $now ), $params );
+		$query     = $wpdb->prepare(
+			"UPDATE {$table} SET status = %s, updated_at = %s WHERE {$where_sql}",
+			$values
+		);
+
+		return (int) $wpdb->query( $query );
+	}
+
 	public static function update_identity( $site_id, array $identity ) {
 		$allowed = array(
 			'client_name',

@@ -14,6 +14,8 @@ final class RW_Portal {
 	public static function init() {
 		self::load_dependencies();
 		RW_DB::maybe_upgrade();
+		RW_Tokens::register();
+		RW_Subscriptions::register();
 		RW_Rest_Controller::register_routes();
 	}
 
@@ -29,6 +31,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-identity.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-security.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-audit.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-subscriptions.php';
 		require_once RW_PORTAL_DIR . 'includes/rest/class-rw-rest-controller.php';
 	}
 }

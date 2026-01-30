@@ -6,6 +6,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class RW_Tokens {
 	const DEFAULT_TTL_HOURS = 24;
+	const CLEANUP_HOOK      = 'rw_portal_cleanup_tokens';
+
+	public static function register() {
+		add_action( self::CLEANUP_HOOK, array( __CLASS__, 'cleanup_expired_tokens' ) );
+
+		if ( ! wp_next_scheduled( self::CLEANUP_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', self::CLEANUP_HOOK );
+		}
+	}
 
 	public static function create_token( $managed_site_id, $ttl_hours = self::DEFAULT_TTL_HOURS ) {
 		global $wpdb;
@@ -80,6 +89,30 @@ class RW_Tokens {
 
 	public static function get_site_secret( $site_id ) {
 		return get_option( self::secret_option_key( $site_id ) );
+	}
+
+	public static function cleanup_expired_tokens() {
+		global $wpdb;
+
+		$table = RW_DB::table( 'site_tokens' );
+		if ( ! RW_DB::table_exists( $table ) ) {
+			return;
+		}
+
+		$now   = current_time( 'mysql', true );
+
+		$deleted = $wpdb->query(
+			$wpdb->prepare( "DELETE FROM {$table} WHERE expires_at < %s", $now )
+		);
+
+		if ( $deleted ) {
+			RW_Audit::log(
+				'token_cleanup',
+				array(
+					'deleted' => (int) $deleted,
+				)
+			);
+		}
 	}
 
 	private static function secret_option_key( $site_id ) {

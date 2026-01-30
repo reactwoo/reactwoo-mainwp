@@ -31,5 +31,6 @@ Client portal UI:
 - My Account -> Maintenance lists subscriptions and sites.
 - Clients can create sites, generate enrollment tokens, resync identity, and
   update report email preferences.
+- Heartbeats update the last seen timestamp displayed in the portal.
 It also registers subscription lifecycle hooks (including payment-failed grace
 period handling) and scheduled cleanup for expired enrollment tokens.

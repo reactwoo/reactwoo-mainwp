@@ -107,11 +107,11 @@ class RW_Portal_Account {
 	private static function render_sites_table( $sites ) {
 		echo '<table class="shop_table shop_table_responsive">';
 		echo '<thead><tr>';
-		echo '<th>Site</th><th>Status</th><th>Report Email</th><th>Health</th><th>Actions</th>';
+		echo '<th>Site</th><th>Status</th><th>Report Email</th><th>Health</th><th>Last Seen</th><th>Actions</th>';
 		echo '</tr></thead><tbody>';
 
 		if ( empty( $sites ) ) {
-			echo '<tr><td colspan="5">No sites linked yet.</td></tr>';
+			echo '<tr><td colspan="6">No sites linked yet.</td></tr>';
 		} else {
 			foreach ( $sites as $site ) {
 				self::render_site_row( $site );
@@ -139,6 +139,7 @@ class RW_Portal_Account {
 		echo '<td>' . esc_html( ucfirst( $site->status ) ) . '</td>';
 		echo '<td>' . esc_html( $site->report_email ) . '</td>';
 		echo '<td>' . ( $health ? implode( ' | ', $health ) : 'Waiting for heartbeat' ) . '</td>';
+		echo '<td>' . self::format_last_seen( $site->last_seen ) . '</td>';
 		echo '<td>';
 
 		self::render_site_actions( $site );
@@ -147,7 +148,7 @@ class RW_Portal_Account {
 		echo '</tr>';
 
 		if ( isset( self::$token_messages[ $site->id ] ) ) {
-			echo '<tr><td colspan="5"><strong>Enrollment token:</strong> ' . esc_html( self::$token_messages[ $site->id ] ) . '</td></tr>';
+			echo '<tr><td colspan="6"><strong>Enrollment token:</strong> ' . esc_html( self::$token_messages[ $site->id ] ) . '</td></tr>';
 		}
 	}
 
@@ -508,5 +509,18 @@ class RW_Portal_Account {
 		if ( function_exists( 'wc_add_notice' ) ) {
 			wc_add_notice( $message, $type );
 		}
+	}
+
+	private static function format_last_seen( $value ) {
+		if ( empty( $value ) ) {
+			return 'Never';
+		}
+
+		$timestamp = strtotime( $value );
+		if ( ! $timestamp ) {
+			return 'Unknown';
+		}
+
+		return esc_html( date_i18n( 'M j, Y H:i', $timestamp ) );
 	}
 }

@@ -154,6 +154,7 @@ class RW_Sites {
 			'connector_version'=> '%s',
 			'wp_version'       => '%s',
 			'php_version'      => '%s',
+			'last_seen'        => '%s',
 			'client_name'      => '%s',
 			'client_email'     => '%s',
 			'client_company'   => '%s',

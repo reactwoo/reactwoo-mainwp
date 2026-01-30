@@ -263,7 +263,8 @@ class RW_Rest_Controller {
 
 		$params = (array) $request->get_json_params();
 		$update = array(
-			'status' => 'connected',
+			'status'    => 'connected',
+			'last_seen' => current_time( 'mysql', true ),
 		);
 
 		if ( isset( $params['connector_version'] ) ) {

@@ -19,6 +19,7 @@ final class RW_Portal {
 		RW_Portal_Settings::register();
 		RW_Portal_Account::register();
 		RW_Portal_Identity_Sync::register();
+		RW_Portal_Audit_Admin::register();
 		RW_Rest_Controller::register_routes();
 	}
 
@@ -40,6 +41,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-settings.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-account.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-identity-sync.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-audit-admin.php';
 		require_once RW_PORTAL_DIR . 'includes/rest/class-rw-rest-controller.php';
 	}
 }

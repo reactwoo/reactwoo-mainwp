@@ -16,6 +16,7 @@ final class RW_Maint_Bridge {
 		RW_Maint_MainWP::register();
 		RW_Maint_MainWP_Client::register();
 		RW_Maint_Settings::register();
+		RW_Maint_Audit_Admin::register();
 		RW_Maint_Rest_Controller::register_routes();
 	}
 
@@ -33,6 +34,7 @@ final class RW_Maint_Bridge {
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp-client.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-settings.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-audit-admin.php';
 		require_once RW_MAINT_DIR . 'includes/rest/class-rw-maint-rest-controller.php';
 	}
 }

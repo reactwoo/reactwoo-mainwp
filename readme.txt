@@ -18,6 +18,9 @@ Configuration notes:
 Settings UI:
 - Portal: Settings -> ReactWoo Portal.
 - Maintenance hub: Settings -> ReactWoo Maintenance.
+Audit UI:
+- Portal: Tools -> ReactWoo Portal Audit.
+- Maintenance hub: Tools -> ReactWoo Maintenance Audit.
 
 Maintenance hub automation:
 - Hook `rw_maint_mainwp_create_site` to create MainWP child sites and return the

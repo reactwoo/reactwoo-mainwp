@@ -53,6 +53,27 @@ class RW_Sites {
 		);
 	}
 
+	public static function get_sites_by_subscription( $subscription_id, array $statuses = array() ) {
+		global $wpdb;
+
+		$table = RW_DB::table( 'managed_sites' );
+
+		$where  = array( 'subscription_id = %d' );
+		$params = array( (int) $subscription_id );
+
+		if ( ! empty( $statuses ) ) {
+			$placeholders = implode( ',', array_fill( 0, count( $statuses ), '%s' ) );
+			$where[]      = "status IN ({$placeholders})";
+			$params       = array_merge( $params, array_map( 'strval', $statuses ) );
+		}
+
+		$where_sql = implode( ' AND ', $where );
+
+		return $wpdb->get_results(
+			$wpdb->prepare( "SELECT * FROM {$table} WHERE {$where_sql}", $params )
+		);
+	}
+
 	public static function update_site( $site_id, array $data ) {
 		global $wpdb;
 

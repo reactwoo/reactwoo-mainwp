@@ -185,6 +185,38 @@ class RW_Rest_Controller {
 		RW_Tokens::store_site_secret( (int) $site->id, $site_secret );
 		RW_Sites::update_site( (int) $site->id, array( 'status' => 'connected' ) );
 
+		$site = RW_Sites::get_site( (int) $site->id );
+		if ( ! $site ) {
+			return new WP_Error( 'rw_site_missing', 'Managed site not found.', array( 'status' => 404 ) );
+		}
+
+		$maint_response = RW_Maint_Client::enroll_site( $site );
+		if ( is_wp_error( $maint_response ) ) {
+			RW_Audit::log(
+				'maint_enroll_failed',
+				array(
+					'user_id'         => (int) $site->user_id,
+					'subscription_id' => (int) $site->subscription_id,
+					'managed_site_id' => (int) $site->id,
+					'error'           => $maint_response->get_error_message(),
+				)
+			);
+		} else {
+			RW_Audit::log(
+				'maint_enroll_sent',
+				array(
+					'user_id'         => (int) $site->user_id,
+					'subscription_id' => (int) $site->subscription_id,
+					'managed_site_id' => (int) $site->id,
+					'maint_site_id'   => isset( $maint_response['maint_site_id'] ) ? (int) $maint_response['maint_site_id'] : null,
+				)
+			);
+		}
+
+		if ( is_array( $maint_response ) && isset( $maint_response['maint_site_id'] ) ) {
+			RW_Sites::update_site( (int) $site->id, array( 'maint_site_id' => (int) $maint_response['maint_site_id'] ) );
+		}
+
 		RW_Audit::log(
 			'token_verified',
 			array(
@@ -278,6 +310,36 @@ class RW_Rest_Controller {
 		$identity = RW_Identity::apply_overrides( $identity, self::extract_identity_overrides( $request ) );
 
 		RW_Sites::update_identity( $site_id, $identity );
+
+		$site = RW_Sites::get_site( $site_id );
+		if ( $site ) {
+			$maint_response = RW_Maint_Client::enroll_site( $site );
+			if ( is_wp_error( $maint_response ) ) {
+				RW_Audit::log(
+					'maint_sync_failed',
+					array(
+						'user_id'         => (int) $site->user_id,
+						'subscription_id' => (int) $site->subscription_id,
+						'managed_site_id' => (int) $site->id,
+						'error'           => $maint_response->get_error_message(),
+					)
+				);
+			} else {
+				RW_Audit::log(
+					'maint_sync_sent',
+					array(
+						'user_id'         => (int) $site->user_id,
+						'subscription_id' => (int) $site->subscription_id,
+						'managed_site_id' => (int) $site->id,
+						'maint_site_id'   => isset( $maint_response['maint_site_id'] ) ? (int) $maint_response['maint_site_id'] : null,
+					)
+				);
+
+				if ( isset( $maint_response['maint_site_id'] ) ) {
+					RW_Sites::update_site( (int) $site->id, array( 'maint_site_id' => (int) $maint_response['maint_site_id'] ) );
+				}
+			}
+		}
 
 		RW_Audit::log(
 			'client_sync',

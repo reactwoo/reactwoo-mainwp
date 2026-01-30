@@ -52,6 +52,15 @@ class RW_Maint_Rest_Controller {
 			return true;
 		}
 
+		$verified = RW_Maint_Security::verify_signed_request( $request );
+		if ( true === $verified ) {
+			return true;
+		}
+
+		if ( is_wp_error( $verified ) ) {
+			return $verified;
+		}
+
 		$allowed = apply_filters( 'rw_maint_allow_request', false, $request );
 		if ( $allowed ) {
 			return true;

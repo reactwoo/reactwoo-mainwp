@@ -24,6 +24,7 @@ final class RW_Maint_Bridge {
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-db.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-sites.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-audit.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-security.php';
 		require_once RW_MAINT_DIR . 'includes/rest/class-rw-maint-rest-controller.php';
 	}
 }

@@ -32,6 +32,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-security.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-audit.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscriptions.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-maint-client.php';
 		require_once RW_PORTAL_DIR . 'includes/rest/class-rw-rest-controller.php';
 	}
 }

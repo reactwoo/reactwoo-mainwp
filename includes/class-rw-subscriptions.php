@@ -114,6 +114,8 @@ class RW_Subscriptions {
 			)
 		);
 
+		RW_Maint_Client::update_subscription_sites( $subscription_id, $status );
+
 		do_action( 'rw_portal_subscription_sites_updated', $subscription_id, $status, $updated );
 	}
 

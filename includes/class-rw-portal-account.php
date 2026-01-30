@@ -107,11 +107,11 @@ class RW_Portal_Account {
 	private static function render_sites_table( $sites ) {
 		echo '<table class="shop_table shop_table_responsive">';
 		echo '<thead><tr>';
-		echo '<th>Site</th><th>Status</th><th>Report Email</th><th>Health</th><th>Last Seen</th><th>Actions</th>';
+		echo '<th>Site</th><th>Status</th><th>Report Email</th><th>Health</th><th>Last Seen</th><th>Last Check</th><th>Last Sync</th><th>Actions</th>';
 		echo '</tr></thead><tbody>';
 
 		if ( empty( $sites ) ) {
-			echo '<tr><td colspan="6">No sites linked yet.</td></tr>';
+			echo '<tr><td colspan="8">No sites linked yet.</td></tr>';
 		} else {
 			foreach ( $sites as $site ) {
 				self::render_site_row( $site );
@@ -139,7 +139,9 @@ class RW_Portal_Account {
 		echo '<td>' . esc_html( ucfirst( $site->status ) ) . '</td>';
 		echo '<td>' . esc_html( $site->report_email ) . '</td>';
 		echo '<td>' . ( $health ? implode( ' | ', $health ) : 'Waiting for heartbeat' ) . '</td>';
-		echo '<td>' . self::format_last_seen( $site->last_seen ) . '</td>';
+		echo '<td>' . self::format_datetime( $site->last_seen ) . '</td>';
+		echo '<td>' . self::format_datetime( $site->last_check_at ) . '</td>';
+		echo '<td>' . self::format_datetime( $site->last_sync_at ) . '</td>';
 		echo '<td>';
 
 		self::render_site_actions( $site );
@@ -148,7 +150,7 @@ class RW_Portal_Account {
 		echo '</tr>';
 
 		if ( isset( self::$token_messages[ $site->id ] ) ) {
-			echo '<tr><td colspan="6"><strong>Enrollment token:</strong> ' . esc_html( self::$token_messages[ $site->id ] ) . '</td></tr>';
+			echo '<tr><td colspan="8"><strong>Enrollment token:</strong> ' . esc_html( self::$token_messages[ $site->id ] ) . '</td></tr>';
 		}
 	}
 
@@ -576,10 +578,19 @@ class RW_Portal_Account {
 			)
 		);
 
+		$timestamp = current_time( 'mysql', true );
+		if ( 'check' === $action ) {
+			RW_Sites::update_site( (int) $site->id, array( 'last_check_at' => $timestamp ) );
+		} elseif ( 'sync' === $action ) {
+			RW_Sites::update_site( (int) $site->id, array( 'last_sync_at' => $timestamp ) );
+		} elseif ( 'reconnect' === $action ) {
+			RW_Sites::update_site( (int) $site->id, array( 'last_reconnect_at' => $timestamp ) );
+		}
+
 		self::add_notice( $success_notice, 'success' );
 	}
 
-	private static function format_last_seen( $value ) {
+	private static function format_datetime( $value ) {
 		if ( empty( $value ) ) {
 			return 'Never';
 		}

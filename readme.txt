@@ -55,6 +55,7 @@ Client portal UI:
   update report email preferences.
 - Heartbeats update the last seen timestamp displayed in the portal.
 - Manual actions include MainWP check, sync, and reconnect.
+- Last check and last sync timestamps are recorded when actions are triggered.
 
 Identity sync:
 - Automatic sync runs on profile updates, billing address updates, and checkout

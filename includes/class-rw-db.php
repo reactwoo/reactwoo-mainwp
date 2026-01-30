@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_DB {
-	const DB_VERSION = '1.1';
+	const DB_VERSION = '1.2';
 
 	public static function table( $suffix ) {
 		global $wpdb;
@@ -42,6 +42,9 @@ class RW_DB {
 			wp_version VARCHAR(50) DEFAULT NULL,
 			php_version VARCHAR(50) DEFAULT NULL,
 			last_seen DATETIME DEFAULT NULL,
+			last_check_at DATETIME DEFAULT NULL,
+			last_sync_at DATETIME DEFAULT NULL,
+			last_reconnect_at DATETIME DEFAULT NULL,
 			client_name VARCHAR(190) DEFAULT NULL,
 			client_email VARCHAR(190) DEFAULT NULL,
 			client_company VARCHAR(190) DEFAULT NULL,

@@ -98,6 +98,47 @@ class RW_Subscriptions {
 		self::clear_grace_marker( $subscription_id );
 	}
 
+	public static function validate_subscription_for_user( $subscription_id, $user_id ) {
+		if ( ! function_exists( 'wcs_get_subscription' ) ) {
+			return new WP_Error( 'rw_subscriptions_missing', 'WooCommerce Subscriptions is required.', array( 'status' => 503 ) );
+		}
+
+		$subscription = wcs_get_subscription( $subscription_id );
+		if ( ! $subscription ) {
+			return new WP_Error( 'rw_subscription_missing', 'Subscription not found.', array( 'status' => 404 ) );
+		}
+
+		if ( (int) $subscription->get_user_id() !== (int) $user_id ) {
+			return new WP_Error( 'rw_subscription_owner', 'Subscription owner mismatch.', array( 'status' => 403 ) );
+		}
+
+		if ( ! $subscription->has_status( 'active' ) ) {
+			return new WP_Error( 'rw_subscription_inactive', 'Subscription is not active.', array( 'status' => 403 ) );
+		}
+
+		$allowed = apply_filters( 'rw_portal_subscription_access', true, $subscription, $user_id );
+		if ( ! $allowed ) {
+			return new WP_Error( 'rw_subscription_denied', 'Subscription access denied.', array( 'status' => 403 ) );
+		}
+
+		return $subscription;
+	}
+
+	public static function get_allowed_sites( $subscription, $user_id ) {
+		$allowed = 0;
+
+		if ( is_object( $subscription ) && method_exists( $subscription, 'get_meta' ) ) {
+			$allowed = (int) $subscription->get_meta( 'rw_allowed_sites', true );
+			if ( ! $allowed ) {
+				$allowed = (int) $subscription->get_meta( 'allowed_sites', true );
+			}
+		}
+
+		$allowed = apply_filters( 'rw_portal_allowed_sites', $allowed, $subscription, $user_id );
+
+		return (int) $allowed;
+	}
+
 	private static function update_subscription_sites( $subscription_id, $status, $event_type ) {
 		$updated = RW_Sites::update_status_by_subscription(
 			$subscription_id,

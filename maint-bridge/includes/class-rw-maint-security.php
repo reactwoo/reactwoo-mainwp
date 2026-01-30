@@ -56,6 +56,21 @@ class RW_Maint_Security {
 	private static function get_secret() {
 		$secret = (string) get_option( 'rw_maint_portal_secret', '' );
 
-		return (string) apply_filters( 'rw_maint_portal_secret', $secret );
+		$secret = (string) apply_filters( 'rw_maint_portal_secret', $secret );
+
+		return self::normalize_secret( $secret );
+	}
+
+	private static function normalize_secret( $secret ) {
+		$secret = (string) $secret;
+		if ( '' === $secret ) {
+			return '';
+		}
+
+		if ( 64 === strlen( $secret ) && ctype_xdigit( $secret ) ) {
+			return strtolower( $secret );
+		}
+
+		return hash( 'sha256', $secret );
 	}
 }

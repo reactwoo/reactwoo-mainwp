@@ -17,12 +17,14 @@ final class RW_Portal {
 		RW_Tokens::register();
 		RW_Subscriptions::register();
 		RW_Portal_Settings::register();
+		RW_Portal_Account::register();
 		RW_Rest_Controller::register_routes();
 	}
 
 	public static function activate() {
 		self::load_dependencies();
 		RW_DB::create_tables();
+		RW_Portal_Account::activate();
 	}
 
 	private static function load_dependencies() {
@@ -35,6 +37,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscriptions.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maint-client.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-settings.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-account.php';
 		require_once RW_PORTAL_DIR . 'includes/rest/class-rw-rest-controller.php';
 	}
 }

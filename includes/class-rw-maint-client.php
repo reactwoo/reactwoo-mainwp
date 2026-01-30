@@ -149,7 +149,9 @@ class RW_Maint_Client {
 	private static function get_secret() {
 		$secret = (string) get_option( 'rw_portal_maint_secret', '' );
 
-		return (string) apply_filters( 'rw_portal_maint_secret', $secret );
+		$secret = (string) apply_filters( 'rw_portal_maint_secret', $secret );
+
+		return self::normalize_secret( $secret );
 	}
 
 	private static function signing_path( $url ) {
@@ -190,6 +192,19 @@ class RW_Maint_Client {
 		} catch ( Exception $e ) {
 			return wp_generate_password( 32, false, false );
 		}
+	}
+
+	private static function normalize_secret( $secret ) {
+		$secret = (string) $secret;
+		if ( '' === $secret ) {
+			return '';
+		}
+
+		if ( 64 === strlen( $secret ) && ctype_xdigit( $secret ) ) {
+			return strtolower( $secret );
+		}
+
+		return hash( 'sha256', $secret );
 	}
 
 	private static function log_request_result( $action, $site_id, $result ) {

@@ -11,10 +11,10 @@ enrollment and lifecycle actions.
 
 Configuration notes:
 - Portal -> maintenance hub: set options `rw_portal_maint_url` and
-  `rw_portal_maint_secret` (shared secret). Filter overrides are available via
-  `rw_portal_maint_url` and `rw_portal_maint_secret`.
+  `rw_portal_maint_secret` (shared secret, stored as SHA-256). Filter overrides
+  are available via `rw_portal_maint_url` and `rw_portal_maint_secret`.
 - Maintenance hub: set `rw_maint_portal_secret` (same secret) or provide a
-  `rw_maint_portal_secret` filter.
+  `rw_maint_portal_secret` filter. Secrets are stored as SHA-256.
 Settings UI:
 - Portal: Settings -> ReactWoo Portal.
 - Maintenance hub: Settings -> ReactWoo Maintenance.
@@ -26,5 +26,10 @@ Maintenance hub automation:
   `rw_maint_mainwp_disconnect_site`, and `rw_maint_mainwp_purge_site` allow
   MainWP lifecycle actions.
 - Disconnected sites are purged after 14 days by the daily cleanup task.
+
+Client portal UI:
+- My Account -> Maintenance lists subscriptions and sites.
+- Clients can create sites, generate enrollment tokens, resync identity, and
+  update report email preferences.
 It also registers subscription lifecycle hooks (including payment-failed grace
 period handling) and scheduled cleanup for expired enrollment tokens.

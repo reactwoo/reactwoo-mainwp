@@ -32,7 +32,7 @@ class RW_Maint_Settings {
 			self::OPTION_PORTAL_SECRET,
 			array(
 				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_text_field',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_secret' ),
 				'default'           => '',
 			)
 		);
@@ -85,5 +85,22 @@ class RW_Maint_Settings {
 			esc_attr( $value )
 		);
 		echo '<p class="description">Use the same secret configured on the portal.</p>';
+	}
+
+	public static function sanitize_secret( $value ) {
+		$value = sanitize_text_field( $value );
+		if ( '' === $value ) {
+			return '';
+		}
+
+		if ( self::is_sha256( $value ) ) {
+			return strtolower( $value );
+		}
+
+		return hash( 'sha256', $value );
+	}
+
+	private static function is_sha256( $value ) {
+		return 64 === strlen( $value ) && ctype_xdigit( $value );
 	}
 }

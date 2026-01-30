@@ -15,6 +15,9 @@ Configuration notes:
   `rw_portal_maint_url` and `rw_portal_maint_secret`.
 - Maintenance hub: set `rw_maint_portal_secret` (same secret) or provide a
   `rw_maint_portal_secret` filter.
+Settings UI:
+- Portal: Settings -> ReactWoo Portal.
+- Maintenance hub: Settings -> ReactWoo Maintenance.
 
 Maintenance hub automation:
 - Hook `rw_maint_mainwp_create_site` to create MainWP child sites and return the

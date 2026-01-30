@@ -14,6 +14,7 @@ final class RW_Maint_Bridge {
 		RW_Maint_DB::maybe_upgrade();
 		RW_Maint_Cleanup::register();
 		RW_Maint_MainWP::register();
+		RW_Maint_Settings::register();
 		RW_Maint_Rest_Controller::register_routes();
 	}
 
@@ -29,6 +30,7 @@ final class RW_Maint_Bridge {
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-security.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-cleanup.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-settings.php';
 		require_once RW_MAINT_DIR . 'includes/rest/class-rw-maint-rest-controller.php';
 	}
 }

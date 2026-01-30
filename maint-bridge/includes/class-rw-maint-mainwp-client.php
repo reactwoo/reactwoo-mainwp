@@ -11,6 +11,9 @@ class RW_Maint_MainWP_Client {
 		add_action( 'rw_maint_mainwp_suspend_site', array( __CLASS__, 'suspend_site' ), 10, 1 );
 		add_action( 'rw_maint_mainwp_resume_site', array( __CLASS__, 'resume_site' ), 10, 1 );
 		add_action( 'rw_maint_mainwp_disconnect_site', array( __CLASS__, 'disconnect_site' ), 10, 1 );
+		add_action( 'rw_maint_mainwp_check_site', array( __CLASS__, 'check_site' ), 10, 1 );
+		add_action( 'rw_maint_mainwp_sync_site', array( __CLASS__, 'sync_site' ), 10, 1 );
+		add_action( 'rw_maint_mainwp_reconnect_site', array( __CLASS__, 'reconnect_site' ), 10, 1 );
 		add_action( 'rw_maint_mainwp_purge_site', array( __CLASS__, 'purge_site' ), 10, 1 );
 	}
 
@@ -126,6 +129,18 @@ class RW_Maint_MainWP_Client {
 
 	public static function disconnect_site( $site ) {
 		self::send_lifecycle_action( $site, 'disconnect' );
+	}
+
+	public static function check_site( $site ) {
+		self::send_lifecycle_action( $site, 'check' );
+	}
+
+	public static function sync_site( $site ) {
+		self::send_lifecycle_action( $site, 'sync' );
+	}
+
+	public static function reconnect_site( $site ) {
+		self::send_lifecycle_action( $site, 'reconnect' );
 	}
 
 	public static function purge_site( $site ) {
@@ -413,6 +428,12 @@ class RW_Maint_MainWP_Client {
 				return sprintf( 'sites/%d/unsuspend/', (int) $site->mainwp_site_id );
 			case 'disconnect':
 				return sprintf( 'sites/%d/disconnect/', (int) $site->mainwp_site_id );
+			case 'check':
+				return sprintf( 'sites/%d/check/', (int) $site->mainwp_site_id );
+			case 'sync':
+				return sprintf( 'sites/%d/sync/', (int) $site->mainwp_site_id );
+			case 'reconnect':
+				return sprintf( 'sites/%d/reconnect/', (int) $site->mainwp_site_id );
 			case 'purge':
 				return sprintf( 'sites/%d/remove/', (int) $site->mainwp_site_id );
 			default:

@@ -26,8 +26,9 @@ Maintenance hub automation:
 - Hook `rw_maint_mainwp_create_site` to create MainWP child sites and return the
   MainWP site ID (stored on the maint site row).
 - Hooks `rw_maint_mainwp_suspend_site`, `rw_maint_mainwp_resume_site`,
-  `rw_maint_mainwp_disconnect_site`, and `rw_maint_mainwp_purge_site` allow
-  MainWP lifecycle actions.
+  `rw_maint_mainwp_disconnect_site`, `rw_maint_mainwp_purge_site`,
+  `rw_maint_mainwp_check_site`, `rw_maint_mainwp_sync_site`, and
+  `rw_maint_mainwp_reconnect_site` allow MainWP lifecycle actions.
 - Disconnected sites are purged after 14 days by the daily cleanup task.
 
 MainWP REST integration:
@@ -44,12 +45,16 @@ MainWP REST integration:
 - If tag IDs are not supplied, the bridge attempts to create missing tags via
   `tags/add` and caches tag IDs for one hour. Override tag colors with
   `rw_maint_mainwp_tag_color`.
+- Lifecycle endpoints used: `/sites/{id}/check`, `/sites/{id}/sync`,
+  `/sites/{id}/reconnect`, `/sites/{id}/suspend`, `/sites/{id}/unsuspend`,
+  `/sites/{id}/disconnect`, `/sites/{id}/remove`.
 
 Client portal UI:
 - My Account -> Maintenance lists subscriptions and sites.
 - Clients can create sites, generate enrollment tokens, resync identity, and
   update report email preferences.
 - Heartbeats update the last seen timestamp displayed in the portal.
+- Manual actions include MainWP check, sync, and reconnect.
 
 Identity sync:
 - Automatic sync runs on profile updates, billing address updates, and checkout

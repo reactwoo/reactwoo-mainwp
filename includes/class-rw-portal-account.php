@@ -171,6 +171,31 @@ class RW_Portal_Account {
 		echo '<button type="submit" class="button">Resync Client Details</button>';
 		echo '</form>';
 
+		if ( in_array( $site->status, array( 'connected', 'suspended', 'error' ), true ) ) {
+			echo '<form method="post" style="margin-bottom:8px;">';
+			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			echo '<input type="hidden" name="rw_portal_action" value="check_site" />';
+			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
+			echo '<button type="submit" class="button">Run Health Check</button>';
+			echo '</form>';
+
+			echo '<form method="post" style="margin-bottom:8px;">';
+			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			echo '<input type="hidden" name="rw_portal_action" value="sync_site" />';
+			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
+			echo '<button type="submit" class="button">Sync Now</button>';
+			echo '</form>';
+		}
+
+		if ( in_array( $site->status, array( 'disconnected', 'error' ), true ) ) {
+			echo '<form method="post" style="margin-bottom:8px;">';
+			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			echo '<input type="hidden" name="rw_portal_action" value="reconnect_site" />';
+			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
+			echo '<button type="submit" class="button">Reconnect Site</button>';
+			echo '</form>';
+		}
+
 		if ( in_array( $site->status, array( 'pending', 'disconnected' ), true ) ) {
 			echo '<form method="post" style="margin-bottom:8px;">';
 			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
@@ -226,6 +251,15 @@ class RW_Portal_Account {
 				break;
 			case 'disconnect_site':
 				self::handle_disconnect_site( $user_id );
+				break;
+			case 'check_site':
+				self::handle_maint_action( $user_id, 'check', 'site_check_requested', 'Health check requested.' );
+				break;
+			case 'sync_site':
+				self::handle_maint_action( $user_id, 'sync', 'site_sync_requested', 'Sync requested.' );
+				break;
+			case 'reconnect_site':
+				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );
 				break;
 			case 'resync_site':
 				self::handle_resync_site( $user_id );
@@ -509,6 +543,40 @@ class RW_Portal_Account {
 		if ( function_exists( 'wc_add_notice' ) ) {
 			wc_add_notice( $message, $type );
 		}
+	}
+
+	private static function handle_maint_action( $user_id, $action, $audit_event, $success_notice ) {
+		$site = self::load_site_for_user( $user_id );
+		if ( ! $site ) {
+			return;
+		}
+
+		$result = RW_Maint_Client::update_site_status( $site, $action );
+		if ( is_wp_error( $result ) ) {
+			RW_Audit::log(
+				'maint_action_failed',
+				array(
+					'user_id'         => $user_id,
+					'subscription_id' => (int) $site->subscription_id,
+					'managed_site_id' => (int) $site->id,
+					'action'          => $action,
+					'error'           => $result->get_error_message(),
+				)
+			);
+			self::add_notice( 'Maintenance hub action failed.', 'error' );
+			return;
+		}
+
+		RW_Audit::log(
+			$audit_event,
+			array(
+				'user_id'         => $user_id,
+				'subscription_id' => (int) $site->subscription_id,
+				'managed_site_id' => (int) $site->id,
+			)
+		);
+
+		self::add_notice( $success_notice, 'success' );
 	}
 
 	private static function format_last_seen( $value ) {

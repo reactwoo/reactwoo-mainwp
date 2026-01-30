@@ -45,6 +45,36 @@ class RW_Maint_Rest_Controller {
 				'permission_callback' => array( __CLASS__, 'authorize_request' ),
 			)
 		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/check',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'check' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/sync',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'sync' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/reconnect',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'reconnect' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
 	}
 
 	public static function authorize_request( WP_REST_Request $request ) {
@@ -244,6 +274,92 @@ class RW_Maint_Rest_Controller {
 			array(
 				'portal_site_id' => $portal_site_id,
 				'status'         => 'disconnected',
+			)
+		);
+	}
+
+	public static function check( WP_REST_Request $request ) {
+		$portal_site_id = self::extract_portal_site_id( $request );
+		if ( ! $portal_site_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID is required.', array( 'status' => 400 ) );
+		}
+
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		if ( ! $site ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		RW_Maint_Audit::log(
+			'site_checked',
+			array(
+				'portal_site_id' => $portal_site_id,
+			)
+		);
+
+		do_action( 'rw_maint_site_checked', $portal_site_id, $site );
+
+		return rest_ensure_response(
+			array(
+				'portal_site_id' => $portal_site_id,
+				'status'         => $site->status,
+			)
+		);
+	}
+
+	public static function sync( WP_REST_Request $request ) {
+		$portal_site_id = self::extract_portal_site_id( $request );
+		if ( ! $portal_site_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID is required.', array( 'status' => 400 ) );
+		}
+
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		if ( ! $site ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		RW_Maint_Audit::log(
+			'site_sync',
+			array(
+				'portal_site_id' => $portal_site_id,
+			)
+		);
+
+		do_action( 'rw_maint_site_synced', $portal_site_id, $site );
+
+		return rest_ensure_response(
+			array(
+				'portal_site_id' => $portal_site_id,
+				'status'         => $site->status,
+			)
+		);
+	}
+
+	public static function reconnect( WP_REST_Request $request ) {
+		$portal_site_id = self::extract_portal_site_id( $request );
+		if ( ! $portal_site_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID is required.', array( 'status' => 400 ) );
+		}
+
+		$updated = RW_Maint_Sites::update_status( $portal_site_id, 'active' );
+		if ( ! $updated ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+
+		RW_Maint_Audit::log(
+			'site_reconnected',
+			array(
+				'portal_site_id' => $portal_site_id,
+			)
+		);
+
+		do_action( 'rw_maint_site_reconnected', $portal_site_id, $site );
+
+		return rest_ensure_response(
+			array(
+				'portal_site_id' => $portal_site_id,
+				'status'         => 'active',
 			)
 		);
 	}

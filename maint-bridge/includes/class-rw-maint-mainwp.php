@@ -10,6 +10,9 @@ class RW_Maint_MainWP {
 		add_action( 'rw_maint_site_suspended', array( __CLASS__, 'handle_suspend' ), 10, 2 );
 		add_action( 'rw_maint_site_resumed', array( __CLASS__, 'handle_resume' ), 10, 2 );
 		add_action( 'rw_maint_site_disconnected', array( __CLASS__, 'handle_disconnect' ), 10, 2 );
+		add_action( 'rw_maint_site_checked', array( __CLASS__, 'handle_check' ), 10, 2 );
+		add_action( 'rw_maint_site_synced', array( __CLASS__, 'handle_sync' ), 10, 2 );
+		add_action( 'rw_maint_site_reconnected', array( __CLASS__, 'handle_reconnect' ), 10, 2 );
 		add_action( 'rw_maint_before_purge', array( __CLASS__, 'handle_purge' ), 10, 1 );
 	}
 
@@ -79,6 +82,42 @@ class RW_Maint_MainWP {
 		}
 
 		do_action( 'rw_maint_mainwp_disconnect_site', $site );
+	}
+
+	public static function handle_check( $portal_site_id, $site = null ) {
+		if ( ! $site ) {
+			$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		}
+
+		if ( ! $site ) {
+			return;
+		}
+
+		do_action( 'rw_maint_mainwp_check_site', $site );
+	}
+
+	public static function handle_sync( $portal_site_id, $site = null ) {
+		if ( ! $site ) {
+			$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		}
+
+		if ( ! $site ) {
+			return;
+		}
+
+		do_action( 'rw_maint_mainwp_sync_site', $site );
+	}
+
+	public static function handle_reconnect( $portal_site_id, $site = null ) {
+		if ( ! $site ) {
+			$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		}
+
+		if ( ! $site ) {
+			return;
+		}
+
+		do_action( 'rw_maint_mainwp_reconnect_site', $site );
 	}
 
 	public static function handle_purge( $site ) {

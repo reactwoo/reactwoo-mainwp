@@ -23,18 +23,38 @@ class RW_Maint_MainWP_Client {
 			return $existing_id;
 		}
 
-		$body = array(
-			'name'  => $site->site_name,
-			'url'   => $site->site_url,
-			'groups' => $groups,
-			'portal_site_id'  => (int) $site->portal_site_id,
-			'subscription_id' => (int) $site->subscription_id,
-			'user_id'         => (int) $site->user_id,
+		$credentials = self::resolve_credentials( $site, $payload );
+		if ( empty( $credentials['admin'] ) || empty( $credentials['adminpassword'] ) ) {
+			RW_Maint_Audit::log(
+				'mainwp_create_skipped',
+				array(
+					'portal_site_id'  => (int) $site->portal_site_id,
+					'subscription_id' => (int) $site->subscription_id,
+					'user_id'         => (int) $site->user_id,
+					'reason'          => 'missing_credentials',
+				)
+			);
+			return $existing_id;
+		}
+
+		$query = array(
+			'url'           => $site->site_url,
+			'admin'         => $credentials['admin'],
+			'adminpassword' => $credentials['adminpassword'],
 		);
 
-		$body = apply_filters( 'rw_maint_mainwp_create_payload', $body, $site, $payload, $groups );
+		if ( ! empty( $credentials['uniqueid'] ) ) {
+			$query['uniqueid'] = $credentials['uniqueid'];
+		}
 
-		$response = self::request( 'POST', 'sites', $body );
+		$name = self::resolve_site_name( $site, $payload );
+		if ( '' !== $name ) {
+			$query['name'] = $name;
+		}
+
+		$query = apply_filters( 'rw_maint_mainwp_create_query', $query, $site, $payload, $groups );
+
+		$response = self::request( 'POST', 'sites/add/', array(), $query );
 		if ( is_wp_error( $response ) ) {
 			RW_Maint_Audit::log(
 				'mainwp_create_failed',
@@ -61,22 +81,28 @@ class RW_Maint_MainWP_Client {
 			return;
 		}
 
-		$body = array(
-			'client_name'    => $site->client_name,
-			'client_email'   => $site->client_email,
-			'client_company' => $site->client_company,
-			'client_locale'  => $site->client_locale,
-			'report_email'   => $site->report_email,
-			'report_enabled' => (int) $site->report_enabled,
-			'groups'         => $groups,
-		);
+		$group_ids = self::resolve_group_ids( $groups, $site, $payload );
+		$query     = array();
 
-		$body = apply_filters( 'rw_maint_mainwp_reporting_payload', $body, $site, $payload, $groups );
+		if ( ! empty( $group_ids ) ) {
+			$query['groupids'] = implode( ',', $group_ids );
+		}
 
-		$path   = sprintf( 'sites/%d', (int) $site->mainwp_site_id );
+		$name = self::resolve_site_name( $site, $payload );
+		if ( '' !== $name ) {
+			$query['name'] = $name;
+		}
+
+		$query = apply_filters( 'rw_maint_mainwp_reporting_query', $query, $site, $payload, $groups );
+
+		if ( empty( $query ) ) {
+			return;
+		}
+
+		$path   = sprintf( 'sites/%d/edit/', (int) $site->mainwp_site_id );
 		$method = apply_filters( 'rw_maint_mainwp_update_method', 'PUT', $site );
 
-		$response = self::request( $method, $path, $body );
+		$response = self::request( $method, $path, array(), $query );
 		if ( is_wp_error( $response ) ) {
 			RW_Maint_Audit::log(
 				'mainwp_reporting_failed',
@@ -111,12 +137,14 @@ class RW_Maint_MainWP_Client {
 			return;
 		}
 
-		$path = apply_filters( 'rw_maint_mainwp_action_path', '', $action, $site );
+		$path = self::default_action_path( $action, $site );
+		$path = apply_filters( 'rw_maint_mainwp_action_path', $path, $action, $site );
 		if ( '' === $path ) {
 			return;
 		}
 
-		$method = apply_filters( 'rw_maint_mainwp_action_method', 'POST', $action, $site );
+		$method = self::default_action_method( $action );
+		$method = apply_filters( 'rw_maint_mainwp_action_method', $method, $action, $site );
 		$body   = apply_filters( 'rw_maint_mainwp_action_body', array(), $action, $site );
 
 		$response = self::request( $method, $path, $body );
@@ -134,7 +162,7 @@ class RW_Maint_MainWP_Client {
 		}
 	}
 
-	private static function request( $method, $path, array $body = array() ) {
+	private static function request( $method, $path, array $body = array(), array $query = array() ) {
 		$base_url = self::get_api_base();
 		if ( '' === $base_url ) {
 			return new WP_Error( 'rw_mainwp_missing_url', 'MainWP API URL not configured.' );
@@ -142,6 +170,9 @@ class RW_Maint_MainWP_Client {
 
 		$url = trailingslashit( $base_url ) . ltrim( $path, '/' );
 		$url = self::apply_auth_query( $url );
+		if ( ! empty( $query ) ) {
+			$url = add_query_arg( $query, $url );
+		}
 
 		$headers = array(
 			'Content-Type' => 'application/json',
@@ -208,7 +239,7 @@ class RW_Maint_MainWP_Client {
 			return array();
 		}
 
-		$mode = (string) apply_filters( 'rw_maint_mainwp_auth_mode', 'basic', $key );
+		$mode = self::get_auth_mode( $key );
 		if ( 'basic' !== $mode ) {
 			return apply_filters( 'rw_maint_mainwp_auth_headers', array(), $mode, $key, $secret );
 		}
@@ -226,7 +257,7 @@ class RW_Maint_MainWP_Client {
 			return $url;
 		}
 
-		$mode = (string) apply_filters( 'rw_maint_mainwp_auth_mode', 'basic', $key );
+		$mode = self::get_auth_mode( $key );
 		if ( 'query' !== $mode ) {
 			return $url;
 		}
@@ -242,5 +273,124 @@ class RW_Maint_MainWP_Client {
 		);
 
 		return add_query_arg( $params, $url );
+	}
+
+	private static function resolve_credentials( $site, $payload ) {
+		$payload = (array) $payload;
+
+		$credentials = apply_filters( 'rw_maint_mainwp_credentials', array(), $site, $payload );
+		if ( ! empty( $credentials ) ) {
+			return array_merge(
+				array(
+					'admin'         => '',
+					'adminpassword' => '',
+					'uniqueid'      => '',
+				),
+				$credentials
+			);
+		}
+
+		$mainwp = array();
+		if ( isset( $payload['mainwp'] ) && is_array( $payload['mainwp'] ) ) {
+			$mainwp = $payload['mainwp'];
+		}
+
+		$admin = self::first_non_empty(
+			array(
+				$mainwp['admin'] ?? '',
+				$mainwp['admin_user'] ?? '',
+				$mainwp['admin_username'] ?? '',
+				$payload['mainwp_admin'] ?? '',
+				$payload['admin'] ?? '',
+			)
+		);
+
+		$admin_password = self::first_non_empty(
+			array(
+				$mainwp['adminpassword'] ?? '',
+				$mainwp['admin_password'] ?? '',
+				$mainwp['adminpwd'] ?? '',
+				$payload['mainwp_admin_password'] ?? '',
+				$payload['adminpassword'] ?? '',
+				$payload['admin_password'] ?? '',
+			)
+		);
+
+		$uniqueid = self::first_non_empty(
+			array(
+				$mainwp['uniqueid'] ?? '',
+				$mainwp['unique_id'] ?? '',
+				$payload['mainwp_uniqueid'] ?? '',
+				$payload['uniqueid'] ?? '',
+			)
+		);
+
+		return array(
+			'admin'         => sanitize_text_field( $admin ),
+			'adminpassword' => (string) $admin_password,
+			'uniqueid'      => sanitize_text_field( $uniqueid ),
+		);
+	}
+
+	private static function resolve_site_name( $site, $payload ) {
+		$payload = (array) $payload;
+
+		if ( isset( $payload['site_name'] ) ) {
+			return sanitize_text_field( $payload['site_name'] );
+		}
+
+		if ( isset( $payload['mainwp'] ) && is_array( $payload['mainwp'] ) && isset( $payload['mainwp']['site_name'] ) ) {
+			return sanitize_text_field( $payload['mainwp']['site_name'] );
+		}
+
+		if ( isset( $payload['mainwp'] ) && is_array( $payload['mainwp'] ) && isset( $payload['mainwp']['name'] ) ) {
+			return sanitize_text_field( $payload['mainwp']['name'] );
+		}
+
+		return '';
+	}
+
+	private static function first_non_empty( array $values ) {
+		foreach ( $values as $value ) {
+			if ( '' !== (string) $value ) {
+				return $value;
+			}
+		}
+
+		return '';
+	}
+
+	private static function resolve_group_ids( $groups, $site, $payload ) {
+		$group_ids = apply_filters( 'rw_maint_mainwp_group_ids', array(), $groups, $site, $payload );
+		$group_ids = array_filter( array_map( 'absint', (array) $group_ids ) );
+		$group_ids = array_values( $group_ids );
+
+		return $group_ids;
+	}
+
+	private static function default_action_path( $action, $site ) {
+		switch ( $action ) {
+			case 'suspend':
+				return sprintf( 'sites/%d/suspend/', (int) $site->mainwp_site_id );
+			case 'resume':
+				return sprintf( 'sites/%d/unsuspend/', (int) $site->mainwp_site_id );
+			case 'disconnect':
+				return sprintf( 'sites/%d/disconnect/', (int) $site->mainwp_site_id );
+			case 'purge':
+				return sprintf( 'sites/%d/remove/', (int) $site->mainwp_site_id );
+			default:
+				return '';
+		}
+	}
+
+	private static function default_action_method( $action ) {
+		return 'purge' === $action ? 'DELETE' : 'POST';
+	}
+
+	private static function get_auth_mode( $key ) {
+		$mode = (string) get_option( 'rw_maint_mainwp_auth', 'basic' );
+		$mode = apply_filters( 'rw_maint_mainwp_auth_mode', $mode, $key );
+
+		return in_array( $mode, array( 'basic', 'query' ), true ) ? $mode : 'basic';
 	}
 }

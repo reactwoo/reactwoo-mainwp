@@ -31,8 +31,13 @@ MainWP REST integration:
 - Configure MainWP API base URL + credentials under Settings -> ReactWoo Maintenance.
 - Default API base path is `wp-json/mainwp/v2` (override via `rw_maint_mainwp_api_path`).
 - Auth defaults to HTTP Basic; query-param auth is available via settings and
-  `rw_maint_mainwp_query_params` filter. Payloads are filterable via
-  `rw_maint_mainwp_create_payload` and `rw_maint_mainwp_reporting_payload`.
+  `rw_maint_mainwp_query_params` filter. Query payloads are filterable via
+  `rw_maint_mainwp_create_query` and `rw_maint_mainwp_reporting_query`.
+- Site creation uses the MainWP `sites/add` endpoint and requires admin
+  credentials. Provide them in the enrollment payload under `mainwp` or via the
+  `rw_maint_mainwp_credentials` filter.
+- Group/tag mapping uses `rw_maint_mainwp_group_ids` to convert logical groups
+  to MainWP tag IDs.
 
 Client portal UI:
 - My Account -> Maintenance lists subscriptions and sites.

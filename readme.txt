@@ -38,6 +38,9 @@ MainWP REST integration:
   `rw_maint_mainwp_credentials` filter.
 - Group/tag mapping uses `rw_maint_mainwp_group_ids` to convert logical groups
   to MainWP tag IDs.
+- If tag IDs are not supplied, the bridge attempts to create missing tags via
+  `tags/add` and caches tag IDs for one hour. Override tag colors with
+  `rw_maint_mainwp_tag_color`.
 
 Client portal UI:
 - My Account -> Maintenance lists subscriptions and sites.

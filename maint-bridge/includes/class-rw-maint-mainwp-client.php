@@ -205,12 +205,28 @@ class RW_Maint_MainWP_Client {
 	}
 
 	private static function extract_site_id( array $response ) {
+		return self::extract_id( $response );
+	}
+
+	private static function extract_tag_id( array $response ) {
+		return self::extract_id( $response );
+	}
+
+	private static function extract_id( array $response ) {
 		if ( isset( $response['id'] ) ) {
 			return absint( $response['id'] );
 		}
 
 		if ( isset( $response['data']['id'] ) ) {
 			return absint( $response['data']['id'] );
+		}
+
+		if ( isset( $response['data']['tag_id'] ) ) {
+			return absint( $response['data']['tag_id'] );
+		}
+
+		if ( isset( $response['tag_id'] ) ) {
+			return absint( $response['tag_id'] );
 		}
 
 		return 0;
@@ -365,7 +381,28 @@ class RW_Maint_MainWP_Client {
 		$group_ids = array_filter( array_map( 'absint', (array) $group_ids ) );
 		$group_ids = array_values( $group_ids );
 
-		return $group_ids;
+		if ( ! empty( $group_ids ) ) {
+			return $group_ids;
+		}
+
+		$groups = array_filter( array_map( 'sanitize_text_field', (array) $groups ) );
+		if ( empty( $groups ) ) {
+			return array();
+		}
+
+		$map = self::ensure_tags( $groups, $site, $payload );
+		if ( empty( $map ) ) {
+			return array();
+		}
+
+		$resolved = array();
+		foreach ( $groups as $group_name ) {
+			if ( isset( $map[ $group_name ] ) ) {
+				$resolved[] = (int) $map[ $group_name ];
+			}
+		}
+
+		return array_values( array_filter( array_map( 'absint', $resolved ) ) );
 	}
 
 	private static function default_action_path( $action, $site ) {
@@ -392,5 +429,129 @@ class RW_Maint_MainWP_Client {
 		$mode = apply_filters( 'rw_maint_mainwp_auth_mode', $mode, $key );
 
 		return in_array( $mode, array( 'basic', 'query' ), true ) ? $mode : 'basic';
+	}
+
+	private static function ensure_tags( array $names, $site, $payload ) {
+		$payload = (array) $payload;
+
+		$names = array_values( array_filter( array_unique( $names ) ) );
+		if ( empty( $names ) ) {
+			return array();
+		}
+
+		$cache_key = 'rw_maint_mainwp_tags';
+		$map       = get_transient( $cache_key );
+		if ( ! is_array( $map ) ) {
+			$map = array();
+		}
+
+		$missing = array_diff( $names, array_keys( $map ) );
+		if ( ! empty( $missing ) ) {
+			$response = self::request( 'GET', 'tags/' );
+			if ( ! is_wp_error( $response ) ) {
+				$map = array_merge( $map, self::extract_tag_map( $response ) );
+			}
+		}
+
+		$missing = array_diff( $names, array_keys( $map ) );
+		if ( ! empty( $missing ) ) {
+			foreach ( $missing as $name ) {
+				$query = array(
+					'name' => $name,
+				);
+
+				$color = self::resolve_tag_color( $name, $site, $payload );
+				if ( '' !== $color ) {
+					$query['color'] = $color;
+				}
+
+				$response = self::request( 'POST', 'tags/add/', array(), $query );
+				if ( is_wp_error( $response ) ) {
+					RW_Maint_Audit::log(
+						'mainwp_tag_failed',
+						array(
+							'portal_site_id'  => (int) $site->portal_site_id,
+							'subscription_id' => (int) $site->subscription_id,
+							'user_id'         => (int) $site->user_id,
+							'tag_name'        => $name,
+							'error'           => $response->get_error_message(),
+						)
+					);
+					continue;
+				}
+
+				$tag_id = self::extract_tag_id( $response );
+				if ( $tag_id ) {
+					$map[ $name ] = $tag_id;
+					RW_Maint_Audit::log(
+						'mainwp_tag_created',
+						array(
+							'portal_site_id'  => (int) $site->portal_site_id,
+							'subscription_id' => (int) $site->subscription_id,
+							'user_id'         => (int) $site->user_id,
+							'tag_name'        => $name,
+							'tag_id'          => $tag_id,
+						)
+					);
+				}
+			}
+		}
+
+		if ( ! empty( $map ) ) {
+			set_transient( $cache_key, $map, HOUR_IN_SECONDS );
+		}
+
+		return $map;
+	}
+
+	private static function extract_tag_map( array $response ) {
+		$items = array();
+
+		if ( isset( $response['data'] ) && is_array( $response['data'] ) ) {
+			$items = $response['data'];
+		} elseif ( isset( $response['items'] ) && is_array( $response['items'] ) ) {
+			$items = $response['items'];
+		} elseif ( isset( $response['tags'] ) && is_array( $response['tags'] ) ) {
+			$items = $response['tags'];
+		} elseif ( self::is_list( $response ) ) {
+			$items = $response;
+		}
+
+		$map = array();
+		foreach ( $items as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+
+			if ( empty( $item['id'] ) || empty( $item['name'] ) ) {
+				continue;
+			}
+
+			$map[ sanitize_text_field( $item['name'] ) ] = absint( $item['id'] );
+		}
+
+		return $map;
+	}
+
+	private static function resolve_tag_color( $name, $site, $payload ) {
+		$color = apply_filters( 'rw_maint_mainwp_tag_color', '', $name, $site, $payload );
+		$color = sanitize_text_field( $color );
+		if ( '' === $color ) {
+			return '';
+		}
+
+		if ( 0 !== strpos( $color, '#' ) ) {
+			$color = '#' . $color;
+		}
+
+		return $color;
+	}
+
+	private static function is_list( array $value ) {
+		if ( array() === $value ) {
+			return true;
+		}
+
+		return array_keys( $value ) === range( 0, count( $value ) - 1 );
 	}
 }

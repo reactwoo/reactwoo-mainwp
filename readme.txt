@@ -32,5 +32,10 @@ Client portal UI:
 - Clients can create sites, generate enrollment tokens, resync identity, and
   update report email preferences.
 - Heartbeats update the last seen timestamp displayed in the portal.
+
+Identity sync:
+- Automatic sync runs on profile updates, billing address updates, and checkout
+  updates. Subscription owner changes sync the subscription's sites to the new
+  owner and update maintenance hub identity data.
 It also registers subscription lifecycle hooks (including payment-failed grace
 period handling) and scheduled cleanup for expired enrollment tokens.

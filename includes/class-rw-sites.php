@@ -53,6 +53,16 @@ class RW_Sites {
 		);
 	}
 
+	public static function get_sites_by_user( $user_id ) {
+		global $wpdb;
+
+		$table = RW_DB::table( 'managed_sites' );
+
+		return $wpdb->get_results(
+			$wpdb->prepare( "SELECT * FROM {$table} WHERE user_id = %d", $user_id )
+		);
+	}
+
 	public static function get_sites_by_subscription( $subscription_id, array $statuses = array() ) {
 		global $wpdb;
 
@@ -72,6 +82,22 @@ class RW_Sites {
 		return $wpdb->get_results(
 			$wpdb->prepare( "SELECT * FROM {$table} WHERE {$where_sql}", $params )
 		);
+	}
+
+	public static function update_user_by_subscription( $subscription_id, $user_id ) {
+		global $wpdb;
+
+		$table = RW_DB::table( 'managed_sites' );
+		$now   = current_time( 'mysql', true );
+
+		$query = $wpdb->prepare(
+			"UPDATE {$table} SET user_id = %d, updated_at = %s WHERE subscription_id = %d",
+			(int) $user_id,
+			$now,
+			(int) $subscription_id
+		);
+
+		return (int) $wpdb->query( $query );
 	}
 
 	public static function update_site( $site_id, array $data ) {

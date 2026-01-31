@@ -7,6 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class RW_Portal_Settings {
 	const OPTION_URL    = 'rw_portal_maint_url';
 	const OPTION_SECRET = 'rw_portal_maint_secret';
+	const OPTION_STALE_HOURS = 'rw_portal_stale_hours';
 
 	public static function register() {
 		if ( ! is_admin() ) {
@@ -70,6 +71,24 @@ class RW_Portal_Settings {
 			'rw-portal-settings',
 			'rw_portal_maint_section'
 		);
+
+		register_setting(
+			'rw_portal_settings',
+			self::OPTION_STALE_HOURS,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_stale_hours' ),
+				'default'           => 24,
+			)
+		);
+
+		add_settings_field(
+			self::OPTION_STALE_HOURS,
+			'Stale Heartbeat Threshold (hours)',
+			array( __CLASS__, 'render_stale_hours_field' ),
+			'rw-portal-settings',
+			'rw_portal_maint_section'
+		);
 	}
 
 	public static function render() {
@@ -116,6 +135,17 @@ class RW_Portal_Settings {
 		echo '<p class="description">Use the same shared secret configured on the maintenance hub.</p>';
 	}
 
+	public static function render_stale_hours_field() {
+		$value = (int) get_option( self::OPTION_STALE_HOURS, 24 );
+
+		printf(
+			'<input type="number" name="%s" class="small-text" value="%d" min="1" max="168" />',
+			esc_attr( self::OPTION_STALE_HOURS ),
+			(int) $value
+		);
+		echo '<p class="description">Controls when a site is marked stale in the dashboard widget.</p>';
+	}
+
 	public static function sanitize_secret( $value ) {
 		$value = sanitize_text_field( $value );
 		if ( '' === $value ) {
@@ -127,6 +157,15 @@ class RW_Portal_Settings {
 		}
 
 		return hash( 'sha256', $value );
+	}
+
+	public static function sanitize_stale_hours( $value ) {
+		$value = absint( $value );
+		if ( $value < 1 ) {
+			return 24;
+		}
+
+		return min( 168, $value );
 	}
 
 	private static function is_sha256( $value ) {

@@ -33,7 +33,9 @@ class RW_Portal_Dashboard {
 			return;
 		}
 
-		$stale = RW_Sites::get_stale_sites( DAY_IN_SECONDS );
+		$hours = (int) get_option( RW_Portal_Settings::OPTION_STALE_HOURS, 24 );
+		$seconds = max( 1, $hours ) * HOUR_IN_SECONDS;
+		$stale = RW_Sites::get_stale_sites( $seconds );
 		if ( empty( $stale ) ) {
 			echo '<p>No stale sites detected.</p>';
 			return;
@@ -44,6 +46,8 @@ class RW_Portal_Dashboard {
 			echo '<li>' . esc_html( $site->site_name ) . ' (' . esc_html( $site->site_url ) . ')</li>';
 		}
 		echo '</ul>';
+
+		echo '<p><a href="' . esc_url( admin_url( 'tools.php?page=' . RW_Portal_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
 	}
 
 	public static function render_recent_audit() {
@@ -63,5 +67,7 @@ class RW_Portal_Dashboard {
 			echo '<li>' . esc_html( $event->event_type ) . ' (' . esc_html( $event->created_at ) . ')</li>';
 		}
 		echo '</ul>';
+
+		echo '<p><a href="' . esc_url( admin_url( 'tools.php?page=' . RW_Portal_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
 	}
 }

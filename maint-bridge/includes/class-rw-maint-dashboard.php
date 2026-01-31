@@ -38,5 +38,7 @@ class RW_Maint_Dashboard {
 			echo '<li>' . esc_html( $event->event_type ) . ' (' . esc_html( $event->created_at ) . ')</li>';
 		}
 		echo '</ul>';
+
+		echo '<p><a href="' . esc_url( admin_url( 'tools.php?page=' . RW_Maint_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
 	}
 }

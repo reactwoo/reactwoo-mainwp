@@ -24,6 +24,8 @@ Audit UI:
 Dashboard widgets:
 - Portal: ReactWoo Stale Sites + Recent Audit Events.
 - Maintenance hub: ReactWoo Maintenance Recent Audit Events.
+Dashboard configuration:
+- Stale site threshold is configurable under Settings -> ReactWoo Portal.
 
 Maintenance hub automation:
 - Hook `rw_maint_mainwp_create_site` to create MainWP child sites and return the

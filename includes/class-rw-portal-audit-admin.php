@@ -76,20 +76,26 @@ class RW_Portal_Audit_Admin {
 	private static function render_table( array $logs ) {
 		echo '<table class="widefat striped">';
 		echo '<thead><tr>';
-		echo '<th>ID</th><th>Event</th><th>User</th><th>Subscription</th><th>Site</th><th>Message</th><th>Created</th>';
+		echo '<th>ID</th><th>Event</th><th>User</th><th>Subscription</th><th>Site</th><th>Action</th><th>Error</th><th>Message</th><th>Created</th>';
 		echo '</tr></thead><tbody>';
 
 		if ( empty( $logs ) ) {
-			echo '<tr><td colspan="7">No audit entries found.</td></tr>';
+			echo '<tr><td colspan="9">No audit entries found.</td></tr>';
 		} else {
 			foreach ( $logs as $log ) {
+				$parsed = self::decode_message( $log->message );
+				$action = isset( $parsed['action'] ) ? $parsed['action'] : '';
+				$error  = isset( $parsed['error'] ) ? $parsed['error'] : '';
+
 				echo '<tr>';
 				echo '<td>' . esc_html( $log->id ) . '</td>';
 				echo '<td>' . esc_html( $log->event_type ) . '</td>';
 				echo '<td>' . esc_html( $log->user_id ) . '</td>';
 				echo '<td>' . esc_html( $log->subscription_id ) . '</td>';
 				echo '<td>' . esc_html( $log->managed_site_id ) . '</td>';
-				echo '<td><pre style="white-space:pre-wrap;max-width:420px;">' . esc_html( $log->message ) . '</pre></td>';
+				echo '<td>' . esc_html( $action ) . '</td>';
+				echo '<td>' . esc_html( $error ) . '</td>';
+				echo '<td>' . self::format_message( $log->message ) . '</td>';
 				echo '<td>' . esc_html( $log->created_at ) . '</td>';
 				echo '</tr>';
 			}
@@ -187,5 +193,36 @@ class RW_Portal_Audit_Admin {
 		$logs = $wpdb->get_results( $wpdb->prepare( $query_sql, $params_with_limit ) );
 
 		return array( $logs, $total );
+	}
+
+	private static function decode_message( $message ) {
+		if ( empty( $message ) ) {
+			return array();
+		}
+
+		$decoded = json_decode( $message, true );
+		if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $decoded ) ) {
+			return array();
+		}
+
+		return $decoded;
+	}
+
+	private static function format_message( $message ) {
+		if ( empty( $message ) ) {
+			return '';
+		}
+
+		$decoded = self::decode_message( $message );
+		if ( empty( $decoded ) ) {
+			return '<pre style="white-space:pre-wrap;max-width:420px;">' . esc_html( $message ) . '</pre>';
+		}
+
+		$pretty = wp_json_encode( $decoded, JSON_PRETTY_PRINT );
+		if ( ! $pretty ) {
+			$pretty = $message;
+		}
+
+		return '<pre style="white-space:pre-wrap;max-width:420px;">' . esc_html( $pretty ) . '</pre>';
 	}
 }

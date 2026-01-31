@@ -21,6 +21,7 @@ Settings UI:
 Audit UI:
 - Portal: Tools -> ReactWoo Portal Audit.
 - Maintenance hub: Tools -> ReactWoo Maintenance Audit.
+Audit tables display action/error (portal) and action/result (maintenance) columns.
 Dashboard widgets:
 - Portal: ReactWoo Stale Sites + Recent Audit Events.
 - Maintenance hub: ReactWoo Maintenance Recent Audit Events.

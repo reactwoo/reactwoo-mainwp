@@ -34,4 +34,22 @@ class RW_Maint_Audit {
 			array( '%s', '%d', '%d', '%d', '%s', '%s' )
 		);
 	}
+
+	public static function get_recent( $limit = 10 ) {
+		global $wpdb;
+
+		$table = RW_Maint_DB::table( 'audit_log' );
+		if ( ! RW_Maint_DB::table_exists( $table ) ) {
+			return array();
+		}
+
+		$limit = max( 1, absint( $limit ) );
+
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$table} ORDER BY created_at DESC LIMIT %d",
+				$limit
+			)
+		);
+	}
 }

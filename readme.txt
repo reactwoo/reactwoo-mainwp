@@ -21,6 +21,9 @@ Settings UI:
 Audit UI:
 - Portal: Tools -> ReactWoo Portal Audit.
 - Maintenance hub: Tools -> ReactWoo Maintenance Audit.
+Dashboard widgets:
+- Portal: ReactWoo Stale Sites + Recent Audit Events.
+- Maintenance hub: ReactWoo Maintenance Recent Audit Events.
 
 Maintenance hub automation:
 - Hook `rw_maint_mainwp_create_site` to create MainWP child sites and return the

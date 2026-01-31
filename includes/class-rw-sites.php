@@ -100,6 +100,21 @@ class RW_Sites {
 		return (int) $wpdb->query( $query );
 	}
 
+	public static function get_stale_sites( $max_age_seconds ) {
+		global $wpdb;
+
+		$table  = RW_DB::table( 'managed_sites' );
+		$cutoff = gmdate( 'Y-m-d H:i:s', time() - (int) $max_age_seconds );
+
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$table} WHERE (last_seen IS NULL OR last_seen < %s) AND status = %s ORDER BY last_seen ASC",
+				$cutoff,
+				'connected'
+			)
+		);
+	}
+
 	public static function update_site( $site_id, array $data ) {
 		global $wpdb;
 

@@ -133,12 +133,15 @@ class RW_Portal_Account {
 			$health[] = 'PHP ' . esc_html( $site->php_version );
 		}
 
+		$freshness = self::format_freshness( $site->last_seen );
+
 		echo '<tr>';
 		echo '<td><strong>' . esc_html( $site->site_name ) . '</strong><br />';
 		echo '<small>' . esc_html( $site->site_url ) . '</small></td>';
 		echo '<td>' . esc_html( ucfirst( $site->status ) ) . '</td>';
 		echo '<td>' . esc_html( $site->report_email ) . '</td>';
-		echo '<td>' . ( $health ? implode( ' | ', $health ) : 'Waiting for heartbeat' ) . '</td>';
+		echo '<td>' . ( $health ? implode( ' | ', $health ) : 'Waiting for heartbeat' );
+		echo '<br /><small>' . esc_html( $freshness ) . '</small></td>';
 		echo '<td>' . self::format_datetime( $site->last_seen ) . '</td>';
 		echo '<td>' . self::format_datetime( $site->last_check_at ) . '</td>';
 		echo '<td>' . self::format_datetime( $site->last_sync_at ) . '</td>';
@@ -601,5 +604,25 @@ class RW_Portal_Account {
 		}
 
 		return esc_html( date_i18n( 'M j, Y H:i', $timestamp ) );
+	}
+
+	private static function format_freshness( $value ) {
+		if ( empty( $value ) ) {
+			return 'No heartbeat yet';
+		}
+
+		$timestamp = strtotime( $value );
+		if ( ! $timestamp ) {
+			return 'Heartbeat timestamp unavailable';
+		}
+
+		$age = time() - $timestamp;
+		$diff = human_time_diff( $timestamp, time() );
+
+		if ( $age > DAY_IN_SECONDS ) {
+			return 'Stale (' . $diff . ' ago)';
+		}
+
+		return 'Fresh (' . $diff . ' ago)';
 	}
 }

@@ -56,6 +56,7 @@ Client portal UI:
 - Heartbeats update the last seen timestamp displayed in the portal.
 - Manual actions include MainWP check, sync, and reconnect.
 - Last check and last sync timestamps are recorded when actions are triggered.
+- Health column shows a freshness indicator based on the last heartbeat.
 
 Identity sync:
 - Automatic sync runs on profile updates, billing address updates, and checkout

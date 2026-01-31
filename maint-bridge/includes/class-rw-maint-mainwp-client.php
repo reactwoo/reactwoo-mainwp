@@ -174,7 +174,19 @@ class RW_Maint_MainWP_Client {
 					'error'           => $response->get_error_message(),
 				)
 			);
+			return;
 		}
+
+		RW_Maint_Audit::log(
+			'mainwp_action_sent',
+			array(
+				'portal_site_id'  => (int) $site->portal_site_id,
+				'subscription_id' => (int) $site->subscription_id,
+				'user_id'         => (int) $site->user_id,
+				'action'          => $action,
+				'result'          => self::extract_action_result_summary( $response ),
+			)
+		);
 	}
 
 	private static function request( $method, $path, array $body = array(), array $query = array() ) {
@@ -245,6 +257,28 @@ class RW_Maint_MainWP_Client {
 		}
 
 		return 0;
+	}
+
+	private static function extract_action_result_summary( array $response ) {
+		$summary = array();
+		$keys    = array( 'id', 'task_id', 'job_id', 'status', 'message' );
+
+		foreach ( $keys as $key ) {
+			if ( isset( $response[ $key ] ) ) {
+				$summary[ $key ] = $response[ $key ];
+				continue;
+			}
+
+			if ( isset( $response['data'][ $key ] ) ) {
+				$summary[ $key ] = $response['data'][ $key ];
+			}
+		}
+
+		if ( empty( $summary ) ) {
+			$summary['response'] = 'ok';
+		}
+
+		return $summary;
 	}
 
 	private static function get_api_base() {

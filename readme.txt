@@ -53,6 +53,8 @@ MainWP REST integration:
 - Lifecycle endpoints used: `/sites/{id}/check`, `/sites/{id}/sync`,
   `/sites/{id}/reconnect`, `/sites/{id}/suspend`, `/sites/{id}/unsuspend`,
   `/sites/{id}/disconnect`, `/sites/{id}/remove`.
+- MainWP action responses (job/task IDs when present) are logged to the
+  maintenance audit log under `mainwp_action_sent`.
 
 Client portal UI:
 - My Account -> Maintenance lists subscriptions and sites.

@@ -33,8 +33,12 @@ class RW_Maint_Audit_Admin {
 		}
 
 		if ( isset( $_GET['rw_export'] ) && '1' === $_GET['rw_export'] ) {
-			self::export_csv();
-			return;
+			if ( ! self::verify_export_nonce() ) {
+				echo '<div class="notice notice-error"><p>Export link expired. Please try again.</p></div>';
+			} else {
+				self::export_csv();
+				return;
+			}
 		}
 
 		$table = RW_Maint_DB::table( 'audit_log' );
@@ -106,8 +110,16 @@ class RW_Maint_Audit_Admin {
 	}
 
 	private static function render_export_button( array $filters ) {
+		$nonce = wp_create_nonce( 'rw_maint_audit_export' );
 		$url = add_query_arg(
-			array_merge( $filters, array( 'page' => self::MENU_SLUG, 'rw_export' => '1' ) ),
+			array_merge(
+				$filters,
+				array(
+					'page'             => self::MENU_SLUG,
+					'rw_export'        => '1',
+					'rw_export_nonce'  => $nonce,
+				)
+			),
 			admin_url( 'tools.php' )
 		);
 
@@ -275,6 +287,14 @@ class RW_Maint_Audit_Admin {
 
 		fclose( $output );
 		exit;
+	}
+
+	private static function verify_export_nonce() {
+		if ( empty( $_GET['rw_export_nonce'] ) ) {
+			return false;
+		}
+
+		return (bool) wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['rw_export_nonce'] ) ), 'rw_maint_audit_export' );
 	}
 
 	private static function decode_message( $message ) {

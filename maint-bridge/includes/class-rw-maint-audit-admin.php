@@ -66,12 +66,37 @@ class RW_Maint_Audit_Admin {
 		self::render_filter_row( 'Date To (YYYY-MM-DD)', 'date_to', $filters['date_to'] );
 		echo '</tbody></table>';
 		submit_button( 'Filter', 'secondary', '', false );
+		self::render_action_presets();
 		echo '</form>';
 	}
 
 	private static function render_filter_row( $label, $name, $value ) {
 		echo '<tr><th scope="row"><label for="' . esc_attr( $name ) . '">' . esc_html( $label ) . '</label></th>';
 		echo '<td><input type="text" name="' . esc_attr( $name ) . '" id="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '" class="regular-text" /></td></tr>';
+	}
+
+	private static function render_action_presets() {
+		$presets = array(
+			'check'     => 'Check',
+			'sync'      => 'Sync',
+			'reconnect' => 'Reconnect',
+			'suspend'   => 'Suspend',
+			'resume'    => 'Resume',
+		);
+
+		echo '<p>Quick filters: ';
+		foreach ( $presets as $value => $label ) {
+			$url = add_query_arg(
+				array(
+					'page'   => self::MENU_SLUG,
+					'action' => $value,
+				),
+				admin_url( 'tools.php' )
+			);
+
+			echo '<a class="button" style="margin-right:6px;" href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a>';
+		}
+		echo '</p>';
 	}
 
 	private static function render_table( array $logs ) {

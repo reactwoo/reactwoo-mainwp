@@ -24,6 +24,7 @@ Audit UI:
 Audit tables display action/error (portal) and action/result (maintenance) columns.
 Both audit screens support filtering by action value when available.
 Audit message cells are collapsible using details/summary toggles.
+Quick filter buttons are available for common actions (check, sync, reconnect).
 Dashboard widgets:
 - Portal: ReactWoo Stale Sites + Recent Audit Events.
 - Maintenance hub: ReactWoo Maintenance Recent Audit Events.

@@ -32,6 +32,11 @@ class RW_Portal_Audit_Admin {
 			return;
 		}
 
+		if ( isset( $_GET['rw_export'] ) && '1' === $_GET['rw_export'] ) {
+			self::export_csv();
+			return;
+		}
+
 		$table = RW_DB::table( 'audit_log' );
 		if ( ! RW_DB::table_exists( $table ) ) {
 			echo '<div class="notice notice-warning"><p>Audit log table not found.</p></div>';
@@ -67,6 +72,7 @@ class RW_Portal_Audit_Admin {
 		echo '</tbody></table>';
 		submit_button( 'Filter', 'secondary', '', false );
 		self::render_action_presets();
+		self::render_export_button( $filters );
 		echo '</form>';
 	}
 
@@ -95,6 +101,15 @@ class RW_Portal_Audit_Admin {
 			echo '<a class="button" style="margin-right:6px;" href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a>';
 		}
 		echo '</p>';
+	}
+
+	private static function render_export_button( array $filters ) {
+		$url = add_query_arg(
+			array_merge( $filters, array( 'page' => self::MENU_SLUG, 'rw_export' => '1' ) ),
+			admin_url( 'tools.php' )
+		);
+
+		echo '<p><a class="button button-primary" href="' . esc_url( $url ) . '">Export CSV</a></p>';
 	}
 
 	private static function render_table( array $logs ) {
@@ -224,6 +239,36 @@ class RW_Portal_Audit_Admin {
 		$logs = $wpdb->get_results( $wpdb->prepare( $query_sql, $params_with_limit ) );
 
 		return array( $logs, $total );
+	}
+
+	private static function export_csv() {
+		$filters = self::collect_filters();
+		list( $logs ) = self::query_logs( $filters, 5000, 0 );
+
+		nocache_headers();
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename=rw-portal-audit.csv' );
+
+		$output = fopen( 'php://output', 'w' );
+		fputcsv( $output, array( 'id', 'event_type', 'user_id', 'subscription_id', 'managed_site_id', 'message', 'created_at' ) );
+
+		foreach ( $logs as $log ) {
+			fputcsv(
+				$output,
+				array(
+					$log->id,
+					$log->event_type,
+					$log->user_id,
+					$log->subscription_id,
+					$log->managed_site_id,
+					$log->message,
+					$log->created_at,
+				)
+			);
+		}
+
+		fclose( $output );
+		exit;
 	}
 
 	private static function decode_message( $message ) {

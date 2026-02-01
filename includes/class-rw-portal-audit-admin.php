@@ -87,6 +87,7 @@ class RW_Portal_Audit_Admin {
 				$parsed = self::decode_message( $log->message );
 				$action = isset( $parsed['action'] ) ? $parsed['action'] : '';
 				$error  = isset( $parsed['error'] ) ? $parsed['error'] : '';
+				$details_id = 'rw-portal-log-' . (int) $log->id;
 
 				echo '<tr>';
 				echo '<td>' . esc_html( $log->id ) . '</td>';
@@ -96,7 +97,7 @@ class RW_Portal_Audit_Admin {
 				echo '<td>' . esc_html( $log->managed_site_id ) . '</td>';
 				echo '<td>' . esc_html( $action ) . '</td>';
 				echo '<td>' . esc_html( $error ) . '</td>';
-				echo '<td>' . self::format_message( $log->message ) . '</td>';
+				echo '<td>' . self::render_message_cell( $log->message, $details_id ) . '</td>';
 				echo '<td>' . esc_html( $log->created_at ) . '</td>';
 				echo '</tr>';
 			}
@@ -231,5 +232,23 @@ class RW_Portal_Audit_Admin {
 		}
 
 		return '<pre style="white-space:pre-wrap;max-width:420px;">' . esc_html( $pretty ) . '</pre>';
+	}
+
+	private static function render_message_cell( $message, $details_id ) {
+		if ( empty( $message ) ) {
+			return '';
+		}
+
+		$decoded = self::decode_message( $message );
+		if ( empty( $decoded ) ) {
+			return '<details id="' . esc_attr( $details_id ) . '"><summary>View</summary>' . self::format_message( $message ) . '</details>';
+		}
+
+		$pretty = wp_json_encode( $decoded, JSON_PRETTY_PRINT );
+		if ( ! $pretty ) {
+			$pretty = $message;
+		}
+
+		return '<details id="' . esc_attr( $details_id ) . '"><summary>View</summary><pre style="white-space:pre-wrap;max-width:420px;">' . esc_html( $pretty ) . '</pre></details>';
 	}
 }

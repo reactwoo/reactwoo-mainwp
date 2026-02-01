@@ -58,6 +58,7 @@ class RW_Portal_Audit_Admin {
 		echo '<input type="hidden" name="page" value="' . esc_attr( self::MENU_SLUG ) . '" />';
 		echo '<table class="form-table"><tbody>';
 		self::render_filter_row( 'Event Type', 'event_type', $filters['event_type'] );
+		self::render_filter_row( 'Action', 'action', $filters['action'] );
 		self::render_filter_row( 'User ID', 'user_id', $filters['user_id'] );
 		self::render_filter_row( 'Subscription ID', 'subscription_id', $filters['subscription_id'] );
 		self::render_filter_row( 'Managed Site ID', 'managed_site_id', $filters['managed_site_id'] );
@@ -137,6 +138,7 @@ class RW_Portal_Audit_Admin {
 	private static function collect_filters() {
 		return array(
 			'event_type'     => isset( $_GET['event_type'] ) ? sanitize_text_field( wp_unslash( $_GET['event_type'] ) ) : '',
+			'action'         => isset( $_GET['action'] ) ? sanitize_text_field( wp_unslash( $_GET['action'] ) ) : '',
 			'user_id'        => isset( $_GET['user_id'] ) ? sanitize_text_field( wp_unslash( $_GET['user_id'] ) ) : '',
 			'subscription_id'=> isset( $_GET['subscription_id'] ) ? sanitize_text_field( wp_unslash( $_GET['subscription_id'] ) ) : '',
 			'managed_site_id'=> isset( $_GET['managed_site_id'] ) ? sanitize_text_field( wp_unslash( $_GET['managed_site_id'] ) ) : '',
@@ -156,6 +158,11 @@ class RW_Portal_Audit_Admin {
 		if ( '' !== $filters['event_type'] ) {
 			$where[] = 'event_type LIKE %s';
 			$params[] = '%' . $wpdb->esc_like( $filters['event_type'] ) . '%';
+		}
+
+		if ( '' !== $filters['action'] ) {
+			$where[] = 'message LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '"action":"' . $filters['action'] . '"' ) . '%';
 		}
 
 		if ( '' !== $filters['user_id'] ) {

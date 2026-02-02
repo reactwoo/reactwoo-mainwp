@@ -67,6 +67,9 @@ class RW_Portal_Account {
 		}
 
 		echo '<h2>Maintenance Plans</h2>';
+		if ( (int) get_option( RW_Portal_Settings::OPTION_ENROLL_STRICT, 0 ) ) {
+			echo '<div class="notice notice-warning inline"><p>Enrollment URL matching is enforced. If your site URL changes, enable URL override for that site before reconnecting.</p></div>';
+		}
 
 		foreach ( $subscriptions as $subscription ) {
 			self::render_subscription( $subscription, $user_id );

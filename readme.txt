@@ -1,13 +1,14 @@
 ReactWoo Support Portal
 
 This repository contains the ReactWoo Support Portal WordPress plugin scaffold
-and a companion client connector plugin.
+and companion maintenance + connector plugins.
 The portal plugin provides database tables and REST endpoints for
 subscription-bound site onboarding, token verification, and client identity
-synchronization. The connector plugin (./connector) handles enrollment and
+synchronization. The connector plugin (./reactwoo-support-connector) handles enrollment and
 signed heartbeats from client sites. The maintenance bridge plugin
-(./maint-bridge) registers maintenance hub tables and REST endpoints for
-enrollment and lifecycle actions.
+(./reactwoo-maint-bridge) registers maintenance hub tables and REST endpoints for
+enrollment and lifecycle actions. The portal plugin lives under
+./reactwoo-support-portal and the connector plugin under ./reactwoo-support-connector.
 
 Configuration notes:
 - Portal -> maintenance hub: set options `rw_portal_maint_url` and

@@ -32,6 +32,15 @@ class RW_Portal_Sites_Admin {
 			return;
 		}
 
+		if ( isset( $_GET['rw_export'] ) && '1' === $_GET['rw_export'] ) {
+			if ( ! self::verify_export_nonce() ) {
+				echo '<div class="notice notice-error"><p>Export link expired. Please try again.</p></div>';
+			} else {
+				self::export_csv();
+				return;
+			}
+		}
+
 		self::handle_actions();
 		self::render_notice();
 
@@ -141,12 +150,30 @@ class RW_Portal_Sites_Admin {
 		self::render_filter_row( 'Search (URL or Name)', 'search', $filters['search'] );
 		echo '</tbody></table>';
 		submit_button( 'Filter', 'secondary', '', false );
+		self::render_export_button( $filters );
 		echo '</form>';
 	}
 
 	private static function render_filter_row( $label, $name, $value ) {
 		echo '<tr><th scope="row"><label for="' . esc_attr( $name ) . '">' . esc_html( $label ) . '</label></th>';
 		echo '<td><input type="text" name="' . esc_attr( $name ) . '" id="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '" class="regular-text" /></td></tr>';
+	}
+
+	private static function render_export_button( array $filters ) {
+		$nonce = wp_create_nonce( 'rw_portal_sites_export' );
+		$url = add_query_arg(
+			array_merge(
+				$filters,
+				array(
+					'page'            => self::MENU_SLUG,
+					'rw_export'       => '1',
+					'rw_export_nonce' => $nonce,
+				)
+			),
+			admin_url( 'tools.php' )
+		);
+
+		echo '<p><a class="button button-primary" href="' . esc_url( $url ) . '">Export CSV</a></p>';
 	}
 
 	private static function render_table( array $sites ) {
@@ -226,5 +253,60 @@ class RW_Portal_Sites_Admin {
 			'search'          => isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '',
 			'paged'           => isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1,
 		);
+	}
+
+	private static function export_csv() {
+		$filters = self::collect_filters();
+		list( $sites ) = RW_Sites::query_sites( $filters, 5000, 0 );
+
+		nocache_headers();
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename=rw-managed-sites.csv' );
+
+		$output = fopen( 'php://output', 'w' );
+		fputcsv(
+			$output,
+			array(
+				'id',
+				'user_id',
+				'subscription_id',
+				'site_name',
+				'site_url',
+				'status',
+				'enroll_url_override',
+				'last_seen',
+				'created_at',
+				'updated_at',
+			)
+		);
+
+		foreach ( $sites as $site ) {
+			fputcsv(
+				$output,
+				array(
+					$site->id,
+					$site->user_id,
+					$site->subscription_id,
+					$site->site_name,
+					$site->site_url,
+					$site->status,
+					$site->enroll_url_override,
+					$site->last_seen,
+					$site->created_at,
+					$site->updated_at,
+				)
+			);
+		}
+
+		fclose( $output );
+		exit;
+	}
+
+	private static function verify_export_nonce() {
+		if ( empty( $_GET['rw_export_nonce'] ) ) {
+			return false;
+		}
+
+		return (bool) wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['rw_export_nonce'] ) ), 'rw_portal_sites_export' );
 	}
 }

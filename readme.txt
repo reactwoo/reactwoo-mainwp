@@ -14,6 +14,7 @@ Configuration notes:
 - Portal -> maintenance hub: set options `rw_portal_maint_url` and
   `rw_portal_maint_secret` (shared secret, stored as SHA-256). Filter overrides
   are available via `rw_portal_maint_url` and `rw_portal_maint_secret`.
+- Optional: enable "Require Site URL Match" to enforce enrollment URL checks.
 - Maintenance hub: set `rw_maint_portal_secret` (same secret) or provide a
   `rw_maint_portal_secret` filter. Secrets are stored as SHA-256.
 Settings UI:

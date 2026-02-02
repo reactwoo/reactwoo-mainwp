@@ -71,7 +71,8 @@ class RW_Connector {
 				),
 				'body'    => wp_json_encode(
 					array(
-						'token' => $token,
+						'token'    => $token,
+						'site_url' => home_url(),
 					)
 				),
 			)

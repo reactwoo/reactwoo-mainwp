@@ -46,6 +46,10 @@ class RW_Rest_Controller {
 						'type'     => 'string',
 						'required' => true,
 					),
+					'site_url' => array(
+						'type'     => 'string',
+						'required' => false,
+					),
 				),
 			)
 		);
@@ -166,6 +170,7 @@ class RW_Rest_Controller {
 
 	public static function verify_token( WP_REST_Request $request ) {
 		$token = (string) $request->get_param( 'token' );
+		$provided_url = esc_url_raw( (string) $request->get_param( 'site_url' ) );
 
 		if ( '' === $token ) {
 			return new WP_Error( 'rw_token_missing', 'Token is required.', array( 'status' => 400 ) );
@@ -179,6 +184,11 @@ class RW_Rest_Controller {
 		$site = RW_Sites::get_site( (int) $result->managed_site_id );
 		if ( ! $site ) {
 			return new WP_Error( 'rw_site_missing', 'Managed site not found.', array( 'status' => 404 ) );
+		}
+
+		$url_check = self::check_enrollment_url( $site, $provided_url );
+		if ( is_wp_error( $url_check ) ) {
+			return $url_check;
 		}
 
 		$site_secret = RW_Tokens::generate_site_secret();
@@ -390,5 +400,65 @@ class RW_Rest_Controller {
 		}
 
 		return $overrides;
+	}
+
+	private static function check_enrollment_url( $site, $provided_url ) {
+		$strict = (int) get_option( RW_Portal_Settings::OPTION_ENROLL_STRICT, 0 );
+
+		if ( '' === $provided_url ) {
+			if ( $strict ) {
+				return new WP_Error( 'rw_site_url_missing', 'Site URL is required for enrollment.', array( 'status' => 400 ) );
+			}
+
+			return true;
+		}
+
+		$expected = self::normalize_site_url( $site->site_url );
+		$provided = self::normalize_site_url( $provided_url );
+
+		if ( '' === $expected || '' === $provided ) {
+			return true;
+		}
+
+		if ( $expected !== $provided ) {
+			RW_Audit::log(
+				'token_url_mismatch',
+				array(
+					'user_id'         => (int) $site->user_id,
+					'subscription_id' => (int) $site->subscription_id,
+					'managed_site_id' => (int) $site->id,
+					'expected'        => $expected,
+					'provided'        => $provided,
+				)
+			);
+
+			if ( $strict ) {
+				return new WP_Error( 'rw_token_url_mismatch', 'Site URL does not match enrollment record.', array( 'status' => 409 ) );
+			}
+		}
+
+		return true;
+	}
+
+	private static function normalize_site_url( $url ) {
+		$url = esc_url_raw( (string) $url );
+		if ( '' === $url ) {
+			return '';
+		}
+
+		$parts = wp_parse_url( $url );
+		if ( empty( $parts['host'] ) ) {
+			$parts = wp_parse_url( 'https://' . ltrim( $url, '/' ) );
+		}
+
+		if ( empty( $parts['host'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( $parts['host'] );
+		$port = isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '';
+		$path = isset( $parts['path'] ) ? rtrim( $parts['path'], '/' ) : '';
+
+		return $host . $port . $path;
 	}
 }

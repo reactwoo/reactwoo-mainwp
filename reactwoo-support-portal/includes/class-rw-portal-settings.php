@@ -8,6 +8,7 @@ class RW_Portal_Settings {
 	const OPTION_URL    = 'rw_portal_maint_url';
 	const OPTION_SECRET = 'rw_portal_maint_secret';
 	const OPTION_STALE_HOURS = 'rw_portal_stale_hours';
+	const OPTION_ENROLL_STRICT = 'rw_portal_enforce_site_url';
 
 	public static function register() {
 		if ( ! is_admin() ) {
@@ -68,6 +69,24 @@ class RW_Portal_Settings {
 			self::OPTION_SECRET,
 			'Shared Secret',
 			array( __CLASS__, 'render_secret_field' ),
+			'rw-portal-settings',
+			'rw_portal_maint_section'
+		);
+
+		register_setting(
+			'rw_portal_settings',
+			self::OPTION_ENROLL_STRICT,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_flag' ),
+				'default'           => 0,
+			)
+		);
+
+		add_settings_field(
+			self::OPTION_ENROLL_STRICT,
+			'Require Site URL Match',
+			array( __CLASS__, 'render_enroll_strict_field' ),
 			'rw-portal-settings',
 			'rw_portal_maint_section'
 		);
@@ -146,6 +165,17 @@ class RW_Portal_Settings {
 		echo '<p class="description">Controls when a site is marked stale in the dashboard widget.</p>';
 	}
 
+	public static function render_enroll_strict_field() {
+		$value = (int) get_option( self::OPTION_ENROLL_STRICT, 0 );
+
+		printf(
+			'<label><input type="checkbox" name="%s" value="1" %s /> Enforce enrollment URL match</label>',
+			esc_attr( self::OPTION_ENROLL_STRICT ),
+			checked( 1, $value, false )
+		);
+		echo '<p class="description">If enabled, enrollment tokens require the connector to report a matching site URL.</p>';
+	}
+
 	public static function sanitize_secret( $value ) {
 		$value = sanitize_text_field( $value );
 		if ( '' === $value ) {
@@ -166,6 +196,10 @@ class RW_Portal_Settings {
 		}
 
 		return min( 168, $value );
+	}
+
+	public static function sanitize_flag( $value ) {
+		return (int) (bool) $value;
 	}
 
 	private static function is_sha256( $value ) {

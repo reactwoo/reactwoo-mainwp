@@ -115,6 +115,47 @@ class RW_Sites {
 		);
 	}
 
+	public static function query_sites( array $filters, $limit, $offset ) {
+		global $wpdb;
+
+		$table  = RW_DB::table( 'managed_sites' );
+		$where  = array();
+		$params = array();
+
+		if ( ! empty( $filters['status'] ) ) {
+			$where[] = 'status = %s';
+			$params[] = sanitize_text_field( $filters['status'] );
+		}
+
+		if ( ! empty( $filters['user_id'] ) ) {
+			$where[]  = 'user_id = %d';
+			$params[] = absint( $filters['user_id'] );
+		}
+
+		if ( ! empty( $filters['subscription_id'] ) ) {
+			$where[]  = 'subscription_id = %d';
+			$params[] = absint( $filters['subscription_id'] );
+		}
+
+		if ( ! empty( $filters['search'] ) ) {
+			$like    = '%' . $wpdb->esc_like( $filters['search'] ) . '%';
+			$where[] = '(site_url LIKE %s OR site_name LIKE %s)';
+			$params[] = $like;
+			$params[] = $like;
+		}
+
+		$where_sql = $where ? 'WHERE ' . implode( ' AND ', $where ) : '';
+
+		$count_sql = "SELECT COUNT(*) FROM {$table} {$where_sql}";
+		$total     = $params ? (int) $wpdb->get_var( $wpdb->prepare( $count_sql, $params ) ) : (int) $wpdb->get_var( $count_sql );
+
+		$query_sql = "SELECT * FROM {$table} {$where_sql} ORDER BY updated_at DESC LIMIT %d OFFSET %d";
+		$params_with_limit = array_merge( $params, array( (int) $limit, (int) $offset ) );
+		$sites = $wpdb->get_results( $wpdb->prepare( $query_sql, $params_with_limit ) );
+
+		return array( $sites, $total );
+	}
+
 	public static function update_site( $site_id, array $data ) {
 		global $wpdb;
 

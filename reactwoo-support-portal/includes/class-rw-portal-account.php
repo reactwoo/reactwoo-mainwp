@@ -176,6 +176,15 @@ class RW_Portal_Account {
 		echo '<button type="submit" class="button">Resync Client Details</button>';
 		echo '</form>';
 
+		echo '<form method="post" style="margin-bottom:8px;">';
+		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		echo '<input type="hidden" name="rw_portal_action" value="toggle_url_override" />';
+		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
+		echo '<input type="hidden" name="override_value" value="' . esc_attr( (int) ! $site->enroll_url_override ) . '" />';
+		$label = $site->enroll_url_override ? 'Disable URL Override' : 'Allow URL Override';
+		echo '<button type="submit" class="button">' . esc_html( $label ) . '</button>';
+		echo '</form>';
+
 		if ( in_array( $site->status, array( 'connected', 'suspended', 'error' ), true ) ) {
 			echo '<form method="post" style="margin-bottom:8px;">';
 			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
@@ -265,6 +274,9 @@ class RW_Portal_Account {
 				break;
 			case 'reconnect_site':
 				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );
+				break;
+			case 'toggle_url_override':
+				self::handle_toggle_url_override( $user_id );
 				break;
 			case 'resync_site':
 				self::handle_resync_site( $user_id );
@@ -591,6 +603,28 @@ class RW_Portal_Account {
 		}
 
 		self::add_notice( $success_notice, 'success' );
+	}
+
+	private static function handle_toggle_url_override( $user_id ) {
+		$site = self::load_site_for_user( $user_id );
+		if ( ! $site ) {
+			return;
+		}
+
+		$value = isset( $_POST['override_value'] ) ? absint( $_POST['override_value'] ) : 0;
+		RW_Sites::set_url_override( (int) $site->id, (bool) $value );
+
+		RW_Audit::log(
+			'url_override_toggled',
+			array(
+				'user_id'         => $user_id,
+				'subscription_id' => (int) $site->subscription_id,
+				'managed_site_id' => (int) $site->id,
+				'enabled'         => (int) $value,
+			)
+		);
+
+		self::add_notice( $value ? 'URL override enabled for this site.' : 'URL override disabled for this site.', 'success' );
 	}
 
 	private static function format_datetime( $value ) {

@@ -182,6 +182,15 @@ class RW_Sites {
 		return self::update_site( $site_id, $update );
 	}
 
+	public static function set_url_override( $site_id, $enabled ) {
+		return self::update_site(
+			$site_id,
+			array(
+				'enroll_url_override' => $enabled ? 1 : 0,
+			)
+		);
+	}
+
 	private static function column_formats() {
 		return array(
 			'id'               => '%d',
@@ -199,6 +208,7 @@ class RW_Sites {
 			'last_check_at'    => '%s',
 			'last_sync_at'     => '%s',
 			'last_reconnect_at'=> '%s',
+			'enroll_url_override' => '%d',
 			'client_name'      => '%s',
 			'client_email'     => '%s',
 			'client_company'   => '%s',

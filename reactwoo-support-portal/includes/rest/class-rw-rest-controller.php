@@ -405,6 +405,10 @@ class RW_Rest_Controller {
 	private static function check_enrollment_url( $site, $provided_url ) {
 		$strict = (int) get_option( RW_Portal_Settings::OPTION_ENROLL_STRICT, 0 );
 
+		if ( isset( $site->enroll_url_override ) && (int) $site->enroll_url_override === 1 ) {
+			return true;
+		}
+
 		if ( '' === $provided_url ) {
 			if ( $strict ) {
 				return new WP_Error( 'rw_site_url_missing', 'Site URL is required for enrollment.', array( 'status' => 400 ) );

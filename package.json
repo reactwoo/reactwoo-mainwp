@@ -1,0 +1,14 @@
+{
+  "name": "reactwoo-mainwp-packaging",
+  "private": true,
+  "reactwooBuild": {
+    "pluginFolder": "reactwoo-support-connector",
+    "zipFile": "reactwoo-support-connector.zip",
+    "pluginSlug": "reactwoo-support-connector",
+    "sourceDir": "reactwoo-support-connector",
+    "mainPhp": "reactwoo-support-connector.php"
+  },
+  "scripts": {
+    "package:zip": "python scripts/package_zip.py"
+  }
+}

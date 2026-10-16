@@ -67,7 +67,7 @@ class RW_Connector {
 			return new WP_Error( 'rw_connector_missing', 'Token and portal URL are required.', array( 'status' => 400 ) );
 		}
 
-		$verify_url = trailingslashit( $portal_url ) . 'wp-json/reactwoo/v1/tokens/verify';
+		$verify_url = rtrim( $portal_url, '/' ) . '/index.php?rest_route=' . rawurlencode( '/reactwoo/v1/tokens/verify' );
 		$response   = wp_remote_post(
 			$verify_url,
 			array(

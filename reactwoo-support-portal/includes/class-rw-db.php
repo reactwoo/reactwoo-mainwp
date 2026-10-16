@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_DB {
-	const DB_VERSION = '1.3';
+	const DB_VERSION = '1.5';
 
 	public static function table( $suffix ) {
 		global $wpdb;
@@ -14,9 +14,15 @@ class RW_DB {
 	}
 
 	public static function maybe_upgrade() {
-		$installed = get_option( 'rw_portal_db_version' );
-		if ( self::DB_VERSION !== $installed ) {
-			self::create_tables();
+		$installed = (string) get_option( 'rw_portal_db_version' );
+		if ( self::DB_VERSION === $installed ) {
+			return;
+		}
+
+		self::create_tables();
+
+		if ( '' === $installed || version_compare( $installed, '1.4', '<' ) ) {
+			self::backfill_connection_state();
 		}
 	}
 
@@ -53,12 +59,48 @@ class RW_DB {
 			client_locale VARCHAR(10) DEFAULT NULL,
 			report_email VARCHAR(190) DEFAULT NULL,
 			report_enabled TINYINT(1) NOT NULL DEFAULT 1,
+			connection_state VARCHAR(32) NOT NULL DEFAULT 'not_started',
+			connection_method VARCHAR(32) DEFAULT NULL,
+			connected_at DATETIME DEFAULT NULL,
+			last_connection_attempt_at DATETIME DEFAULT NULL,
+			connection_error_code VARCHAR(64) DEFAULT NULL,
+			connection_error_message VARCHAR(255) DEFAULT NULL,
+			connector_protocol VARCHAR(16) DEFAULT NULL,
+			mainwp_child_version VARCHAR(50) DEFAULT NULL,
+			last_bootstrap_at DATETIME DEFAULT NULL,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),
 			KEY user_id (user_id),
 			KEY subscription_id (subscription_id),
-			KEY status (status)
+			KEY status (status),
+			KEY connection_state (connection_state)
+		) {$charset_collate};";
+
+		$attempts_table    = self::table( 'connection_attempts' );
+		$attempts_sql      = "CREATE TABLE {$attempts_table} (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			public_id CHAR(36) NOT NULL,
+			managed_site_id BIGINT(20) UNSIGNED NOT NULL,
+			user_id BIGINT(20) UNSIGNED NOT NULL,
+			subscription_id BIGINT(20) UNSIGNED NOT NULL,
+			expected_site_url VARCHAR(255) NOT NULL,
+			rest_root VARCHAR(255) DEFAULT NULL,
+			app_id CHAR(36) DEFAULT NULL,
+			state_hash CHAR(64) NOT NULL,
+			challenge_hash CHAR(64) DEFAULT NULL,
+			challenge_used_at DATETIME DEFAULT NULL,
+			status VARCHAR(32) NOT NULL DEFAULT 'awaiting_authorisation',
+			attempt_count INT UNSIGNED NOT NULL DEFAULT 1,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			completed_at DATETIME DEFAULT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY public_id (public_id),
+			UNIQUE KEY state_hash (state_hash),
+			KEY managed_site_id (managed_site_id),
+			KEY expires_at (expires_at)
 		) {$charset_collate};";
 
 		$tokens_sql = "CREATE TABLE {$tokens_table} (
@@ -90,10 +132,37 @@ class RW_DB {
 		) {$charset_collate};";
 
 		dbDelta( $managed_sites_sql );
+		dbDelta( $attempts_sql );
 		dbDelta( $tokens_sql );
 		dbDelta( $audit_sql );
 
 		update_option( 'rw_portal_db_version', self::DB_VERSION );
+	}
+
+	/**
+	 * Existing V1 rows keep their customer meaning. New provisioning uses connection_state.
+	 */
+	public static function backfill_connection_state() {
+		global $wpdb;
+
+		$table = self::table( 'managed_sites' );
+		if ( ! self::table_exists( $table ) ) {
+			return;
+		}
+
+		$wpdb->query(
+			"UPDATE {$table}
+			SET connection_state = 'connected', connection_method = 'v1_token'
+			WHERE status IN ('connected','suspended')
+				AND (connection_state = '' OR connection_state = 'not_started')"
+		);
+
+		$wpdb->query(
+			"UPDATE {$table}
+			SET connection_state = 'failed'
+			WHERE status = 'error'
+				AND (connection_state = '' OR connection_state = 'not_started')"
+		);
 	}
 
 	public static function table_exists( $table ) {

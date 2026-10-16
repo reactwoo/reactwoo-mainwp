@@ -18,9 +18,9 @@ class RW_Portal_Audit_Admin {
 
 	public static function add_menu() {
 		add_submenu_page(
-			'tools.php',
-			'ReactWoo Portal Audit',
-			'ReactWoo Portal Audit',
+			RW_Portal_Admin_Menu::PARENT_SLUG,
+			__( 'ReactWoo Portal Audit', 'reactwoo-support-portal' ),
+			__( 'Audit Log', 'reactwoo-support-portal' ),
 			'manage_options',
 			self::MENU_SLUG,
 			array( __CLASS__, 'render' )

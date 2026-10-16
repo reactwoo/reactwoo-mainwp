@@ -75,13 +75,44 @@ class RW_Maint_Rest_Controller {
 				'permission_callback' => array( __CLASS__, 'authorize_request' ),
 			)
 		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/offboard',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'offboard' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/test',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'test_connection' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+	}
+
+	/**
+	 * Lightweight endpoint for the portal to verify shared-secret connection. No body required.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response
+	 */
+	public static function test_connection( WP_REST_Request $request ) {
+		return rest_ensure_response(
+			array(
+				'success' => true,
+				'message' => __( 'Connection verified. Shared secret is correct.', 'reactwoo-maint-bridge' ),
+			)
+		);
 	}
 
 	public static function authorize_request( WP_REST_Request $request ) {
-		if ( is_user_logged_in() ) {
-			return true;
-		}
-
 		$verified = RW_Maint_Security::verify_signed_request( $request );
 		if ( true === $verified ) {
 			return true;
@@ -100,6 +131,15 @@ class RW_Maint_Rest_Controller {
 	}
 
 	public static function enroll( WP_REST_Request $request ) {
+		$replay = RW_Maint_Idempotency::begin( $request );
+		if ( is_wp_error( $replay ) || $replay instanceof WP_REST_Response ) {
+			return $replay;
+		}
+
+		return RW_Maint_Idempotency::finish( $request, self::enroll_site( $request ) );
+	}
+
+	private static function enroll_site( WP_REST_Request $request ) {
 		$payload = (array) $request->get_json_params();
 
 		$portal_site_id  = isset( $payload['portal_site_id'] ) ? absint( $payload['portal_site_id'] ) : 0;
@@ -138,13 +178,10 @@ class RW_Maint_Rest_Controller {
 
 			do_action( 'rw_maint_site_enrolled', $existing->id, $payload );
 
-			return rest_ensure_response(
-				array(
-					'maint_site_id' => (int) $existing->id,
-					'status'        => 'active',
-					'updated'       => true,
-				)
-			);
+			$response = self::operational_result( (int) $existing->id );
+			$response['updated'] = true;
+
+			return rest_ensure_response( $response );
 		}
 
 		$site_id = RW_Maint_Sites::create_site(
@@ -179,12 +216,28 @@ class RW_Maint_Rest_Controller {
 
 		do_action( 'rw_maint_site_enrolled', $site_id, $payload );
 
-		return new WP_REST_Response(
-			array(
-				'maint_site_id' => $site_id,
-				'status'        => 'active',
-			),
-			201
+		return new WP_REST_Response( self::operational_result( $site_id ), 201 );
+	}
+
+	private static function operational_result( $maint_site_id ) {
+		$site      = RW_Maint_Sites::get_site( $maint_site_id );
+		$mainwp_id = ( $site && ! empty( $site->mainwp_site_id ) ) ? (int) $site->mainwp_site_id : 0;
+		$check     = false;
+		$sync      = false;
+
+		if ( $mainwp_id && $site ) {
+			$check  = ! is_wp_error( RW_Maint_MainWP_Client::check_site( $site ) );
+			$sync   = ! is_wp_error( RW_Maint_MainWP_Client::sync_site( $site ) );
+			$site   = RW_Maint_Sites::get_site( $maint_site_id );
+		}
+
+		return array(
+			'maint_site_id'         => (int) $maint_site_id,
+			'mainwp_site_id'        => $mainwp_id,
+			'management_connected'  => $mainwp_id > 0 && $check && $sync,
+			'initial_check'         => $check,
+			'initial_sync'          => $sync,
+			'status'                => ( $site && ! empty( $site->status ) ) ? $site->status : 'active',
 		);
 	}
 
@@ -244,6 +297,46 @@ class RW_Maint_Rest_Controller {
 			array(
 				'portal_site_id' => $portal_site_id,
 				'status'         => 'active',
+			)
+		);
+	}
+
+	public static function offboard( WP_REST_Request $request ) {
+		$portal_site_id = self::extract_portal_site_id( $request );
+		if ( ! $portal_site_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID is required.', array( 'status' => 400 ) );
+		}
+
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		if ( ! $site ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		if ( ! empty( $site->mainwp_site_id ) ) {
+			$removed = RW_Maint_MainWP_Client::disconnect_site( $site );
+			if ( is_wp_error( $removed ) ) {
+				return new WP_Error( 'rw_maint_offboard_failed', 'Operational access could not be removed.', array( 'status' => 502 ) );
+			}
+		}
+
+		$updated = RW_Maint_Sites::update_status( $portal_site_id, 'disconnected' );
+		if ( ! $updated ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		RW_Maint_Audit::log(
+			'site_offboarded',
+			array(
+				'portal_site_id' => $portal_site_id,
+				'mainwp_site_id' => ! empty( $site->mainwp_site_id ) ? (int) $site->mainwp_site_id : 0,
+			)
+		);
+
+		return rest_ensure_response(
+			array(
+				'portal_site_id' => $portal_site_id,
+				'mainwp_site_id' => ! empty( $site->mainwp_site_id ) ? (int) $site->mainwp_site_id : 0,
+				'status'         => 'disconnected',
 			)
 		);
 	}

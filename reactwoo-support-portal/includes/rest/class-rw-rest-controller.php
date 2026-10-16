@@ -56,6 +56,16 @@ class RW_Rest_Controller {
 
 		register_rest_route(
 			'reactwoo/v1',
+			'/connection/confirm-challenge',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'confirm_challenge' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'reactwoo/v1',
 			'/sites/heartbeat',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
@@ -101,7 +111,7 @@ class RW_Rest_Controller {
 		$allowed_sites = self::get_allowed_sites( $subscription, $user_id );
 		$site_count    = RW_Sites::count_sites_for_subscription( $subscription_id );
 
-		if ( $allowed_sites > 0 && $site_count >= $allowed_sites ) {
+		if ( $allowed_sites <= 0 || $site_count >= $allowed_sites ) {
 			return new WP_Error( 'rw_site_limit', 'Site limit reached for this subscription.', array( 'status' => 403 ) );
 		}
 
@@ -193,7 +203,13 @@ class RW_Rest_Controller {
 
 		$site_secret = RW_Tokens::generate_site_secret();
 		RW_Tokens::store_site_secret( (int) $site->id, $site_secret );
-		RW_Sites::update_site( (int) $site->id, array( 'status' => 'connected' ) );
+		RW_Sites::update_site(
+			(int) $site->id,
+			array(
+				'status'           => 'pending',
+				'connection_state' => 'verifying',
+			)
+		);
 
 		$site = RW_Sites::get_site( (int) $site->id );
 		if ( ! $site ) {
@@ -201,31 +217,53 @@ class RW_Rest_Controller {
 		}
 
 		$maint_response = RW_Maint_Client::enroll_site( $site );
-		if ( is_wp_error( $maint_response ) ) {
+		$operational    = RW_Subscription_Policy::operational_connected( $maint_response );
+		if ( ! $operational ) {
+			RW_Sites::update_site(
+				(int) $site->id,
+				array(
+					'status'                   => 'pending',
+					'connection_state'         => 'action_required',
+					'connection_error_code'    => 'management_not_connected',
+					'connection_error_message' => 'Maintenance setup did not finish.',
+				)
+			);
 			RW_Audit::log(
 				'maint_enroll_failed',
-				array(
-					'user_id'         => (int) $site->user_id,
-					'subscription_id' => (int) $site->subscription_id,
-					'managed_site_id' => (int) $site->id,
-					'error'           => $maint_response->get_error_message(),
+				RW_Redact::scrub(
+					array(
+						'user_id'         => (int) $site->user_id,
+						'subscription_id' => (int) $site->subscription_id,
+						'managed_site_id' => (int) $site->id,
+						'error'           => is_wp_error( $maint_response ) ? $maint_response->get_error_message() : 'operational_checks_incomplete',
+					)
 				)
 			);
-		} else {
-			RW_Audit::log(
-				'maint_enroll_sent',
-				array(
-					'user_id'         => (int) $site->user_id,
-					'subscription_id' => (int) $site->subscription_id,
-					'managed_site_id' => (int) $site->id,
-					'maint_site_id'   => isset( $maint_response['maint_site_id'] ) ? (int) $maint_response['maint_site_id'] : null,
-				)
-			);
+			return new WP_Error( 'rw_maint_not_connected', 'The website is not connected yet.', array( 'status' => 409 ) );
 		}
 
-		if ( is_array( $maint_response ) && isset( $maint_response['maint_site_id'] ) ) {
-			RW_Sites::update_site( (int) $site->id, array( 'maint_site_id' => (int) $maint_response['maint_site_id'] ) );
-		}
+		RW_Sites::update_site(
+			(int) $site->id,
+			array(
+				'status'                   => 'connected',
+				'connection_state'         => 'connected',
+				'maint_site_id'            => (int) $maint_response['maint_site_id'],
+				'connection_error_code'    => '',
+				'connection_error_message' => '',
+				'connected_at'             => current_time( 'mysql', true ),
+			)
+		);
+
+		RW_Audit::log(
+			'maint_enroll_sent',
+			array(
+				'user_id'         => (int) $site->user_id,
+				'subscription_id' => (int) $site->subscription_id,
+				'managed_site_id' => (int) $site->id,
+				'maint_site_id'   => (int) $maint_response['maint_site_id'],
+				'mainwp_site_id'  => (int) $maint_response['mainwp_site_id'],
+			)
+		);
 
 		RW_Audit::log(
 			'token_verified',
@@ -259,6 +297,30 @@ class RW_Rest_Controller {
 		);
 	}
 
+	public static function confirm_challenge( WP_REST_Request $request ) {
+		$challenge = (string) $request->get_param( 'challenge' );
+		$site_url  = (string) $request->get_param( 'site_url' );
+		$attempt   = RW_Connection_Attempts::consume_challenge( $challenge );
+		if ( is_wp_error( $attempt ) ) {
+			return $attempt;
+		}
+
+		$reported = RW_Site_Url::assert_public_https( $site_url );
+		if ( is_wp_error( $reported ) || ! RW_Site_Url::same_site( $attempt->expected_site_url, $reported ) ) {
+			return new WP_Error( 'rw_challenge_site', 'Website address does not match this connection.', array( 'status' => 409 ) );
+		}
+
+		$secret = RW_Tokens::generate_site_secret();
+		RW_Tokens::store_site_secret( (int) $attempt->managed_site_id, $secret );
+
+		return rest_ensure_response(
+			array(
+				'site_id'     => (int) $attempt->managed_site_id,
+				'site_secret' => $secret,
+			)
+		);
+	}
+
 	public static function heartbeat( WP_REST_Request $request ) {
 		$site_id = absint( $request->get_header( 'x-rw-site-id' ) );
 
@@ -272,10 +334,18 @@ class RW_Rest_Controller {
 		}
 
 		$params = (array) $request->get_json_params();
+		$site   = RW_Sites::get_site( $site_id );
 		$update = array(
-			'status'    => 'connected',
 			'last_seen' => current_time( 'mysql', true ),
 		);
+
+		$v2_pending = $site
+			&& isset( $site->connection_method )
+			&& 'v2' === $site->connection_method
+			&& ( empty( $site->connection_state ) || RW_Connection_State::CONNECTED !== $site->connection_state );
+		if ( ! $v2_pending ) {
+			$update['status'] = 'connected';
+		}
 
 		if ( isset( $params['connector_version'] ) ) {
 			$update['connector_version'] = sanitize_text_field( $params['connector_version'] );

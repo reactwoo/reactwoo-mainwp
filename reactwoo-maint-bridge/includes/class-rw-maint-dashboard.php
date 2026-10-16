@@ -16,7 +16,7 @@ class RW_Maint_Dashboard {
 	public static function register_widgets() {
 		wp_add_dashboard_widget(
 			'rw_maint_recent_audit',
-			'ReactWoo Maintenance Recent Audit Events',
+			RW_MAINT_MENU_NAME . ' Recent Audit',
 			array( __CLASS__, 'render_recent_audit' )
 		);
 	}

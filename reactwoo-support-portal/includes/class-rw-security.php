@@ -24,9 +24,6 @@ class RW_Security {
 		}
 
 		$nonce_key = 'rw_nonce_' . (int) $site_id . '_' . md5( $nonce );
-		if ( get_transient( $nonce_key ) ) {
-			return new WP_Error( 'rw_signature_replay', 'Nonce already used.', array( 'status' => 401 ) );
-		}
 
 		$secret = RW_Tokens::get_site_secret( $site_id );
 		if ( empty( $secret ) ) {
@@ -41,8 +38,46 @@ class RW_Security {
 			return new WP_Error( 'rw_signature_invalid', 'Signature mismatch.', array( 'status' => 401 ) );
 		}
 
-		set_transient( $nonce_key, 1, 5 * MINUTE_IN_SECONDS );
+		if ( ! self::claim_nonce( $nonce_key ) ) {
+			return new WP_Error( 'rw_signature_replay', 'Nonce already used.', array( 'status' => 401 ) );
+		}
 
+		return true;
+	}
+
+	/**
+	 * Reserve a nonce once. A failed signature does not consume it.
+	 *
+	 * @param string $key Transient key.
+	 * @return bool
+	 */
+	private static function claim_nonce( $key ) {
+		$ttl = 5 * MINUTE_IN_SECONDS;
+		if ( function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache() ) {
+			return (bool) wp_cache_add( $key, 1, 'transient', $ttl );
+		}
+
+		$timeout = '_transient_timeout_' . $key;
+		$value   = '_transient_' . $key;
+		$expires = time() + $ttl;
+
+		if ( add_option( $timeout, $expires, '', false ) ) {
+			add_option( $value, 1, '', false );
+			return true;
+		}
+
+		if ( (int) get_option( $timeout ) > time() ) {
+			return false;
+		}
+
+		delete_option( $timeout );
+		delete_option( $value );
+
+		if ( ! add_option( $timeout, $expires, '', false ) ) {
+			return false;
+		}
+
+		add_option( $value, 1, '', false );
 		return true;
 	}
 }

@@ -19,8 +19,8 @@ class RW_Maint_Audit_Admin {
 	public static function add_menu() {
 		add_submenu_page(
 			'tools.php',
-			'ReactWoo Maintenance Audit',
-			'ReactWoo Maintenance Audit',
+			RW_MAINT_MENU_NAME . ' Audit',
+			RW_MAINT_MENU_NAME . ' Audit',
 			'manage_options',
 			self::MENU_SLUG,
 			array( __CLASS__, 'render' )
@@ -55,7 +55,7 @@ class RW_Maint_Audit_Admin {
 		$total_pages          = max( 1, (int) ceil( $total / self::PER_PAGE ) );
 
 		echo '<div class="wrap">';
-		echo '<h1>ReactWoo Maintenance Audit Log</h1>';
+		echo '<h1>' . esc_html( RW_MAINT_MENU_NAME ) . ' Audit Log</h1>';
 		self::render_filters( $filters );
 		self::render_table( $logs );
 		self::render_pagination( $page, $total_pages, $filters );

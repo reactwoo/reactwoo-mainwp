@@ -53,6 +53,21 @@ class RW_Sites {
 		);
 	}
 
+	public static function count_other_sites_for_subscription( $subscription_id, $except_site_id ) {
+		global $wpdb;
+
+		$table = RW_DB::table( 'managed_sites' );
+
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE subscription_id = %d AND id != %d AND status != %s",
+				$subscription_id,
+				$except_site_id,
+				'disconnected'
+			)
+		);
+	}
+
 	public static function get_sites_by_user( $user_id ) {
 		global $wpdb;
 
@@ -188,6 +203,12 @@ class RW_Sites {
 			$params        = array_merge( $params, array_map( 'strval', $exclude_statuses ) );
 		}
 
+		if ( 'connected' === $status ) {
+			$where_parts[] = '( connection_method IS NULL OR connection_method <> %s OR connection_state = %s )';
+			$params[]      = 'v2';
+			$params[]      = RW_Connection_State::CONNECTED;
+		}
+
 		$where_sql = implode( ' AND ', $where_parts );
 		$values    = array_merge( array( $status, $now ), $params );
 		$query     = $wpdb->prepare(
@@ -257,6 +278,15 @@ class RW_Sites {
 			'client_locale'    => '%s',
 			'report_email'     => '%s',
 			'report_enabled'   => '%d',
+			'connection_state' => '%s',
+			'connection_method'=> '%s',
+			'connected_at'     => '%s',
+			'last_connection_attempt_at' => '%s',
+			'connection_error_code' => '%s',
+			'connection_error_message' => '%s',
+			'connector_protocol' => '%s',
+			'mainwp_child_version' => '%s',
+			'last_bootstrap_at'=> '%s',
 			'created_at'       => '%s',
 			'updated_at'       => '%s',
 		);

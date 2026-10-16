@@ -27,7 +27,7 @@ class RW_Maint_MainWP_Client {
 		}
 
 		$credentials = self::resolve_credentials( $site, $payload );
-		if ( empty( $credentials['admin'] ) || empty( $credentials['adminpassword'] ) ) {
+		if ( empty( $credentials['admin'] ) || ( empty( $credentials['adminpassword'] ) && empty( $credentials['uniqueid'] ) ) ) {
 			RW_Maint_Audit::log(
 				'mainwp_create_skipped',
 				array(
@@ -41,13 +41,16 @@ class RW_Maint_MainWP_Client {
 		}
 
 		$query = array(
-			'url'           => $site->site_url,
-			'admin'         => $credentials['admin'],
-			'adminpassword' => $credentials['adminpassword'],
+			'url'   => $site->site_url,
+			'admin' => $credentials['admin'],
 		);
 
-		if ( ! empty( $credentials['uniqueid'] ) ) {
+		$mode = isset( $credentials['auth_mode'] ) ? (string) $credentials['auth_mode'] : 'unique_id';
+		if ( ( 'unique_id' === $mode || 'both' === $mode ) && ! empty( $credentials['uniqueid'] ) ) {
 			$query['uniqueid'] = $credentials['uniqueid'];
+		}
+		if ( ( 'password' === $mode || 'both' === $mode ) && ! empty( $credentials['adminpassword'] ) ) {
+			$query['adminpassword'] = $credentials['adminpassword'];
 		}
 
 		$name = self::resolve_site_name( $site, $payload );
@@ -57,7 +60,8 @@ class RW_Maint_MainWP_Client {
 
 		$query = apply_filters( 'rw_maint_mainwp_create_query', $query, $site, $payload, $groups );
 
-		$response = self::request( 'POST', 'sites/add/', array(), $query );
+		$body     = $query;
+		$response = self::request( 'POST', 'sites/add/', $body, $query );
 		if ( is_wp_error( $response ) ) {
 			RW_Maint_Audit::log(
 				'mainwp_create_failed',
@@ -128,15 +132,15 @@ class RW_Maint_MainWP_Client {
 	}
 
 	public static function disconnect_site( $site ) {
-		self::send_lifecycle_action( $site, 'disconnect' );
+		return self::send_lifecycle_action( $site, 'disconnect' );
 	}
 
 	public static function check_site( $site ) {
-		self::send_lifecycle_action( $site, 'check' );
+		return self::send_lifecycle_action( $site, 'check' );
 	}
 
 	public static function sync_site( $site ) {
-		self::send_lifecycle_action( $site, 'sync' );
+		return self::send_lifecycle_action( $site, 'sync' );
 	}
 
 	public static function reconnect_site( $site ) {
@@ -149,13 +153,13 @@ class RW_Maint_MainWP_Client {
 
 	private static function send_lifecycle_action( $site, $action ) {
 		if ( ! $site || empty( $site->mainwp_site_id ) ) {
-			return;
+			return new WP_Error( 'rw_mainwp_missing_site', 'Operational site is not connected.' );
 		}
 
 		$path = self::default_action_path( $action, $site );
 		$path = apply_filters( 'rw_maint_mainwp_action_path', $path, $action, $site );
 		if ( '' === $path ) {
-			return;
+			return new WP_Error( 'rw_mainwp_action_unsupported', 'Maintenance action is not available.' );
 		}
 
 		$method = self::default_action_method( $action );
@@ -174,7 +178,7 @@ class RW_Maint_MainWP_Client {
 					'error'           => $response->get_error_message(),
 				)
 			);
-			return;
+			return $response;
 		}
 
 		RW_Maint_Audit::log(
@@ -187,12 +191,19 @@ class RW_Maint_MainWP_Client {
 				'result'          => self::extract_action_result_summary( $response ),
 			)
 		);
+
+		return $response;
 	}
 
 	private static function request( $method, $path, array $body = array(), array $query = array() ) {
 		$base_url = self::get_api_base();
 		if ( '' === $base_url ) {
 			return new WP_Error( 'rw_mainwp_missing_url', 'MainWP API URL not configured.' );
+		}
+
+		$use_internal = self::use_internal_rest( $base_url );
+		if ( $use_internal ) {
+			return self::request_internal( $method, $path, $body, $query );
 		}
 
 		$url = trailingslashit( $base_url ) . ltrim( $path, '/' );
@@ -225,7 +236,64 @@ class RW_Maint_MainWP_Client {
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		if ( $code < 200 || $code >= 300 ) {
-			return new WP_Error( 'rw_mainwp_bad_response', 'MainWP API error.', array( 'status' => $code, 'body' => $data ) );
+			return new WP_Error( 'rw_mainwp_bad_response', 'MainWP API error.', array( 'status' => $code, 'body' => self::safe_body( $data ) ) );
+		}
+
+		return is_array( $data ) ? $data : array();
+	}
+
+	/**
+	 * Whether to use internal REST (same WordPress) instead of HTTP.
+	 *
+	 * @param string $base_url MainWP API base URL.
+	 * @return bool
+	 */
+	private static function use_internal_rest( $base_url ) {
+		$home = rtrim( (string) home_url(), '/' );
+		$base_host = wp_parse_url( $base_url, PHP_URL_HOST );
+		$home_host = wp_parse_url( $home, PHP_URL_HOST );
+		if ( $base_host !== $home_host ) {
+			return false;
+		}
+		$rest_root = rest_url();
+		$rest_host = wp_parse_url( $rest_root, PHP_URL_HOST );
+		return $rest_host === $home_host && 0 === strpos( $base_url, $rest_root );
+	}
+
+	/**
+	 * Perform MainWP REST request via internal dispatch (same WordPress, no HTTP).
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $path   Path relative to API base (e.g. sites/add/).
+	 * @param array  $body   JSON body.
+	 * @param array  $query  Query args.
+	 * @return array|WP_Error
+	 */
+	private static function request_internal( $method, $path, array $body = array(), array $query = array() ) {
+		$api_path = (string) apply_filters( 'rw_maint_mainwp_api_path', 'wp-json/mainwp/v2', home_url() );
+		$route_prefix = trim( preg_replace( '#^wp-json/#', '', $api_path ), '/' );
+		$path = trim( $path, '/' );
+		$route = '/' . $route_prefix . ( $path ? '/' . $path : '' );
+
+		$request = new WP_REST_Request( strtoupper( $method ), $route );
+		$headers = self::auth_headers();
+		foreach ( $headers as $name => $value ) {
+			$request->set_header( $name, $value );
+		}
+		$request->set_header( 'Content-Type', 'application/json' );
+		if ( ! empty( $body ) ) {
+			$request->set_body( wp_json_encode( $body ) );
+		}
+		foreach ( $query as $key => $value ) {
+			$request->set_param( $key, $value );
+		}
+
+		$response = rest_do_request( $request );
+		$code = $response->get_status();
+		$data = $response->get_data();
+
+		if ( $code < 200 || $code >= 300 ) {
+			return new WP_Error( 'rw_mainwp_bad_response', 'MainWP API error.', array( 'status' => $code, 'body' => self::safe_body( $data ) ) );
 		}
 
 		return is_array( $data ) ? $data : array();
@@ -281,10 +349,57 @@ class RW_Maint_MainWP_Client {
 		return $summary;
 	}
 
+	/**
+	 * Whether MainWP REST API is available on this WordPress instance (e.g. MainWP plugin active).
+	 *
+	 * @return bool
+	 */
+	public static function is_mainwp_rest_available() {
+		if ( ! function_exists( 'rest_get_server' ) ) {
+			return false;
+		}
+		$server = rest_get_server();
+		if ( ! $server ) {
+			return false;
+		}
+		$routes = $server->get_routes();
+		foreach ( array_keys( $routes ) as $route ) {
+			if ( false !== strpos( $route, 'mainwp' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Whether the configured MainWP API is on this same WordPress (no URL/key/secret needed for URL).
+	 *
+	 * @return bool
+	 */
+	public static function is_mainwp_same_site() {
+		$base = (string) get_option( 'rw_maint_mainwp_url', '' );
+		$base = (string) apply_filters( 'rw_maint_mainwp_url', $base );
+		$base = rtrim( $base, '/' );
+		if ( '' === $base && self::is_mainwp_rest_available() ) {
+			return true;
+		}
+		if ( '' === $base ) {
+			return false;
+		}
+		$home = rtrim( (string) home_url(), '/' );
+		$base_host = wp_parse_url( $base, PHP_URL_HOST );
+		$home_host = wp_parse_url( $home, PHP_URL_HOST );
+		return $base_host === $home_host && 0 === strpos( $base, $home );
+	}
+
 	private static function get_api_base() {
 		$base = (string) get_option( 'rw_maint_mainwp_url', '' );
 		$base = (string) apply_filters( 'rw_maint_mainwp_url', $base );
 		$base = rtrim( $base, '/' );
+
+		if ( '' === $base && self::is_mainwp_rest_available() ) {
+			$base = home_url();
+		}
 
 		if ( '' === $base ) {
 			return '';
@@ -300,11 +415,22 @@ class RW_Maint_MainWP_Client {
 		$key    = (string) apply_filters( 'rw_maint_mainwp_key', get_option( 'rw_maint_mainwp_key', '' ) );
 		$secret = (string) apply_filters( 'rw_maint_mainwp_secret', get_option( 'rw_maint_mainwp_secret', '' ) );
 
+		$mode = self::get_auth_mode( $key );
+
+		// MainWP REST API v2: Bearer token (default on MainWP dashboard).
+		if ( 'bearer' === $mode ) {
+			if ( '' === $key ) {
+				return array();
+			}
+			return array(
+				'Authorization' => 'Bearer ' . $key,
+			);
+		}
+
 		if ( '' === $key || '' === $secret ) {
 			return array();
 		}
 
-		$mode = self::get_auth_mode( $key );
 		if ( 'basic' !== $mode ) {
 			return apply_filters( 'rw_maint_mainwp_auth_headers', array(), $mode, $key, $secret );
 		}
@@ -355,13 +481,18 @@ class RW_Maint_MainWP_Client {
 			);
 		}
 
-		$mainwp = array();
+		$mainwp     = array();
+		$connection = array();
 		if ( isset( $payload['mainwp'] ) && is_array( $payload['mainwp'] ) ) {
 			$mainwp = $payload['mainwp'];
+		}
+		if ( isset( $payload['connection'] ) && is_array( $payload['connection'] ) ) {
+			$connection = $payload['connection'];
 		}
 
 		$admin = self::first_non_empty(
 			array(
+				$connection['admin'] ?? '',
 				$mainwp['admin'] ?? '',
 				$mainwp['admin_user'] ?? '',
 				$mainwp['admin_username'] ?? '',
@@ -383,6 +514,8 @@ class RW_Maint_MainWP_Client {
 
 		$uniqueid = self::first_non_empty(
 			array(
+				$connection['uniqueid'] ?? '',
+				$connection['unique_id'] ?? '',
 				$mainwp['uniqueid'] ?? '',
 				$mainwp['unique_id'] ?? '',
 				$payload['mainwp_uniqueid'] ?? '',
@@ -394,7 +527,49 @@ class RW_Maint_MainWP_Client {
 			'admin'         => sanitize_text_field( $admin ),
 			'adminpassword' => (string) $admin_password,
 			'uniqueid'      => sanitize_text_field( $uniqueid ),
+			'auth_mode'     => self::auth_mode( $admin, $admin_password, $uniqueid, $payload ),
 		);
+	}
+
+	/**
+	 * @param string               $admin
+	 * @param string               $password
+	 * @param string               $uniqueid
+	 * @param array<string,mixed>  $payload
+	 * @return string unique_id|password|both
+	 */
+	public static function auth_mode( $admin, $password, $uniqueid, $payload = array() ) {
+		unset( $admin );
+		$requested = '';
+		if ( isset( $payload['connection']['auth_mode'] ) ) {
+			$requested = (string) $payload['connection']['auth_mode'];
+		} elseif ( isset( $payload['auth_mode'] ) ) {
+			$requested = (string) $payload['auth_mode'];
+		}
+
+		$has_id = '' !== (string) $uniqueid;
+		$has_pw = '' !== (string) $password;
+		if ( $has_id && $has_pw && in_array( $requested, array( 'password', 'both' ), true ) ) {
+			return $requested;
+		}
+		if ( $has_id ) {
+			return 'unique_id';
+		}
+		if ( $has_pw ) {
+			return 'password';
+		}
+
+		return '';
+	}
+
+	private static function safe_body( $data ) {
+		if ( ! is_array( $data ) ) {
+			return array();
+		}
+		if ( class_exists( 'RW_Maint_Redact' ) ) {
+			return RW_Maint_Redact::scrub( $data );
+		}
+		return array( 'redacted' => true );
 	}
 
 	private static function resolve_site_name( $site, $payload ) {
@@ -480,10 +655,10 @@ class RW_Maint_MainWP_Client {
 	}
 
 	private static function get_auth_mode( $key ) {
-		$mode = (string) get_option( 'rw_maint_mainwp_auth', 'basic' );
+		$mode = (string) get_option( 'rw_maint_mainwp_auth', 'bearer' );
 		$mode = apply_filters( 'rw_maint_mainwp_auth_mode', $mode, $key );
 
-		return in_array( $mode, array( 'basic', 'query' ), true ) ? $mode : 'basic';
+		return in_array( $mode, array( 'bearer', 'basic', 'query' ), true ) ? $mode : 'bearer';
 	}
 
 	private static function ensure_tags( array $names, $site, $payload ) {

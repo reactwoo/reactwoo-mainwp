@@ -18,7 +18,7 @@ final class RW_Maint_Bridge {
 		RW_Maint_Settings::register();
 		RW_Maint_Audit_Admin::register();
 		RW_Maint_Dashboard::register();
-		RW_Maint_Rest_Controller::register_routes();
+		add_action( 'rest_api_init', array( 'RW_Maint_Rest_Controller', 'register_routes' ) );
 	}
 
 	public static function activate() {
@@ -30,7 +30,9 @@ final class RW_Maint_Bridge {
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-db.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-sites.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-audit.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-redact.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-security.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-idempotency.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-cleanup.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp-client.php';

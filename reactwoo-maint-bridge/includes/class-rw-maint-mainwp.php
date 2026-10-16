@@ -33,6 +33,10 @@ class RW_Maint_MainWP {
 
 		if ( $mainwp_site_id ) {
 			RW_Maint_Sites::update_site( (int) $site->id, array( 'mainwp_site_id' => $mainwp_site_id ) );
+			$site = RW_Maint_Sites::get_site( $maint_site_id );
+			if ( ! $site ) {
+				return;
+			}
 
 			RW_Maint_Audit::log(
 				'mainwp_site_created',

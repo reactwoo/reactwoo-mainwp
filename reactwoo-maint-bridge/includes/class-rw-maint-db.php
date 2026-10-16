@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_Maint_DB {
-	const DB_VERSION = '1.0';
+	const DB_VERSION = '1.1';
 
 	public static function table( $suffix ) {
 		global $wpdb;
@@ -28,6 +28,7 @@ class RW_Maint_DB {
 
 		$sites_table = self::table( 'sites' );
 		$audit_table = self::table( 'audit_log' );
+		$idem_table  = self::table( 'idempotency' );
 
 		$sites_sql = "CREATE TABLE {$sites_table} (
 			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -67,8 +68,20 @@ class RW_Maint_DB {
 			KEY user_id (user_id)
 		) {$charset_collate};";
 
+		$idem_sql = "CREATE TABLE {$idem_table} (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			idempotency_key VARCHAR(128) NOT NULL,
+			body_hash CHAR(64) NOT NULL,
+			http_status SMALLINT NOT NULL DEFAULT 0,
+			response_body LONGTEXT DEFAULT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY idempotency_key (idempotency_key)
+		) {$charset_collate};";
+
 		dbDelta( $sites_sql );
 		dbDelta( $audit_sql );
+		dbDelta( $idem_sql );
 
 		update_option( 'rw_maint_db_version', self::DB_VERSION );
 	}

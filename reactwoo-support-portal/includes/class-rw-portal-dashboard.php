@@ -47,7 +47,7 @@ class RW_Portal_Dashboard {
 		}
 		echo '</ul>';
 
-		echo '<p><a href="' . esc_url( admin_url( 'tools.php?page=' . RW_Portal_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
+		echo '<p><a href="' . esc_url( admin_url( 'admin.php?page=' . RW_Portal_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
 	}
 
 	public static function render_recent_audit() {
@@ -68,6 +68,6 @@ class RW_Portal_Dashboard {
 		}
 		echo '</ul>';
 
-		echo '<p><a href="' . esc_url( admin_url( 'tools.php?page=' . RW_Portal_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
+		echo '<p><a href="' . esc_url( admin_url( 'admin.php?page=' . RW_Portal_Audit_Admin::MENU_SLUG ) ) . '">View audit log</a></p>';
 	}
 }

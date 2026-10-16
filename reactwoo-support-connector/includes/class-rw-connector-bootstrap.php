@@ -84,7 +84,7 @@ class RW_Connector_Bootstrap {
 			return $identity;
 		}
 
-		$confirm = trailingslashit( $portal_url ) . 'wp-json/reactwoo/v1/connection/confirm-challenge';
+		$confirm = rtrim( $portal_url, '/' ) . '/index.php?rest_route=' . rawurlencode( '/reactwoo/v1/connection/confirm-challenge' );
 		$response = wp_remote_post(
 			$confirm,
 			array(

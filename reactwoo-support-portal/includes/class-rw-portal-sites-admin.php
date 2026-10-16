@@ -18,9 +18,9 @@ class RW_Portal_Sites_Admin {
 
 	public static function add_menu() {
 		add_submenu_page(
-			'tools.php',
-			'ReactWoo Managed Sites',
-			'ReactWoo Managed Sites',
+			RW_Portal_Admin_Menu::PARENT_SLUG,
+			__( 'ReactWoo Managed Sites', 'reactwoo-support-portal' ),
+			__( 'Managed Sites', 'reactwoo-support-portal' ),
 			'manage_options',
 			self::MENU_SLUG,
 			array( __CLASS__, 'render' )

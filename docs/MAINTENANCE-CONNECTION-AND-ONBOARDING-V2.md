@@ -16,7 +16,7 @@ Review the onboarding design before implementation:
 - **Approval panel:** https://www.figma.com/design/BZFmgpDMSm0OMtnC19lNQ4/Reactwoo?node-id=398-231
 - **Cursor implementation notes:** https://www.figma.com/design/BZFmgpDMSm0OMtnC19lNQ4/Reactwoo?node-id=398-242
 
-The Figma review group is currently marked **AWAITING APPROVAL**. Cursor must not treat visual copy/layout as final until the design status has been approved.
+The Figma review group is **APPROVED**. Customer-facing layout and copy in that group are the source of truth. Do not name the underlying maintenance platform in customer copy.
 
 ---
 

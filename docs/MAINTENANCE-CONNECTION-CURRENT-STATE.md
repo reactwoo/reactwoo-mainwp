@@ -437,6 +437,26 @@ Local versions in the working tree, not deployed:
 
 No Maintenance Woo products were created. No disposable MainWP child was available, so the unique-id add was not run. No subscription was modified.
 
+# Staging install — 2026-10-16
+
+Installed from Git after the unique-id test passed. Production `public_html` API Manager is still header 2.1.14. Backups of the three replaced plugin directories are in `/home/reactwoo/tmp/plugin-backups-20261016/`.
+
+- Bridge 0.3.0 is active on `maint.reactwoo.com`. `rw_maint_db_version` moved from 1.0 to 1.1. The new table is `rw_maint_idempotency`. Existing bridge tables stayed at 0 rows.
+- Portal 0.3.0 is active on the staging store. `rw_portal_db_version` was already 1.5, so `dbDelta` did not rewrite it. `rw_managed_sites` stayed at 0 rows. The audit log was not truncated.
+- API Manager 2.1.16 is active on the staging store only.
+
+Unique-id add, on a disposable child that was deleted afterwards: password authentication off, unique id length 12, `MainWP_Rest_Sites_Controller::create_item` (the `POST /mainwp/v2/sites/add` handler) with url, admin, and unique id and no admin password. Result: success, MainWP site id 24, no error. The site was then removed (`status=success`, remaining id 0). The child directory, database, database user, and password files were deleted. There is no MainWP bearer in the access file, so this was the controller method rather than an external HTTP call.
+
+Draft staging products, licence package empty, plugin slug empty, hidden, monthly test prices:
+
+- 3634 Essential, £1.00
+- 3635 Standard, £2.00
+- 3636 Business, £3.00
+
+New subscription 3637 for customer user 18 (`rw-maint-staging`) on Standard. It resolved as Maintenance, 60 minutes, site limit 1, and the entitlement snapshot is stored. Renewal-failure grace was set and a suspend event was scheduled 3 days out. On-hold while that marker existed did not write a suspend audit. Returning to active cleared the grace and the schedule. Pending-cancel with an end after the next payment wrote `subscription_pending_cancel_kept` and did not schedule offboard. The subscription was put back to active, next payment 2026-11-16, no end date, no suspend or offboard schedule. Subscriptions 2297, 1293, and 1203 stayed active. 2293 stayed pending.
+
+Portal-to-bridge `test_connection` returned HTTP 401. Both secret options are set, and they do not match. The secret was not read, copied, or rotated. A full portal enrol was not run. The bridge MainWP URL option is empty; the client falls back to this site's REST root when MainWP is local. Pretty `/wp-json/` was not changed.
+
 # Open Questions Requiring Controlled Testing
 
 1. **MainWP add with Unique Security ID only.** Disposable child, Password Authentication off, Unique Security ID on. `POST /mainwp/v2/sites/add` with `url`, `admin`, and `uniqueid`, and no `adminpassword`. Then remove that test site. Do not use a customer site.

@@ -20,13 +20,21 @@
 
 Pretty `/wp-json/` is still HTTP 500 on the store and HTTP 404 on the maintenance host. Both hosts answer HTTP 200 on `index.php?rest_route=`. The portal uses that query form from one builder, `RW_Rest_Url`. Server rewrites were not changed.
 
+## Staging validation — 2026-10-16
+
+- Unique-id add succeeded without an admin password (MainWP site id 24), then the site and the disposable WordPress were removed.
+- Bridge 0.3.0 is active on the maintenance host. Database version is 1.1. The idempotency table was added. Site and audit tables were already empty and were not dropped.
+- Portal 0.3.0 and API Manager 2.1.16 are active on the staging store. Production API Manager remains 2.1.14. Portal database version was already 1.5.
+- Draft products: Essential 3634 (£1/month), Standard 3635 (£2/month), Business 3636 (£3/month). Licence package and plugin slug are empty.
+- Subscription 3637 is the Standard staging test. Grace, on-hold-with-grace, and pending-cancel were exercised, then the subscription was returned to active. Subscriptions 2297, 1293, 1203, and 2293 were unchanged.
+- Portal hub test returned HTTP 401 because the portal secret and the bridge secret do not match. They were not rotated. Full enrol was not run.
+
 ## Not done
 
-- No staging Maintenance products were created. The new field is not installed on the store.
-- No disposable WordPress child was available, so the live unique-id `sites/add` test was not run.
-- Bridge 0.1.0 is still what the maintenance host runs. Portal 0.2.1 is still what the store runs. Neither was replaced from this pass.
-- No subscription lifecycle test was run against WooCommerce. Subscriptions 2297, 1293, 1203, and 2293 were not touched.
-- Staging database versions were not read. The schema upgrade remains the existing `dbDelta` path (portal 1.5, bridge 1.1) and must be confirmed on staging before install.
+- Pretty permalinks were not repaired. Clients keep `index.php?rest_route=`.
+- The connector is not installed on a child, and portal enrol was not completed.
+- Phases 6, 7, and 8 were not started.
+- Nothing was pushed to GitHub, and API Manager `origin` (production SSH) was not pushed.
 
 ## Tests
 

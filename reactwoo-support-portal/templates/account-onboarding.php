@@ -25,9 +25,6 @@ $host      = $host ? $host : 'your website';
 				<li>Secure WordPress connection, approved by you</li>
 				<li>We set up backups, monitoring, updates and reports</li>
 			</ul>
-			<?php if ( $rw_view['can_connect'] ) : ?>
-				<?php RW_Portal_Account::render_plugin_download(); ?>
-			<?php endif; ?>
 			<?php if ( $rw_view['can_connect'] && ! $site ) : ?>
 				<?php RW_Portal_Account::render_connect_form( $rw_view['subscription_id'], false ); ?>
 				<p class="rw-maint-helper">No WordPress password required.</p>

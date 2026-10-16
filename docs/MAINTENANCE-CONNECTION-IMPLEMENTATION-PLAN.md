@@ -2,7 +2,7 @@
 
 **Audit:** [MAINTENANCE-CONNECTION-CURRENT-STATE.md](./MAINTENANCE-CONNECTION-CURRENT-STATE.md)  
 **Date:** 2026-10-16  
-**Status:** Phases 0–5 are in Git and installed on staging (portal 0.3.0, bridge 0.3.0, API Manager 2.1.16). Production API Manager is still 2.1.14. Phases 6–8 are not started. Staging notes are in [MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md](./MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md).
+**Status:** Phases 0–5 are in Git and installed on staging (portal 0.3.0, bridge 0.3.0, API Manager 2.1.16). Production API Manager is still 2.1.14. A disposable unique-id child enrolled through the portal client and reached management connected, check, and sync, then was removed. Phases 6–8 are not started. Staging notes are in [MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md](./MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md).
 
 Resolved on 2026-10-16:
 

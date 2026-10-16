@@ -457,6 +457,16 @@ New subscription 3637 for customer user 18 (`rw-maint-staging`) on Standard. It 
 
 Portal-to-bridge `test_connection` returned HTTP 401. Both secret options are set, and they do not match. The secret was not read, copied, or rotated. A full portal enrol was not run. The bridge MainWP URL option is empty; the client falls back to this site's REST root when MainWP is local. Pretty `/wp-json/` was not changed.
 
+# Staging enrol — 2026-10-16, later the same day
+
+The hub 401 above was a secret mismatch. The bridge secret was copied onto the portal option. A later hub test returned HTTP 200. The stored MainWP bearer matched no `api_keys` row; that table was empty. An enabled read/write key was created for the dashboard administrator and saved as the bridge bearer. A sites list then returned HTTP 200.
+
+Same-site MainWP calls use internal REST. The client sets the Authorization header and `rest_route` before MainWP authenticates. A MainWP HTTP 200 body with `success` 0 is treated as a failure.
+
+Disposable child `https://reactwoo.com/staging/rw-child-test`, password authentication off for the administrator user, unique id length 12. Portal enrol for subscription 3637 returned maint site 2, MainWP site 25, management connected, initial check yes, initial sync yes. The MainWP site was then removed. Portal site 2 and the bridge row were marked disconnected. The child directory, database, database user, and password files were deleted. That URL now returns HTTP 404.
+
+Subscription 3637 remains active. 2297, 1293, and 1203 remain active. 2293 remains pending. Active managed sites for 3637: 0. The connector browser flow was not run. Phases 6–8 were not started. Nothing was pushed.
+
 # Open Questions Requiring Controlled Testing
 
 1. **MainWP add with Unique Security ID only.** Disposable child, Password Authentication off, Unique Security ID on. `POST /mainwp/v2/sites/add` with `url`, `admin`, and `uniqueid`, and no `adminpassword`. Then remove that test site. Do not use a customer site.

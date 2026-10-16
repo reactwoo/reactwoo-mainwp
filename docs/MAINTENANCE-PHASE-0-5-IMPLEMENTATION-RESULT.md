@@ -27,12 +27,21 @@ Pretty `/wp-json/` is still HTTP 500 on the store and HTTP 404 on the maintenanc
 - Portal 0.3.0 and API Manager 2.1.16 are active on the staging store. Production API Manager remains 2.1.14. Portal database version was already 1.5.
 - Draft products: Essential 3634 (£1/month), Standard 3635 (£2/month), Business 3636 (£3/month). Licence package and plugin slug are empty.
 - Subscription 3637 is the Standard staging test. Grace, on-hold-with-grace, and pending-cancel were exercised, then the subscription was returned to active. Subscriptions 2297, 1293, 1203, and 2293 were unchanged.
-- Portal hub test returned HTTP 401 because the portal secret and the bridge secret do not match. They were not rotated. Full enrol was not run.
+- Portal hub test first returned HTTP 401 because the portal secret and the bridge secret did not match.
+
+## Staging enrol — 2026-10-16, later the same day
+
+- The bridge secret was copied onto the portal option. Hub test then returned HTTP 200.
+- The stored MainWP bearer matched no API key. An enabled read/write key was created and saved on the bridge. A sites list returned HTTP 200.
+- Same-site calls use internal REST, and a MainWP `success: 0` body is now a failure.
+- Disposable child `https://reactwoo.com/staging/rw-child-test`, password authentication off, unique id only. Portal enrol for subscription 3637: maint site 2, MainWP site 25, connected, check, and sync all yes.
+- That MainWP site was removed. Portal and bridge rows were marked disconnected. The child WordPress, database, database user, and password files were deleted. The URL returns HTTP 404.
+- Subscription 3637 is still active. 2297, 1293, and 1203 are still active. 2293 is still pending.
 
 ## Not done
 
 - Pretty permalinks were not repaired. Clients keep `index.php?rest_route=`.
-- The connector is not installed on a child, and portal enrol was not completed.
+- The connector is not installed on a child. The enrol above was the portal client to the bridge, not the browser Connect WordPress flow.
 - Phases 6, 7, and 8 were not started.
 - Nothing was pushed to GitHub, and API Manager `origin` (production SSH) was not pushed.
 

@@ -239,7 +239,33 @@ class RW_Maint_MainWP_Client {
 			return new WP_Error( 'rw_mainwp_bad_response', 'MainWP API error.', array( 'status' => $code, 'body' => self::safe_body( $data ) ) );
 		}
 
-		return is_array( $data ) ? $data : array();
+		return self::reject_failed_envelope( $data );
+	}
+
+	/**
+	 * MainWP site add returns HTTP 200 with success 0 when the child rejects the connection.
+	 *
+	 * @param mixed $data Decoded response.
+	 * @return array|WP_Error
+	 */
+	private static function reject_failed_envelope( $data ) {
+		if ( ! is_array( $data ) ) {
+			return array();
+		}
+		if ( ! array_key_exists( 'success', $data ) || ! empty( $data['success'] ) ) {
+			return $data;
+		}
+
+		$message = isset( $data['error'] ) ? wp_strip_all_tags( (string) $data['error'] ) : '';
+		$message = trim( (string) preg_replace( '/\s+/', ' ', $message ) );
+		if ( strlen( $message ) > 180 ) {
+			$message = substr( $message, 0, 180 );
+		}
+		if ( '' === $message ) {
+			$message = 'MainWP rejected the request.';
+		}
+
+		return new WP_Error( 'rw_mainwp_rejected', $message, array( 'status' => 200 ) );
 	}
 
 	/**
@@ -249,6 +275,10 @@ class RW_Maint_MainWP_Client {
 	 * @return bool
 	 */
 	private static function use_internal_rest( $base_url ) {
+		if ( self::is_mainwp_same_site() ) {
+			return true;
+		}
+
 		$home = rtrim( (string) home_url(), '/' );
 		$base_host = wp_parse_url( $base_url, PHP_URL_HOST );
 		$home_host = wp_parse_url( $home, PHP_URL_HOST );
@@ -288,7 +318,33 @@ class RW_Maint_MainWP_Client {
 			$request->set_param( $key, $value );
 		}
 
+		// MainWP authenticates from the server header and the rest_route query var.
+		// An internal dispatch has neither until they are set for this call.
+		$previous_authorization = isset( $_SERVER['HTTP_AUTHORIZATION'] ) ? $_SERVER['HTTP_AUTHORIZATION'] : null;
+		$previous_route         = isset( $GLOBALS['wp']->query_vars['rest_route'] ) ? $GLOBALS['wp']->query_vars['rest_route'] : null;
+		if ( isset( $headers['Authorization'] ) ) {
+			$_SERVER['HTTP_AUTHORIZATION'] = $headers['Authorization'];
+		}
+		$GLOBALS['wp']->query_vars['rest_route'] = $route;
+		if ( class_exists( 'MainWP_REST_Authentication' ) ) {
+			$mainwp_user_id = MainWP_REST_Authentication::get_instance()->authenticate( false );
+			if ( $mainwp_user_id ) {
+				wp_set_current_user( $mainwp_user_id );
+			}
+		}
+
 		$response = rest_do_request( $request );
+
+		if ( null === $previous_authorization ) {
+			unset( $_SERVER['HTTP_AUTHORIZATION'] );
+		} else {
+			$_SERVER['HTTP_AUTHORIZATION'] = $previous_authorization;
+		}
+		if ( null === $previous_route ) {
+			unset( $GLOBALS['wp']->query_vars['rest_route'] );
+		} else {
+			$GLOBALS['wp']->query_vars['rest_route'] = $previous_route;
+		}
 		$code = $response->get_status();
 		$data = $response->get_data();
 
@@ -296,7 +352,7 @@ class RW_Maint_MainWP_Client {
 			return new WP_Error( 'rw_mainwp_bad_response', 'MainWP API error.', array( 'status' => $code, 'body' => self::safe_body( $data ) ) );
 		}
 
-		return is_array( $data ) ? $data : array();
+		return self::reject_failed_envelope( $data );
 	}
 
 	private static function extract_site_id( array $response ) {

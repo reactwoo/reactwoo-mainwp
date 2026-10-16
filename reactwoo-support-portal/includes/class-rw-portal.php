@@ -16,6 +16,8 @@ final class RW_Portal {
 		RW_DB::maybe_upgrade();
 		RW_Tokens::register();
 		RW_Subscriptions::register();
+		RW_Support_Allowance::register();
+		RW_Support_Credits::register();
 		RW_Portal_Admin_Menu::register();
 		RW_Portal_Settings::register();
 		RW_Portal_Account::register();
@@ -39,6 +41,10 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-db.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-connection-state.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maintenance-plans.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-balance.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-ledger.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-allowance.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-credits.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscription-policy.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-redact.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-rest-url.php';

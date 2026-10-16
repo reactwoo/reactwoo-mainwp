@@ -6,6 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class RW_Maint_Client {
 	const DEFAULT_TIMEOUT = 20;
+	const ENROLL_TIMEOUT  = 180;
 
 	public static function enroll_site( $site, array $extra = array(), $idempotency_key = '' ) {
 		if ( ! $site ) {
@@ -106,7 +107,7 @@ class RW_Maint_Client {
 		$response = wp_remote_post(
 			$endpoint,
 			array(
-				'timeout' => (int) apply_filters( 'rw_portal_maint_timeout', self::DEFAULT_TIMEOUT ),
+				'timeout' => self::timeout_for( $action ),
 				'headers' => $headers,
 				'body'    => $body,
 			)
@@ -151,6 +152,12 @@ class RW_Maint_Client {
 			'X-RW-Signature' => $signature,
 			'X-RW-Path'      => $path,
 		);
+	}
+
+	private static function timeout_for( $action ) {
+		$default = ( 'enroll' === $action ) ? self::ENROLL_TIMEOUT : self::DEFAULT_TIMEOUT;
+
+		return (int) apply_filters( 'rw_portal_maint_timeout', $default, $action );
 	}
 
 	private static function endpoint_url( $action ) {

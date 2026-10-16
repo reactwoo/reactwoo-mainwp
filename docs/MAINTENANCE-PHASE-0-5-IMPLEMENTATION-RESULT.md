@@ -1,7 +1,7 @@
 # Maintenance phases 0–5 — implementation result
 
 **Date:** 2026-10-16  
-**Scope:** source changes for Essential, Standard, and Business. Phases 6, 7, and 8 were not started.
+**Scope:** source changes for Essential, Standard, and Business, then the support ledger, additional support products, and the empty bundled-licence path.
 
 ## What landed in source
 
@@ -38,12 +38,27 @@ Pretty `/wp-json/` is still HTTP 500 on the store and HTTP 404 on the maintenanc
 - That MainWP site was removed. Portal and bridge rows were marked disconnected. The child WordPress, database, database user, and password files were deleted. The URL returns HTTP 404.
 - Subscription 3637 is still active. 2297, 1293, and 1203 are still active. 2293 is still pending.
 
+## Connect WordPress — 2026-10-16
+
+- Enrol from the portal waits 180 seconds. A real enrol takes about a minute.
+- WordPress 7 returns plugin ids without `.php`. The portal now compares those ids with the same normaliser used for the activation route.
+- A disposable child at `https://reactwoo.com/staging/rw-child-test` completed Connect WordPress for subscription 3637: connected, with check and sync required before that state. The child, its database, and its database user were then removed. The URL returns HTTP 404. The MainWP site created for that child was removed. Other MainWP sites were left in place.
+- Portal and bridge rows for that test were marked disconnected. Subscription 3637 stayed active. 2297, 1293, and 1203 stayed active. 2293 stayed pending.
+
+## Support allowance and credits — 2026-10-16
+
+- Portal 0.4.0 on staging, database 1.6, table `rw_support_ledger`.
+- Subscription 3637 received one +60 plan allowance. A second grant inserted nothing. Included remainder was 60.
+- Draft hidden products 3638 (60 minutes) and 3639 (300 minutes) use `_rw_support_minutes`. They are not subscriptions and have no licence package.
+- Completed test order 3640 credited 60 purchased minutes once. A repeat credit did not insert another row. Included stayed 60 and purchased was 60.
+- API Manager on staging skips a licence package id when the product is a Maintenance plan. An empty `reactwoo_product_entitlements` list makes no provision call. The third-party premium list is empty.
+- The licence server looks up an existing licence by subscription id and package id, and sync updates every movable row. That change is tested locally and is not deployed to `license.reactwoo.com`.
+
 ## Not done
 
 - Pretty permalinks were not repaired. Clients keep `index.php?rest_route=`.
-- The connector is not installed on a child. The enrol above was the portal client to the bridge, not the browser Connect WordPress flow.
-- Phases 6, 7, and 8 were not started.
 - Nothing was pushed to GitHub, and API Manager `origin` (production SSH) was not pushed.
+- The licence-server change is not on `license.reactwoo.com`.
 
 ## Tests
 
@@ -51,7 +66,7 @@ Pretty `/wp-json/` is still HTTP 500 on the store and HTTP 404 on the maintenanc
 
 ## Deferred
 
-Phase 6 support ledger, Phase 7 support-hour products, and Phase 8 bundled ReactWoo licences. Included minutes are stored on the entitlement snapshot only. They are not granted by a ledger.
+No further Maintenance phases from this plan. Bundled ReactWoo plugin licences stay empty until a commercial decision adds package slugs. Third-party premium plugins stay off the licence server until counsel confirms a list.
 
 ## Rollback
 

@@ -70,7 +70,8 @@ class RW_WordPress_Client {
 			return new WP_Error( 'rw_wp_discovery_failed', 'WordPress REST discovery did not return an API address.', array( 'status' => 502 ) );
 		}
 
-		$rest_root = RW_Site_Url::assert_public_https( $rest_root );
+		$raw_rest  = $rest_root;
+		$rest_root = self::preserve_rest_route( $raw_rest );
 		if ( is_wp_error( $rest_root ) ) {
 			return $rest_root;
 		}
@@ -118,26 +119,52 @@ class RW_WordPress_Client {
 		);
 	}
 
+	private static function preserve_rest_route( $url ) {
+		$checked = RW_Site_Url::assert_public_https( $url );
+		if ( is_wp_error( $checked ) ) {
+			return $checked;
+		}
+
+		$query = array();
+		parse_str( (string) wp_parse_url( (string) $url, PHP_URL_QUERY ), $query );
+		if ( isset( $query['rest_route'] ) && is_string( $query['rest_route'] ) && 0 === strpos( $query['rest_route'], '/' ) ) {
+			$checked = add_query_arg( 'rest_route', $query['rest_route'], $checked );
+		}
+
+		return $checked;
+	}
+
 	private static function resolve_redirect( $current, $location ) {
 		$location = trim( (string) $location );
 		if ( 0 === strpos( $location, 'https://' ) || 0 === strpos( $location, 'http://' ) ) {
-			return RW_Site_Url::assert_public_https( $location );
+			$absolute = $location;
+		} else {
+			$parts = wp_parse_url( $current );
+			if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+				return new WP_Error( 'rw_wp_discovery_failed', 'The website redirect could not be followed.', array( 'status' => 502 ) );
+			}
+
+			$origin = 'https://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '' );
+			if ( 0 === strpos( $location, '/' ) ) {
+				$absolute = $origin . $location;
+			} else {
+				$path     = isset( $parts['path'] ) ? (string) $parts['path'] : '/';
+				$dir      = trailingslashit( $origin . untrailingslashit( dirname( $path ) ) );
+				$absolute = $dir . $location;
+			}
 		}
 
-		$parts = wp_parse_url( $current );
-		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
-			return new WP_Error( 'rw_wp_discovery_failed', 'The website redirect could not be followed.', array( 'status' => 502 ) );
+		$next = RW_Site_Url::assert_public_https( $absolute );
+		if ( is_wp_error( $next ) ) {
+			return $next;
 		}
 
-		$origin = 'https://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '' );
-		if ( 0 === strpos( $location, '/' ) ) {
-			return RW_Site_Url::assert_public_https( $origin . $location );
+		$target_path = (string) wp_parse_url( $absolute, PHP_URL_PATH );
+		if ( strlen( $target_path ) > 1 && '/' === substr( $target_path, -1 ) && '/' !== substr( $next, -1 ) ) {
+			$next .= '/';
 		}
 
-		$path = isset( $parts['path'] ) ? (string) $parts['path'] : '/';
-		$dir  = trailingslashit( $origin . untrailingslashit( dirname( $path ) ) );
-
-		return RW_Site_Url::assert_public_https( $dir . $location );
+		return $next;
 	}
 
 	public static function api_url( $rest_root, $route ) {
@@ -171,12 +198,12 @@ class RW_WordPress_Client {
 		}
 
 		$url = self::api_url( $rest_root, $route );
-		$url = RW_Site_Url::assert_public_https( $url );
+		$url = self::preserve_rest_route( $url );
 		if ( is_wp_error( $url ) ) {
 			return $url;
 		}
 		if ( '' !== $query && preg_match( '/^[a-z0-9_=&]+$/i', $query ) ) {
-			$url .= '?' . $query;
+			$url .= ( false === strpos( $url, '?' ) ? '?' : '&' ) . $query;
 		}
 
 		$request_headers = array_merge(

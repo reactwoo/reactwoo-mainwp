@@ -272,11 +272,28 @@ class RW_Portal_Account {
 			$backup = ! empty( $entitlement['backup_profile'] ) ? (string) $entitlement['backup_profile'] : (string) $entitlement['backup_frequency'];
 		}
 		$support    = sanitize_email( (string) get_option( 'admin_email' ) );
+		$included_remaining = null;
+		$included_granted   = $minutes;
+		$purchased_remaining = 0;
+		$show_included      = $minutes > 0;
+		if ( ! is_wp_error( $entitlement ) && class_exists( 'RW_Support_Allowance' ) ) {
+			RW_Support_Allowance::grant_subscription( $subscription );
+			$balances            = RW_Support_Ledger::balances( $subscription_id );
+			$period              = RW_Support_Balance::period_containing( (string) $subscription->get_date( 'start' ), current_time( 'mysql' ) );
+			$included_granted    = $period ? RW_Support_Balance::current_grant( $balances['rows'], $period['start_date'] ) : 0;
+			$included_remaining  = (int) $balances['included'];
+			$purchased_remaining = (int) $balances['purchased'];
+			$show_included       = $included_granted > 0;
+		}
 
 		return array(
 			'subscription_id' => $subscription_id,
 			'plan_name'       => $plan_name,
 			'minutes'         => $minutes,
+			'included_minutes_remaining' => $included_remaining,
+			'included_minutes_granted'   => $included_granted,
+			'purchased_minutes_remaining' => $purchased_remaining,
+			'show_included_minutes'      => $show_included,
 			'site'            => $site,
 			'sites'           => self::site_summaries( $sites ),
 			'state'           => $state,
@@ -291,7 +308,7 @@ class RW_Portal_Account {
 				array( 'title' => 'Managed WordPress updates', 'text' => 'Core, themes and supported plugins' ),
 				array( 'title' => 'Cloud backups', 'text' => 'Recovery points stored off-site' ),
 				array( 'title' => 'Monitoring and reporting', 'text' => 'Uptime, security and changes' ),
-				array( 'title' => $minutes . ' minutes of technical support', 'text' => 'Each month of your plan' ),
+				array( 'title' => $show_included ? $included_granted . ' minutes of technical support' : 'Technical support packs', 'text' => $show_included ? 'Each service month of your plan' : 'Included minutes are not part of this plan' ),
 			),
 			'benefits'        => self::benefit_cards( $reports_on, $speed_on ),
 			'reports'         => self::report_cards( $reports_on, $speed_on ),

@@ -319,6 +319,9 @@ class RW_Connection_Orchestrator {
 		}
 
 		self::mark_site( $site, RW_Connection_State::CONNECTING_MAINTENANCE, '', '', 'v2' );
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
+		}
 		if ( ! empty( $bootstrap['child_version'] ) ) {
 			RW_Sites::update_site( (int) $site->id, array( 'mainwp_child_version' => sanitize_text_field( (string) $bootstrap['child_version'] ) ) );
 		}
@@ -376,6 +379,8 @@ class RW_Connection_Orchestrator {
 				'connector_protocol' => 'v2',
 				'connected_at'       => current_time( 'mysql', true ),
 				'last_bootstrap_at'  => current_time( 'mysql', true ),
+				'last_check_at'      => current_time( 'mysql', true ),
+				'last_sync_at'       => current_time( 'mysql', true ),
 				'maint_site_id'      => isset( $enroll['maint_site_id'] ) ? (int) $enroll['maint_site_id'] : 0,
 			)
 		);
@@ -411,7 +416,7 @@ class RW_Connection_Orchestrator {
 			if ( ! is_array( $plugin ) || empty( $plugin['plugin'] ) ) {
 				continue;
 			}
-			if ( $plugin_file !== $plugin['plugin'] ) {
+			if ( RW_WordPress_Client::plugin_route( $plugin['plugin'] ) !== RW_WordPress_Client::plugin_route( $plugin_file ) ) {
 				continue;
 			}
 			if ( isset( $plugin['status'] ) && 'active' === $plugin['status'] ) {

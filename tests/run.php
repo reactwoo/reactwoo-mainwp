@@ -690,6 +690,57 @@ $bridge_ok = RW_Maint_Security::verify_signed_request( rw_signed_request( $bridg
 $bridge_replay = RW_Maint_Security::verify_signed_request( rw_signed_request( $bridge_secret, 'bridge-once' ) );
 rw_test( 'a bridge nonce is accepted once', true === $bridge_ok && is_wp_error( $bridge_replay ) && 'rw_maint_replay' === $bridge_replay->get_error_code() );
 
+$client_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maint-client.php' );
+rw_test( 'enrol waits long enough for MainWP', false !== strpos( $client_src, 'const ENROLL_TIMEOUT  = 180' ) && false !== strpos( $client_src, 'timeout_for( $action )' ) );
+
+$orchestrator_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php' );
+rw_test( 'plugin ids match with or without .php', false !== strpos( $orchestrator_src, 'plugin_route( $plugin[\'plugin\'] )' ) );
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';
+
+$annual_start = '2026-01-16 09:00:00';
+$first        = RW_Support_Balance::period_containing( $annual_start, '2026-01-16 09:00:00' );
+$grant        = RW_Support_Balance::grant_rows( array(), 60, $first, '2026-01-16 09:00:00' );
+rw_test( 'annual standard grants 60 for the first service period', 1 === count( $grant ) && 60 === $grant[0]['minutes_delta'] && '2026-01-16' === $first['start_date'] );
+$again = RW_Support_Balance::grant_rows( $grant, 60, $first, '2026-01-20 09:00:00' );
+rw_test( 'the same service period does not grant another 60', array() === $again );
+rw_test( 'twelve months are not granted up front', 60 === RW_Support_Balance::included_remainder( $grant, '2026-01-20 09:00:00' ) );
+
+$second = RW_Support_Balance::period_containing( $annual_start, '2026-02-16 09:00:00' );
+$closed = RW_Support_Balance::grant_rows( $grant, 60, $second, '2026-02-16 09:00:00' );
+$live   = array_merge( $grant, $closed );
+rw_test( 'the next service month grants 60 and expires the unused allowance', 60 === RW_Support_Balance::included_remainder( $live, '2026-02-16 09:00:00' ) && 60 === RW_Support_Balance::current_grant( $live, '2026-02-16' ) );
+$expiry = 0;
+foreach ( $closed as $row ) {
+	if ( 'expiry' === $row['credit_type'] ) {
+		$expiry += $row['minutes_delta'];
+	}
+}
+rw_test( 'unused included minutes are closed with an expiry row', -60 === $expiry );
+
+$used = $grant;
+$used[] = array(
+	'minutes_delta' => -30,
+	'credit_type'   => 'usage',
+	'reference'     => 'included:2026-01-16',
+	'expires_at'    => $first['end'],
+);
+$pack = RW_Support_Balance::purchase_row( array(), 88, 300, 365, '2026-01-16 09:00:00' );
+$with_pack = array_merge( $used, array( $pack ) );
+rw_test( 'using 30 included minutes leaves the purchased pack untouched', 30 === RW_Support_Balance::included_remainder( $with_pack, '2026-01-20 09:00:00' ) && 300 === RW_Support_Balance::purchased_remainder( $with_pack, '2026-01-20 09:00:00' ) );
+rw_test( 'the same order item does not credit twice', null === RW_Support_Balance::purchase_row( array( $pack ), 88, 300, 365, '2026-01-17 09:00:00' ) );
+rw_test( 'essential has no included minutes to show', 0 === RW_Support_Balance::current_grant( RW_Support_Balance::grant_rows( array(), 0, $first, '2026-01-16 09:00:00' ), '2026-01-16' ) );
+rw_test( 'support credit reads minutes meta and ignores a title', false === RW_Support_Balance::should_credit( array( '_rw_product_type' => 'simple' ), true ) && true === RW_Support_Balance::should_credit( array( '_rw_product_type' => 'support_credit', '_rw_support_minutes' => '60', '_rw_requires_maintenance' => 'yes' ), true ) && false === RW_Support_Balance::should_credit( array( '_rw_product_type' => 'support_credit', '_rw_support_minutes' => '60', '_rw_requires_maintenance' => 'yes' ), false ) );
+
+$month_end = RW_Support_Balance::period_containing( '2026-01-31 08:00:00', '2026-02-15 08:00:00' );
+rw_test( 'a 31st start stays inside the shortened next month', is_array( $month_end ) && '2026-01-31' === $month_end['start_date'] && '2026-02-28 08:00:00' === $month_end['end'] );
+
+$portal_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-credits.php' );
+rw_test( 'support credits are not sent to the licence server', false === strpos( $portal_src, '/v1/licenses/provision' ) && false === strpos( $portal_src, 'GBP' ) && false === strpos( $portal_src, '£' ) );
+$plans = RW_Maintenance_Plans::resolve( 'business' );
+rw_test( 'third-party premium list is empty', array() === $plans['third_party_premium_entitlements'] && array() === $plans['reactwoo_product_entitlements'] );
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

@@ -2,14 +2,14 @@
 
 **Audit:** [MAINTENANCE-CONNECTION-CURRENT-STATE.md](./MAINTENANCE-CONNECTION-CURRENT-STATE.md)  
 **Date:** 2026-10-16  
-**Status:** Phases 0–5 are in Git and installed on staging (portal 0.3.0, bridge 0.3.0, API Manager 2.1.16). Production API Manager is still 2.1.14. A disposable unique-id child enrolled through the portal client and reached management connected, check, and sync, then was removed. Phases 6–8 are not started. Staging notes are in [MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md](./MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md).
+**Status:** Phases 0–8 are implemented in source. Staging portal is 0.4.0 (database 1.6) and staging API Manager includes the empty-entitlement guard. Production API Manager is still 2.1.14. The licence-server composite lookup is tested locally and is not deployed. Staging notes are in [MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md](./MAINTENANCE-PHASE-0-5-IMPLEMENTATION-RESULT.md).
 
 Resolved on 2026-10-16:
 
 - The Maintenance plan field lives in API Manager as `_rw_maintenance_plan_key`.
 - Maintenance products get no licence package.
 - API Manager remains the only licence HTTP client. The portal licence client is not loaded.
-- Phase 8 bundled licences stay deferred.
+- Phase 8 does not assign a licence package to Essential, Standard, or Business. An empty entitlement list performs no provision call. The third-party premium list is empty.
 - Included support minutes follow the service anniversary, not a calendar month and not the Woo billing cycle.
 
 The uncommitted working tree already contains a partial V2 attempt (portal 0.2.1 on the store, bridge 0.2.0 only on disk). That attempt is not the specification below. In particular it must not ship as-is:

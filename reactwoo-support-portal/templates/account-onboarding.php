@@ -89,8 +89,15 @@ $host      = $host ? $host : 'your website';
 	<section class="rw-maint-support" aria-labelledby="rw-maint-support-title">
 		<div>
 			<p class="rw-maint-kicker">Included support</p>
-			<p class="rw-maint-minutes"><?php echo esc_html( (string) $minutes ); ?> minutes</p>
-			<p>of technical support per billing period</p>
+			<?php if ( ! empty( $rw_view['show_included_minutes'] ) ) : ?>
+				<p class="rw-maint-minutes"><?php echo esc_html( (string) (int) $rw_view['included_minutes_remaining'] ); ?> minutes</p>
+				<p>of <?php echo esc_html( (string) (int) $rw_view['included_minutes_granted'] ); ?> remain in this service period</p>
+			<?php else : ?>
+				<p>This plan does not include technical support minutes.</p>
+			<?php endif; ?>
+			<?php if ( isset( $rw_view['purchased_minutes_remaining'] ) && (int) $rw_view['purchased_minutes_remaining'] > 0 ) : ?>
+				<p><?php echo esc_html( (string) (int) $rw_view['purchased_minutes_remaining'] ); ?> purchased minutes remain.</p>
+			<?php endif; ?>
 		</div>
 		<div>
 			<h2 id="rw-maint-support-title">Real help when your site needs it.</h2>

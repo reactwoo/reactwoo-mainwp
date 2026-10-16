@@ -179,11 +179,11 @@ class RW_Portal_Sites_Admin {
 	private static function render_table( array $sites ) {
 		echo '<table class="widefat striped">';
 		echo '<thead><tr>';
-		echo '<th>ID</th><th>User</th><th>Subscription</th><th>Site</th><th>Status</th><th>Override</th><th>Last Seen</th><th>Actions</th>';
+		echo '<th>ID</th><th>User</th><th>Subscription</th><th>Site</th><th>Status</th><th>Support</th><th>Override</th><th>Last Seen</th><th>Actions</th>';
 		echo '</tr></thead><tbody>';
 
 		if ( empty( $sites ) ) {
-			echo '<tr><td colspan="8">No managed sites found.</td></tr>';
+			echo '<tr><td colspan="9">No managed sites found.</td></tr>';
 		} else {
 			foreach ( $sites as $site ) {
 				$nonce = wp_create_nonce( 'rw_toggle_override_' . (int) $site->id );
@@ -205,6 +205,7 @@ class RW_Portal_Sites_Admin {
 				echo '<td>' . esc_html( $site->subscription_id ) . '</td>';
 				echo '<td><strong>' . esc_html( $site->site_name ) . '</strong><br /><small>' . esc_html( $site->site_url ) . '</small></td>';
 				echo '<td>' . esc_html( $site->status ) . '</td>';
+				echo '<td>' . esc_html( self::support_label( (int) $site->subscription_id ) ) . '</td>';
 				echo '<td>' . ( $site->enroll_url_override ? 'Yes' : 'No' ) . '</td>';
 				echo '<td>' . esc_html( $site->last_seen ? $site->last_seen : 'Never' ) . '</td>';
 				echo '<td><a class="button" href="' . esc_url( $action_url ) . '">' . esc_html( $override_label ) . ' Override</a></td>';
@@ -213,6 +214,22 @@ class RW_Portal_Sites_Admin {
 		}
 
 		echo '</tbody></table>';
+	}
+
+	private static function support_label( $subscription_id ) {
+		if ( ! class_exists( 'RW_Support_Ledger' ) || $subscription_id <= 0 ) {
+			return '';
+		}
+		$balances = RW_Support_Ledger::balances( $subscription_id );
+		$parts    = array();
+		if ( (int) $balances['included'] > 0 ) {
+			$parts[] = (int) $balances['included'] . ' included';
+		}
+		if ( (int) $balances['purchased'] > 0 ) {
+			$parts[] = (int) $balances['purchased'] . ' purchased';
+		}
+
+		return $parts ? implode( ', ', $parts ) : 'None remaining';
 	}
 
 	private static function render_pagination( $page, $total_pages, array $filters ) {

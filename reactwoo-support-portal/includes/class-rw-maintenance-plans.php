@@ -50,7 +50,7 @@ class RW_Maintenance_Plans {
 		$plan['is_maintenance']                   = true;
 		$plan['plan_key']                         = $key;
 		$plan['reactwoo_product_entitlements']    = array();
-		$plan['third_party_premium_entitlements'] = array();
+		$plan['third_party_premium_entitlements'] = self::third_party_premium_entitlements();
 		$plan['technical_support_minutes']        = (int) $plan['technical_support_minutes_monthly'];
 		$plan['backup_frequency']                 = (string) $plan['backup_profile'];
 		$plan['uptime_monitoring']                = (bool) $plan['uptime'];
@@ -65,6 +65,16 @@ class RW_Maintenance_Plans {
 	 *
 	 * @return array<string,array<string,mixed>>
 	 */
+	/**
+	 * Commercial eligibility for plugins such as Elementor Pro or Rank Math Pro.
+	 * Empty until counsel confirms a list. These slugs are never sent to the licence server.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function third_party_premium_entitlements() {
+		return array();
+	}
+
 	public static function catalogue() {
 		$shared = array(
 			'site_limit'       => 1,

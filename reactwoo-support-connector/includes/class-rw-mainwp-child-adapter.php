@@ -33,7 +33,13 @@ class RW_MainWP_Child_Adapter {
 		$unique_id = get_option( self::UNIQUE_OPTION );
 		$unique_id = apply_filters( 'rw_connector_unique_security_id', is_string( $unique_id ) ? trim( $unique_id ) : '' );
 		if ( ! is_string( $unique_id ) || '' === $unique_id ) {
-			return new WP_Error( 'rw_unique_id_missing', 'Passwordless maintenance identity is not available.', array( 'status' => 409 ) );
+			$unique_id = wp_generate_password( 12, false, false );
+			update_option( self::UNIQUE_OPTION, $unique_id );
+		}
+
+		$user_id = get_current_user_id();
+		if ( $user_id ) {
+			update_user_option( $user_id, 'mainwp_child_user_enable_passwd_auth_connect', '0' );
 		}
 
 		$version = '';

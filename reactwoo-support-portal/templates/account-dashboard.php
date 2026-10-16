@@ -29,7 +29,12 @@ $host = $host ? $host : 'your website';
 		<aside class="rw-maint-plan" aria-label="Plan and support">
 			<p class="rw-maint-kicker">Your plan</p>
 			<h3><?php echo esc_html( $rw_view['plan_name'] ); ?></h3>
-			<p><?php echo esc_html( (string) (int) $rw_view['minutes'] ); ?> minutes of technical support this billing period.</p>
+			<?php if ( ! empty( $rw_view['show_included_minutes'] ) ) : ?>
+				<p><?php echo esc_html( (string) (int) $rw_view['included_minutes_remaining'] ); ?> of <?php echo esc_html( (string) (int) $rw_view['included_minutes_granted'] ); ?> included minutes remain in this service period.</p>
+			<?php endif; ?>
+			<?php if ( isset( $rw_view['purchased_minutes_remaining'] ) && (int) $rw_view['purchased_minutes_remaining'] > 0 ) : ?>
+				<p><?php echo esc_html( (string) (int) $rw_view['purchased_minutes_remaining'] ); ?> purchased minutes remain. Purchased minutes are kept separate from the monthly allowance.</p>
+			<?php endif; ?>
 			<?php if ( ! empty( $rw_view['last_seen'] ) ) : ?>
 				<p>Last update from your website: <?php echo esc_html( $rw_view['last_seen'] ); ?></p>
 			<?php endif; ?>

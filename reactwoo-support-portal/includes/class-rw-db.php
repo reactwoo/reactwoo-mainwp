@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_DB {
-	const DB_VERSION = '1.5';
+	const DB_VERSION = '1.6';
 
 	public static function table( $suffix ) {
 		global $wpdb;
@@ -34,6 +34,7 @@ class RW_DB {
 		$managed_sites_table = self::table( 'managed_sites' );
 		$tokens_table        = self::table( 'site_tokens' );
 		$audit_table         = self::table( 'audit_log' );
+		$ledger_table        = self::table( 'support_ledger' );
 
 		$managed_sites_sql = "CREATE TABLE {$managed_sites_table} (
 			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -131,10 +132,31 @@ class RW_DB {
 			KEY managed_site_id (managed_site_id)
 		) {$charset_collate};";
 
+		$ledger_sql = "CREATE TABLE {$ledger_table} (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT(20) UNSIGNED NOT NULL,
+			subscription_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+			managed_site_id BIGINT(20) UNSIGNED DEFAULT NULL,
+			order_id BIGINT(20) UNSIGNED DEFAULT NULL,
+			order_item_id BIGINT(20) UNSIGNED DEFAULT NULL,
+			minutes_delta INT NOT NULL,
+			credit_type ENUM('plan_allowance','purchased','usage','adjustment','expiry') NOT NULL,
+			reference VARCHAR(190) NOT NULL DEFAULT '',
+			expires_at DATETIME DEFAULT NULL,
+			created_at DATETIME NOT NULL,
+			created_by BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+			PRIMARY KEY  (id),
+			KEY user_id (user_id),
+			KEY subscription_id (subscription_id),
+			KEY credit_lookup (subscription_id, credit_type, reference),
+			KEY order_item_id (order_item_id)
+		) {$charset_collate};";
+
 		dbDelta( $managed_sites_sql );
 		dbDelta( $attempts_sql );
 		dbDelta( $tokens_sql );
 		dbDelta( $audit_sql );
+		dbDelta( $ledger_sql );
 
 		update_option( 'rw_portal_db_version', self::DB_VERSION );
 	}

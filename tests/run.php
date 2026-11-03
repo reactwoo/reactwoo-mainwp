@@ -284,6 +284,7 @@ function wp_parse_url( $url, $component = -1 ) {
 		PHP_URL_HOST   => 'host',
 		PHP_URL_PORT   => 'port',
 		PHP_URL_PATH   => 'path',
+		PHP_URL_QUERY  => 'query',
 	);
 	$key = isset( $map[ $component ] ) ? $map[ $component ] : '';
 	return ( $parsed && $key && isset( $parsed[ $key ] ) ) ? $parsed[ $key ] : null;
@@ -393,12 +394,16 @@ function delete_option( $key ) {
 function wp_using_ext_object_cache() {
 	return false;
 }
-function add_query_arg( $args, $url ) {
+function add_query_arg( $args, $url = '', $maybe_url = null ) {
+	if ( is_string( $args ) && null !== $maybe_url ) {
+		$args = array( $args => $url );
+		$url  = $maybe_url;
+	}
 	$parts = array();
 	foreach ( (array) $args as $key => $value ) {
 		$parts[] = rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
 	}
-	$join = ( false === strpos( $url, '?' ) ) ? '?' : '&';
+	$join = ( false === strpos( (string) $url, '?' ) ) ? '?' : '&';
 	return $url . $join . implode( '&', $parts );
 }
 function wp_remote_request( $url, $args = array() ) {
@@ -413,7 +418,51 @@ function wp_remote_retrieve_response_code( $response ) {
 	return (int) $response['response']['code'];
 }
 function wp_remote_retrieve_body( $response ) {
-	return (string) $response['body'];
+	return isset( $response['body'] ) ? (string) $response['body'] : '';
+}
+function wp_remote_retrieve_headers( $response ) {
+	return isset( $response['headers'] ) ? $response['headers'] : array();
+}
+function wp_remote_retrieve_header( $response, $header ) {
+	$headers = wp_remote_retrieve_headers( $response );
+	$name    = strtolower( (string) $header );
+	if ( is_object( $headers ) && method_exists( $headers, 'getAll' ) ) {
+		$all = $headers->getAll();
+		if ( is_array( $all ) && isset( $all[ $name ] ) ) {
+			return $all[ $name ];
+		}
+		return '';
+	}
+	if ( is_array( $headers ) ) {
+		foreach ( $headers as $key => $value ) {
+			if ( strtolower( (string) $key ) === $name ) {
+				return $value;
+			}
+		}
+	}
+	return '';
+}
+function wp_remote_get( $url, $args = array() ) {
+	unset( $args );
+	$GLOBALS['rw_http_get_log'][] = $url;
+	if ( isset( $GLOBALS['rw_http_get'][ $url ] ) ) {
+		return $GLOBALS['rw_http_get'][ $url ];
+	}
+	return array(
+		'response' => array( 'code' => 404 ),
+		'headers'  => array(),
+		'body'     => '',
+	);
+}
+
+class RW_Test_HeaderBag {
+	private $all;
+	public function __construct( array $all ) {
+		$this->all = $all;
+	}
+	public function getAll() {
+		return $this->all;
+	}
 }
 
 $root = dirname( __DIR__ );
@@ -818,6 +867,107 @@ $component_versions = RW_Maint_MainWP_Client::extract_component_versions(
 	)
 );
 rw_test( 'check and sync can read both component versions', '6.4' === $component_versions['mainwp_child_version'] && '2.3.1' === $component_versions['mainwp_child_reports_version'] );
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php';
+
+$link_values = array(
+	'<https://example.com/?p=1>; rel="shortlink"',
+	'<https://example.com/blog/wp-json/>; rel="https://api.w.org/"',
+);
+$from_array = '';
+foreach ( RW_WordPress_Client::header_values( array( 'headers' => array( 'link' => $link_values ) ), 'link' ) as $value ) {
+	$found = RW_WordPress_Client::rest_root_from_link( $value );
+	if ( '' !== $found ) {
+		$from_array = $found;
+	}
+}
+rw_test( 'multiple Link headers still expose the REST root', 'https://example.com/blog/wp-json/' === $from_array );
+$from_bag = '';
+foreach ( RW_WordPress_Client::header_values( array( 'headers' => new RW_Test_HeaderBag( array( 'link' => $link_values ) ) ), 'link' ) as $value ) {
+	$found = RW_WordPress_Client::rest_root_from_link( $value );
+	if ( '' !== $found ) {
+		$from_bag = $found;
+	}
+}
+rw_test( 'header getAll() exposes the REST root', 'https://example.com/blog/wp-json/' === $from_bag );
+rw_test(
+	'an HTML API link is read in either attribute order',
+	'https://example.com/blog/wp-json/' === RW_WordPress_Client::rest_root_from_html( '<html><link href="https://example.com/blog/wp-json/" rel="https://api.w.org/"></html>' )
+		&& 'https://example.com/blog/wp-json/' === RW_WordPress_Client::rest_root_from_html( "<html><link rel='https://api.w.org/' href='https://example.com/blog/wp-json/' /></html>" )
+);
+
+function rw_rest_index_body() {
+	return wp_json_encode(
+		array(
+			'namespaces'       => array( 'wp/v2' ),
+			'authentication'   => array(
+				'application-passwords' => array(
+					'endpoints' => array(
+						'authorization' => 'https://example.com/wp-admin/authorize-application.php',
+					),
+				),
+			),
+		)
+	);
+}
+function rw_http_page( $code, $body, $headers = array() ) {
+	return array(
+		'response' => array( 'code' => $code ),
+		'headers'  => $headers,
+		'body'     => $body,
+	);
+}
+
+$home = RW_Site_Url::assert_public_https( 'https://example.com' );
+$blog_root = RW_Site_Url::assert_public_https( 'https://example.com/blog/wp-json/' );
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 200, '<html>front</html>', array( 'link' => $link_values ) ),
+	$blog_root => rw_http_page( 200, rw_rest_index_body() ),
+);
+$discovered = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'discovery follows an array of Link headers', is_array( $discovered ) && $blog_root === $discovered['rest_root'] && false === array_search( RW_WordPress_Client::rest_probe_urls( $home )[0], $GLOBALS['rw_http_get_log'], true ) );
+
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 200, '<html><link href="https://example.com/blog/wp-json/" rel="https://api.w.org/"></html>' ),
+	$blog_root => rw_http_page( 200, rw_rest_index_body() ),
+);
+$from_html = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'discovery reads the HTML API link when no Link header is present', is_array( $from_html ) && $blog_root === $from_html['rest_root'] );
+
+$probes = RW_WordPress_Client::rest_probe_urls( $home );
+$pretty = RW_Site_Url::assert_public_https( $probes[0] );
+$plain  = $probes[1];
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 403, '<html>staging login wall</html>' ),
+	$pretty => rw_http_page( 200, rw_rest_index_body() ),
+);
+$walled = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'a hidden front page still discovers /wp-json/', is_array( $walled ) && $pretty === $walled['rest_root'] && in_array( $pretty, $GLOBALS['rw_http_get_log'], true ) );
+
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 200, '<html>staging login wall</html>' ),
+	$pretty => rw_http_page( 404, 'missing' ),
+	$plain => rw_http_page( 200, rw_rest_index_body() ),
+);
+$plain_discovered = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'discovery falls through to ?rest_route=/ when /wp-json/ is hidden', is_array( $plain_discovered ) && false !== strpos( $plain_discovered['rest_root'], 'rest_route' ) && in_array( $plain, $GLOBALS['rw_http_get_log'], true ) );
+unset( $GLOBALS['rw_http_get'], $GLOBALS['rw_http_get_log'] );
+
+rw_test( 'a newer local connector zip wins over the published version', RW_Portal_Account::connector_download_prefers_local( '0.2.1', '0.3.0' ) && ! RW_Portal_Account::connector_download_prefers_local( '0.3.0', '0.2.1' ) && ! RW_Portal_Account::connector_download_prefers_local( '0.3.0', '0.3.0' ) && ! RW_Portal_Account::connector_download_prefers_local( '', '0.3.0' ) );
+if ( class_exists( 'ZipArchive' ) ) {
+	$zip_path = tempnam( sys_get_temp_dir(), 'rwzip' );
+	$zip = new ZipArchive();
+	$zip->open( $zip_path, ZipArchive::OVERWRITE );
+	$zip->addFromString( 'reactwoo-support-connector/reactwoo-support-connector.php', "<?php\n/**\n * Version: 0.3.0\n */\n" );
+	$zip->close();
+	rw_test( 'the local connector zip version is read from the plugin header', '0.3.0' === RW_Portal_Account::connector_zip_version( $zip_path ) );
+	unlink( $zip_path );
+}
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';

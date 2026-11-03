@@ -162,12 +162,31 @@ class RW_Portal_Account {
 	}
 
 	/**
-	 * Short-lived package URL from api.reactwoo.com. Empty when the service
-	 * does not return a public HTTPS address, so the local zip can be used.
+	 * Short-lived package URL from api.reactwoo.com.
+	 *
+	 * Empty when the service does not return a public HTTPS address, and when
+	 * the zip shipped with this portal is a newer connector than the API.
 	 *
 	 * @return string
 	 */
 	private static function connector_signed_download_url() {
+		$package = self::connector_update_package();
+		if ( ! is_array( $package ) || '' === $package['url'] ) {
+			return '';
+		}
+
+		$local = self::connector_zip_version( RW_PORTAL_DIR . 'downloads/reactwoo-site-plugin.zip' );
+		if ( self::connector_download_prefers_local( $package['version'], $local ) ) {
+			return '';
+		}
+
+		return $package['url'];
+	}
+
+	/**
+	 * @return array{url:string,version:string}|null
+	 */
+	private static function connector_update_package() {
 		$slug = 'reactwoo-support-connector';
 		$urls = array(
 			add_query_arg(
@@ -189,9 +208,9 @@ class RW_Portal_Account {
 					'headers'     => array( 'Accept' => 'application/json' ),
 				)
 			);
-			$signed = self::download_url_from_updates_response( $response );
-			if ( '' !== $signed ) {
-				return $signed;
+			$package = self::package_from_updates_response( $response );
+			if ( is_array( $package ) ) {
+				return $package;
 			}
 		}
 
@@ -216,21 +235,73 @@ class RW_Portal_Account {
 			)
 		);
 
-		return self::download_url_from_updates_response( $response );
+		return self::package_from_updates_response( $response );
+	}
+
+	/**
+	 * Use the portal zip when it is newer than the published connector.
+	 *
+	 * A missing version on either side keeps the signed URL, when one exists.
+	 *
+	 * @param string $api_version Version advertised by api.reactwoo.com.
+	 * @param string $local_version Version inside the local zip.
+	 * @return bool
+	 */
+	public static function connector_download_prefers_local( $api_version, $local_version ) {
+		$api_version   = trim( (string) $api_version );
+		$local_version = trim( (string) $local_version );
+		if ( '' === $api_version || '' === $local_version ) {
+			return false;
+		}
+
+		return version_compare( $local_version, $api_version, '>' );
+	}
+
+	/**
+	 * Plugin header version from a connector zip.
+	 *
+	 * @param string $file Zip path.
+	 * @return string
+	 */
+	public static function connector_zip_version( $file ) {
+		if ( ! is_string( $file ) || ! is_readable( $file ) || ! class_exists( 'ZipArchive' ) ) {
+			return '';
+		}
+
+		$zip = new ZipArchive();
+		if ( true !== $zip->open( $file ) ) {
+			return '';
+		}
+
+		$version = '';
+		for ( $i = 0; $i < $zip->numFiles; $i++ ) {
+			$name = (string) $zip->getNameIndex( $i );
+			if ( ! preg_match( '#(^|/)reactwoo-support-connector\.php$#', $name ) ) {
+				continue;
+			}
+			$contents = $zip->getFromIndex( $i );
+			if ( is_string( $contents ) && preg_match( '/^[ \t]*\*[ \t]*Version:[ \t]*(\S+)/m', $contents, $matches ) ) {
+				$version = $matches[1];
+				break;
+			}
+		}
+		$zip->close();
+
+		return $version;
 	}
 
 	/**
 	 * @param mixed $response HTTP API response.
-	 * @return string
+	 * @return array{url:string,version:string}|null
 	 */
-	private static function download_url_from_updates_response( $response ) {
+	private static function package_from_updates_response( $response ) {
 		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
-			return '';
+			return null;
 		}
 
 		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
 		if ( ! is_array( $data ) ) {
-			return '';
+			return null;
 		}
 
 		$url = '';
@@ -241,7 +312,20 @@ class RW_Portal_Account {
 			}
 		}
 
-		return self::public_download_redirect( $url );
+		$url = self::public_download_redirect( $url );
+		if ( '' === $url ) {
+			return null;
+		}
+
+		$version = '';
+		if ( ! empty( $data['version'] ) && is_string( $data['version'] ) ) {
+			$version = trim( $data['version'] );
+		}
+
+		return array(
+			'url'     => $url,
+			'version' => $version,
+		);
 	}
 
 	/**

@@ -504,6 +504,8 @@ Safely discover the customer WordPress REST root and Application Password author
 
 Do not guess an auth endpoint if REST discovery provides it.
 
+A normal WordPress response sends more than one `Link` header, so discovery must read every value. It also reads `<link rel="https://api.w.org/" href="...">` from the HTML. If the front page is a login wall and neither source is present, discovery probes `<home>/wp-json/` and then `<home>/?rest_route=/` and accepts the first response that is a WordPress REST index.
+
 ## Redirect
 
 Redirect the customer to their WordPress authorisation flow.
@@ -1372,7 +1374,7 @@ The implementation is complete only when this works end to end:
 
 Portal `0.5.0` and connector `0.3.0` use this order. The customer installs and activates only `reactwoo-support-connector`.
 
-1. The account download asks `https://api.reactwoo.com/api/v5/updates` for slug `reactwoo-support-connector` and redirects to the short-lived `download_url`. The copy in `reactwoo-support-portal/downloads/` is the fallback when that URL is missing.
+1. The account download asks `https://api.reactwoo.com/api/v5/updates` for slug `reactwoo-support-connector` and redirects to the short-lived `download_url`. The copy in `reactwoo-support-portal/downloads/` is used when that URL is missing, and also when the zip shipped with the portal is a newer connector than the version the API advertises. Publishing connector `0.3.0` is not required before this portal can hand out its own newer zip.
 2. The customer authorises with an Application Password.
 3. The portal checks that the connector is active. It does not require MainWP Child to be active first.
 4. Connector bootstrap exchanges the one-time challenge for `site_id` and `site_secret`.

@@ -588,10 +588,12 @@ Do not automatically treat unrelated subdomains as the same site.
 
 # 15. Automatic plugin bootstrap
 
+The customer installs only the ReactWoo connector. Section 37 is the implemented order for the maintenance components.
+
 Where WordPress permissions allow, install/activate:
 
-- ReactWoo connector;
-- required maintenance-management child component.
+- ReactWoo connector, by the customer, from the account download;
+- required maintenance-management child component, by the connector after enrolment.
 
 Do not require the customer to manually upload ZIP files in the normal journey.
 
@@ -1363,4 +1365,33 @@ The implementation is complete only when this works end to end:
 18. Customer can see maintenance/backups/monitoring/reporting/support in plain language.
 19. Subscription lifecycle correctly suspends/resumes operational maintenance.
 20. No duplicated licensing authority or provisioning server has been introduced.
+
+---
+
+# 37. Implemented component order
+
+Portal `0.5.0` and connector `0.3.0` use this order. The customer installs and activates only `reactwoo-support-connector`.
+
+1. The account download asks `https://api.reactwoo.com/api/v5/updates` for slug `reactwoo-support-connector` and redirects to the short-lived `download_url`. The copy in `reactwoo-support-portal/downloads/` is the fallback when that URL is missing.
+2. The customer authorises with an Application Password.
+3. The portal checks that the connector is active. It does not require MainWP Child to be active first.
+4. Connector bootstrap exchanges the one-time challenge for `site_id` and `site_secret`.
+5. The portal sends a signed `POST /reactwoo-connector/v2/install-components` for `mainwp-child` and `mainwp-child-reports`. The body cannot include a download URL.
+6. The connector accepts that route only when it is signed with the stored site secret, and rejects a reused nonce or a stale timestamp. It downloads only from an `api.reactwoo.com` signed URL whose host is Cloudflare R2 (`*.r2.cloudflarestorage.com` or `*.r2.dev`) or from the pinned `downloads.wordpress.org` zip. It verifies SHA-256 before `Plugin_Upgrader` installs the zip, then activates the plugin and creates the Child unique security ID.
+7. The portal polls signed `GET /reactwoo-connector/v2/status` until Child is active and the unique ID exists. The next call is signed `POST /reactwoo-connector/v2/identity`.
+8. The portal enrols with `maint.reactwoo.com` using the administrator username and unique ID, then revokes the Application Password.
+9. A failed install or a poll that lasts longer than 30 seconds is shown as something the customer can retry. The message does not name the underlying maintenance platform.
+
+White label starts when `rw_connector_managed` is set. It removes MainWP Child and MainWP Child Reports from the plugin list, action links, update list, admin notices, and their admin screens. The verified screen slugs are `mainwp_child_tab`, `mainwp-reports-page`, and `mainwp-reports-settings`. The connector stays visible unless `rw_connector_hide_self` is set. A logged-in `@reactwoo.com` user, a user with `rw_view_managed_plugins`, or user meta `rw_reactwoo_support` bypasses the hide.
+
+After operational enrolment, the bridge asks the MainWP Dashboard on the same site to push the White Label hide settings (`child_plugin_hide`) and the Child Reports `set_showhide=hide` action. Check and sync responses include `mainwp_child_version` and `mainwp_child_reports_version`.
+
+Pinned packages live in `scripts/component-pins.json` (Child `6.4`, Child Reports `2.3.1`, with SHA-256). `publish-update.yml` mirrors those zips to R2 when a connector release is published. Do not run that workflow or push a `v*` tag just to refresh the mirror.
+
+Decisions still open:
+
+- The connector is visible to the customer until `rw_connector_hide_self` is turned on.
+- If `api.reactwoo.com` does not yet return a signed R2 URL and SHA-256 for `mainwp-child` and `mainwp-child-reports`, the connector uses the pinned wordpress.org zip.
+- Branding is skipped, and enrolment still completes, when this bridge is not running beside the MainWP Dashboard classes. The connector white label still hides the plugins.
+- A signed R2 URL on a custom hostname is rejected unless that hostname is added with the `rw_connector_r2_download_hosts` filter. The account download of the connector itself can redirect to any public HTTPS URL the updates API returns.
 

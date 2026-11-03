@@ -392,9 +392,12 @@ class RW_Maint_Rest_Controller {
 		do_action( 'rw_maint_site_checked', $portal_site_id, $site );
 
 		return rest_ensure_response(
-			array(
-				'portal_site_id' => $portal_site_id,
-				'status'         => $site->status,
+			array_merge(
+				array(
+					'portal_site_id' => $portal_site_id,
+					'status'         => $site->status,
+				),
+				RW_Maint_MainWP_Client::component_versions( $portal_site_id )
 			)
 		);
 	}
@@ -420,9 +423,12 @@ class RW_Maint_Rest_Controller {
 		do_action( 'rw_maint_site_synced', $portal_site_id, $site );
 
 		return rest_ensure_response(
-			array(
-				'portal_site_id' => $portal_site_id,
-				'status'         => $site->status,
+			array_merge(
+				array(
+					'portal_site_id' => $portal_site_id,
+					'status'         => $site->status,
+				),
+				RW_Maint_MainWP_Client::component_versions( $portal_site_id )
 			)
 		);
 	}

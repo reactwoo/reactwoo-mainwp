@@ -1,0 +1,18 @@
+{
+  "components": [
+    {
+      "slug": "mainwp-child",
+      "version": "6.4",
+      "plugin_file": "mainwp-child/mainwp-child.php",
+      "sha256": "d893fdb6326f0fe93a0668585e647acf1fa425b71ac5b1dcd7ec15649bc689eb",
+      "source": "https://downloads.wordpress.org/plugin/mainwp-child.6.4.zip"
+    },
+    {
+      "slug": "mainwp-child-reports",
+      "version": "2.3.1",
+      "plugin_file": "mainwp-child-reports/mainwp-child-reports.php",
+      "sha256": "97436d887c544c8c0b965bcda024cf62a252342fb162bcb161d2182cdd25b0a9",
+      "source": "https://downloads.wordpress.org/plugin/mainwp-child-reports.2.3.1.zip"
+    }
+  ]
+}

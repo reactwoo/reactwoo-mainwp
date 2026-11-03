@@ -138,6 +138,15 @@ class RW_Portal_Account {
 			wp_die( esc_html__( 'This download link has expired. Return to your account and try again.', 'reactwoo-support-portal' ), '', array( 'response' => 403 ) );
 		}
 
+		$signed = self::connector_signed_download_url();
+		if ( '' !== $signed ) {
+			nocache_headers();
+			header( 'Referrer-Policy: no-referrer' );
+			header( 'X-Content-Type-Options: nosniff' );
+			wp_redirect( $signed, 302 );
+			exit;
+		}
+
 		$file = RW_PORTAL_DIR . 'downloads/reactwoo-site-plugin.zip';
 		if ( ! is_readable( $file ) ) {
 			wp_die( esc_html__( 'The site plugin is not available for download yet.', 'reactwoo-support-portal' ), '', array( 'response' => 404 ) );
@@ -150,6 +159,118 @@ class RW_Portal_Account {
 		header( 'X-Content-Type-Options: nosniff' );
 		readfile( $file );
 		exit;
+	}
+
+	/**
+	 * Short-lived package URL from api.reactwoo.com. Empty when the service
+	 * does not return a public HTTPS address, so the local zip can be used.
+	 *
+	 * @return string
+	 */
+	private static function connector_signed_download_url() {
+		$slug = 'reactwoo-support-connector';
+		$urls = array(
+			add_query_arg(
+				array(
+					'slug'    => $slug,
+					'channel' => 'stable',
+				),
+				'https://api.reactwoo.com/api/v5/updates'
+			),
+		);
+
+		foreach ( $urls as $url ) {
+			$response = wp_remote_get(
+				$url,
+				array(
+					'timeout'     => 12,
+					'redirection' => 0,
+					'sslverify'   => true,
+					'headers'     => array( 'Accept' => 'application/json' ),
+				)
+			);
+			$signed = self::download_url_from_updates_response( $response );
+			if ( '' !== $signed ) {
+				return $signed;
+			}
+		}
+
+		$response = wp_remote_post(
+			'https://api.reactwoo.com/api/v5/updates/check',
+			array(
+				'timeout'     => 12,
+				'redirection' => 0,
+				'sslverify'   => true,
+				'headers'     => array(
+					'Accept'       => 'application/json',
+					'Content-Type' => 'application/json',
+				),
+				'body'        => wp_json_encode(
+					array(
+						'slug'            => $slug,
+						'current_version' => '0.0.0',
+						'channel'         => 'stable',
+						'site_host'       => (string) wp_parse_url( home_url(), PHP_URL_HOST ),
+					)
+				),
+			)
+		);
+
+		return self::download_url_from_updates_response( $response );
+	}
+
+	/**
+	 * @param mixed $response HTTP API response.
+	 * @return string
+	 */
+	private static function download_url_from_updates_response( $response ) {
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return '';
+		}
+
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		if ( ! is_array( $data ) ) {
+			return '';
+		}
+
+		$url = '';
+		foreach ( array( 'download_url', 'signed_url', 'url' ) as $key ) {
+			if ( ! empty( $data[ $key ] ) && is_string( $data[ $key ] ) ) {
+				$url = $data[ $key ];
+				break;
+			}
+		}
+
+		return self::public_download_redirect( $url );
+	}
+
+	/**
+	 * Keep the query string. Signed package URLs are useless without it.
+	 *
+	 * @param string $url Candidate redirect.
+	 * @return string
+	 */
+	private static function public_download_redirect( $url ) {
+		$parts = wp_parse_url( trim( (string) $url ) );
+		if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+		if ( 'https' !== strtolower( (string) $parts['scheme'] ) ) {
+			return '';
+		}
+		if ( ! empty( $parts['user'] ) || ! empty( $parts['pass'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) $parts['host'] );
+		if ( RW_Site_Url::is_blocked_host( $host ) ) {
+			return '';
+		}
+		if ( filter_var( $host, FILTER_VALIDATE_IP ) && RW_Site_Url::is_blocked_ip( $host ) ) {
+			return '';
+		}
+
+		return trim( (string) $url );
 	}
 
 	public static function render_connect_form( $subscription_id, $compact = false ) {
@@ -387,7 +508,7 @@ class RW_Portal_Account {
 		$map   = array(
 			RW_Connection_State::AWAITING_AUTHORISATION => 0,
 			RW_Connection_State::AUTHORISING            => 0,
-			RW_Connection_State::INSTALLING             => 1,
+			RW_Connection_State::INSTALLING             => 2,
 			RW_Connection_State::BOOTSTRAPPING          => 1,
 			RW_Connection_State::CONNECTING_MAINTENANCE => 2,
 			RW_Connection_State::VERIFYING              => 4,

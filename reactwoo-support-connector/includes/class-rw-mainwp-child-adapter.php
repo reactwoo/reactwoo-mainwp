@@ -37,8 +37,17 @@ class RW_MainWP_Child_Adapter {
 			update_option( self::UNIQUE_OPTION, $unique_id );
 		}
 
-		$user_id = get_current_user_id();
-		if ( $user_id ) {
+		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		if ( ! $user_id && function_exists( 'get_user_by' ) ) {
+			$login = (string) get_option( 'rw_connector_admin_login' );
+			if ( '' !== $login ) {
+				$stored = get_user_by( 'login', $login );
+				if ( $stored && ! empty( $stored->ID ) ) {
+					$user_id = (int) $stored->ID;
+				}
+			}
+		}
+		if ( $user_id && function_exists( 'update_user_option' ) ) {
 			update_user_option( $user_id, 'mainwp_child_user_enable_passwd_auth_connect', '0' );
 		}
 

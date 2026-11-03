@@ -299,6 +299,93 @@ class RW_WordPress_Client {
 		);
 	}
 
+	public static function install_components( $rest_root, $site_id, $secret, array $slugs ) {
+		$body = wp_json_encode(
+			array(
+				'components' => array_values( $slugs ),
+			)
+		);
+
+		return self::signed_connector_request( $rest_root, '/reactwoo-connector/v2/install-components', 'POST', $body, $site_id, $secret, 90 );
+	}
+
+	public static function connector_status( $rest_root, $site_id, $secret ) {
+		return self::signed_connector_request( $rest_root, '/reactwoo-connector/v2/status', 'GET', '', $site_id, $secret, 20 );
+	}
+
+	public static function connector_identity( $rest_root, $site_id, $secret ) {
+		$body = wp_json_encode( array( 'purpose' => 'identity' ) );
+
+		return self::signed_connector_request( $rest_root, '/reactwoo-connector/v2/identity', 'POST', $body, $site_id, $secret, 20 );
+	}
+
+	/**
+	 * Sign with the REST route the connector verifies, not the public URL path.
+	 *
+	 * @param string $rest_root Discovered REST root.
+	 * @param string $route REST route beginning with a slash.
+	 * @param string $method HTTP method.
+	 * @param string $body Raw JSON body. Empty for GET.
+	 * @param int    $site_id Portal site id.
+	 * @param string $secret Site secret.
+	 * @param int    $timeout Seconds.
+	 * @return array|WP_Error
+	 */
+	public static function signed_connector_request( $rest_root, $route, $method, $body, $site_id, $secret, $timeout ) {
+		$url = self::api_url( $rest_root, ltrim( $route, '/' ) );
+		$url = self::preserve_rest_route( $url );
+		if ( is_wp_error( $url ) ) {
+			return $url;
+		}
+
+		$timestamp = (string) time();
+		try {
+			$nonce = bin2hex( random_bytes( 16 ) );
+		} catch ( Exception $e ) {
+			$nonce = wp_generate_password( 32, false, false );
+		}
+
+		$payload   = strtoupper( $method ) . '|' . $route . '|' . $timestamp . '|' . $nonce . '|' . hash( 'sha256', (string) $body );
+		$signature = hash_hmac( 'sha256', $payload, (string) $secret );
+		$headers   = array(
+			'Accept'         => 'application/json',
+			'X-RW-Site-ID'   => (string) (int) $site_id,
+			'X-RW-Timestamp' => $timestamp,
+			'X-RW-Nonce'     => $nonce,
+			'X-RW-Signature' => $signature,
+		);
+		$args      = array(
+			'method'      => strtoupper( $method ),
+			'timeout'     => (int) $timeout,
+			'redirection' => 0,
+			'sslverify'   => true,
+			'headers'     => $headers,
+		);
+		if ( '' !== (string) $body ) {
+			$args['headers']['Content-Type'] = 'application/json';
+			$args['body']                    = $body;
+		}
+
+		$response = wp_remote_request( $url, $args );
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'rw_wp_request_failed', 'The website could not be reached.', array( 'status' => 502 ) );
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code >= 300 && $code < 400 ) {
+			return new WP_Error( 'rw_wp_redirect_blocked', 'The website redirected an authenticated request.', array( 'status' => 502 ) );
+		}
+
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		if ( $code < 200 || $code >= 300 ) {
+			$error_code = ( is_array( $data ) && ! empty( $data['code'] ) ) ? sanitize_key( (string) $data['code'] ) : 'rw_connector_rejected';
+			$message    = ( is_array( $data ) && ! empty( $data['message'] ) ) ? sanitize_text_field( (string) $data['message'] ) : 'The website could not finish maintenance setup.';
+			return new WP_Error( $error_code, $message, array( 'status' => $code ) );
+		}
+
+		return is_array( $data ) ? $data : array();
+	}
+
 	public static function bootstrap_connector( $rest_root, $user_login, $password, $portal_url, $challenge ) {
 		return self::authorized_request(
 			$rest_root,

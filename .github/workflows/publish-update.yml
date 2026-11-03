@@ -196,3 +196,37 @@ jobs:
             -H "Accept: application/json" \
             -H "Content-Type: application/json; charset=utf-8" \
             --data-binary @publish-payload.json
+
+      - name: Mirror pinned MainWP components to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/mirror_components.py --dest-dir "${RUNNER_TEMP}/components"
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          manifest = json.loads(pathlib.Path(os.environ["RUNNER_TEMP"], "components", "mirror-manifest.json").read_text(encoding="utf-8"))
+          endpoint = os.environ["R2_ENDPOINT"]
+          bucket = os.environ["R2_BUCKET"]
+          for component in manifest["components"]:
+              for key in component["keys"]:
+                  subprocess.check_call([
+                      "aws", "s3", "cp", component["zip"], f"s3://{bucket}/{key}",
+                      "--endpoint-url", endpoint,
+                      "--content-type", "application/zip",
+                      "--cache-control", "public, max-age=31536000, immutable",
+                  ])
+              for key in component["manifest_keys"]:
+                  subprocess.check_call([
+                      "aws", "s3", "cp", component["manifest"], f"s3://{bucket}/{key}",
+                      "--endpoint-url", endpoint,
+                      "--content-type", "application/json",
+                      "--cache-control", "no-cache, max-age=0, must-revalidate",
+                  ])
+          PY
+        env:
+          R2_ENDPOINT: ${{ steps.r2.outputs.endpoint }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}

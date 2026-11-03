@@ -47,9 +47,13 @@ class WP_Error {
 class WP_REST_Request {
 	private $body;
 	private $headers;
-	public function __construct( $body = '', array $headers = array() ) {
+	private $method;
+	private $route;
+	public function __construct( $body = '', array $headers = array(), $method = 'POST', $route = '/reactwoo-maint/v1/enroll' ) {
 		$this->body    = (string) $body;
 		$this->headers = array();
+		$this->method  = $method;
+		$this->route   = $route;
 		foreach ( $headers as $name => $value ) {
 			$this->headers[ strtolower( $name ) ] = $value;
 		}
@@ -62,10 +66,14 @@ class WP_REST_Request {
 		return isset( $this->headers[ $name ] ) ? $this->headers[ $name ] : '';
 	}
 	public function get_method() {
-		return 'POST';
+		return $this->method;
 	}
 	public function get_route() {
-		return '/reactwoo-maint/v1/enroll';
+		return $this->route;
+	}
+	public function get_json_params() {
+		$decoded = json_decode( $this->body, true );
+		return is_array( $decoded ) ? $decoded : array();
 	}
 }
 
@@ -695,6 +703,121 @@ rw_test( 'enrol waits long enough for MainWP', false !== strpos( $client_src, 'c
 
 $orchestrator_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php' );
 rw_test( 'plugin ids match with or without .php', false !== strpos( $orchestrator_src, 'plugin_route( $plugin[\'plugin\'] )' ) );
+rw_test(
+	'onboarding installs components after the connector is enrolled',
+	false === strpos( $orchestrator_src, 'maintenance_component_missing' )
+		&& false !== strpos( $orchestrator_src, 'install_components' )
+		&& false !== strpos( $orchestrator_src, 'connector_identity' )
+		&& false !== strpos( $orchestrator_src, 'components_timeout' )
+);
+
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector-signing.php';
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-component-installer.php';
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-whitelabel.php';
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp.php';
+
+$GLOBALS['rw_options']['rw_connector_site_id']     = 9;
+$GLOBALS['rw_options']['rw_connector_site_secret'] = 'connector-site-secret';
+$install_route = '/reactwoo-connector/v2/install-components';
+$install_body  = '{"components":["mainwp-child","mainwp-child-reports"]}';
+
+function rw_connector_signed( $secret, $nonce, $body, $route, $signature = null ) {
+	$timestamp = (string) time();
+	$payload   = 'POST|' . $route . '|' . $timestamp . '|' . $nonce . '|' . hash( 'sha256', $body );
+	if ( null === $signature ) {
+		$signature = hash_hmac( 'sha256', $payload, $secret );
+	}
+	return new WP_REST_Request(
+		$body,
+		array(
+			'x-rw-signature' => $signature,
+			'x-rw-timestamp' => $timestamp,
+			'x-rw-nonce'     => $nonce,
+			'x-rw-site-id'   => '9',
+		),
+		'POST',
+		$route
+	);
+}
+
+$rejected = RW_Connector_Signing::verify_request( rw_connector_signed( 'connector-site-secret', 'install-nonce', $install_body, $install_route, str_repeat( 'b', 64 ) ) );
+$accepted = RW_Connector_Signing::verify_request( rw_connector_signed( 'connector-site-secret', 'install-nonce', $install_body, $install_route ) );
+$replayed = RW_Connector_Signing::verify_request( rw_connector_signed( 'connector-site-secret', 'install-nonce', $install_body, $install_route ) );
+rw_test( 'a bad component signature is rejected and does not burn the nonce', is_wp_error( $rejected ) && 'rw_connector_signature_invalid' === $rejected->get_error_code() && true === $accepted );
+rw_test( 'a component signature cannot be replayed', is_wp_error( $replayed ) && 'rw_connector_replay' === $replayed->get_error_code() );
+
+$unknown = RW_Component_Installer::requested_slugs( array( 'components' => array( 'hello-dolly' ) ) );
+$supplied = RW_Component_Installer::requested_slugs(
+	array(
+		'components'   => array( 'mainwp-child' ),
+		'download_url' => 'https://evil.example/plugin.zip',
+	)
+);
+$allowed = RW_Component_Installer::requested_slugs( array( 'components' => array( 'mainwp-child', 'mainwp-child-reports' ) ) );
+rw_test( 'only the two maintenance components are allowed', is_wp_error( $unknown ) && 'rw_component_not_allowed' === $unknown->get_error_code() );
+rw_test( 'a caller-supplied package URL is rejected', is_wp_error( $supplied ) && 'rw_component_url_rejected' === $supplied->get_error_code() );
+rw_test( 'the allowlist accepts both pinned components', array( 'mainwp-child', 'mainwp-child-reports' ) === $allowed );
+rw_test( 'wordpress.org and R2 hosts are the only package hosts', RW_Component_Installer::allowed_package_url( 'https://downloads.wordpress.org/plugin/mainwp-child.6.4.zip' ) && RW_Component_Installer::allowed_package_url( 'https://example.r2.cloudflarestorage.com/bucket/mainwp-child.zip?X-Amz-Signature=abc' ) && ! RW_Component_Installer::allowed_package_url( 'https://evil.example/plugin.zip' ) && ! RW_Component_Installer::allowed_package_url( 'http://downloads.wordpress.org/plugin/mainwp-child.6.4.zip' ) );
+
+$package_path = tempnam( sys_get_temp_dir(), 'rwhash' );
+file_put_contents( $package_path, 'maintenance-package' );
+$package_hash = hash( 'sha256', 'maintenance-package' );
+rw_test( 'a matching package hash is accepted', RW_Component_Installer::package_hash_matches( $package_path, $package_hash ) );
+rw_test( 'a package hash mismatch is rejected', ! RW_Component_Installer::package_hash_matches( $package_path, str_repeat( 'a', 64 ) ) && ! RW_Component_Installer::package_hash_matches( $package_path, 'not-a-hash' ) );
+unlink( $package_path );
+
+$pins = json_decode( (string) file_get_contents( __DIR__ . '/../scripts/component-pins.json' ), true );
+$catalog = RW_Component_Installer::catalog();
+$pins_match = is_array( $pins ) && isset( $pins['components'] ) && 2 === count( $pins['components'] );
+foreach ( (array) $pins['components'] as $pin ) {
+	$slug = $pin['slug'];
+	$pins_match = $pins_match && isset( $catalog[ $slug ] ) && $catalog[ $slug ]['version'] === $pin['version'] && $catalog[ $slug ]['sha256'] === $pin['sha256'];
+}
+rw_test( 'connector catalog matches the pinned component manifest', $pins_match );
+
+$plugins = array(
+	'mainwp-child/mainwp-child.php'                         => array( 'Name' => 'MainWP Child' ),
+	'mainwp-child-reports/mainwp-child-reports.php'         => array( 'Name' => 'MainWP Child Reports' ),
+	'reactwoo-support-connector/reactwoo-support-connector.php' => array( 'Name' => 'ReactWoo Support Connector' ),
+	'akismet/akismet.php'                                   => array( 'Name' => 'Akismet' ),
+);
+$visible = RW_Whitelabel::filter_plugins( $plugins );
+rw_test( 'plugins stay visible before the site is managed', isset( $visible['mainwp-child/mainwp-child.php'] ) && isset( $visible['akismet/akismet.php'] ) );
+$GLOBALS['rw_options']['rw_connector_managed'] = '1';
+$hidden = RW_Whitelabel::filter_plugins( $plugins );
+rw_test( 'managed sites hide the child and reports plugins', ! isset( $hidden['mainwp-child/mainwp-child.php'] ) && ! isset( $hidden['mainwp-child-reports/mainwp-child-reports.php'] ) && isset( $hidden['reactwoo-support-connector/reactwoo-support-connector.php'] ) && isset( $hidden['akismet/akismet.php'] ) );
+rw_test( 'action links for a hidden plugin are removed', array() === RW_Whitelabel::filter_action_links( array( 'deactivate' => 'Deactivate' ), 'mainwp-child/mainwp-child.php' ) && isset( RW_Whitelabel::filter_action_links( array( 'deactivate' => 'Deactivate' ), 'akismet/akismet.php' )['deactivate'] ) );
+$updates = new stdClass();
+$updates->response = array(
+	'mainwp-child/mainwp-child.php' => (object) array( 'new_version' => '6.4' ),
+	'akismet/akismet.php'           => (object) array( 'new_version' => '5.0' ),
+);
+$updates->no_update = array( 'mainwp-child-reports/mainwp-child-reports.php' => (object) array( 'new_version' => '2.3.1' ) );
+$filtered_updates = RW_Whitelabel::filter_updates( $updates );
+rw_test( 'update notices for hidden plugins are removed', ! isset( $filtered_updates->response['mainwp-child/mainwp-child.php'] ) && ! isset( $filtered_updates->no_update['mainwp-child-reports/mainwp-child-reports.php'] ) && isset( $filtered_updates->response['akismet/akismet.php'] ) );
+rw_test( 'child and reports admin pages are blocked', RW_Whitelabel::is_blocked_page( 'mainwp_child_tab' ) && RW_Whitelabel::is_blocked_page( 'mainwp-reports-page' ) && RW_Whitelabel::is_blocked_page( 'mainwp-reports-settings' ) && ! RW_Whitelabel::is_blocked_page( 'plugins' ) );
+$notice_path = new ReflectionMethod( 'RW_Whitelabel', 'path_is_hidden' );
+$notice_path->setAccessible( true );
+rw_test( 'notices from the hidden plugin directories are selected', $notice_path->invoke( null, '/wp-content/plugins/mainwp-child/class/class-mainwp-pages.php' ) && $notice_path->invoke( null, '/wp-content/plugins/mainwp-child-reports/classes/class-admin.php' ) && ! $notice_path->invoke( null, '/wp-content/plugins/akismet/akismet.php' ) );
+rw_test( 'a ReactWoo support email bypasses the hide', RW_Whitelabel::is_reactwoo_support_email( 'support@reactwoo.com' ) && ! RW_Whitelabel::is_reactwoo_support_email( 'owner@example.com' ) );
+$GLOBALS['rw_options']['rw_connector_hide_self'] = '1';
+$hidden_self = RW_Whitelabel::filter_plugins( $plugins );
+rw_test( 'the connector is hidden only when that flag is set', ! isset( $hidden_self['reactwoo-support-connector/reactwoo-support-connector.php'] ) );
+unset( $GLOBALS['rw_options']['rw_connector_managed'], $GLOBALS['rw_options']['rw_connector_hide_self'] );
+
+$branding = RW_Maint_MainWP::branding_calls();
+$branding_settings = json_decode( base64_decode( $branding[0]['params']['settings'] ), true );
+rw_test( 'enrol pushes the hide-child branding settings', 'branding_child_plugin' === $branding[0]['what'] && 1 === (int) $branding_settings['child_plugin_hide'] && 'client_report' === $branding[1]['what'] && 'hide' === $branding[1]['params']['showhide'] );
+
+$component_versions = RW_Maint_MainWP_Client::extract_component_versions(
+	array(
+		'plugins' => array(
+			'mainwp-child/mainwp-child.php'                 => array( 'version' => '6.4' ),
+			'mainwp-child-reports/mainwp-child-reports.php' => array( 'version' => '2.3.1' ),
+		),
+	)
+);
+rw_test( 'check and sync can read both component versions', '6.4' === $component_versions['mainwp_child_version'] && '2.3.1' === $component_versions['mainwp_child_reports_version'] );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';

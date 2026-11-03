@@ -5,6 +5,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_Maint_MainWP_Client {
+	private static $component_versions = array();
+
 	public static function register() {
 		add_filter( 'rw_maint_mainwp_create_site', array( __CLASS__, 'create_site' ), 10, 4 );
 		add_action( 'rw_maint_mainwp_sync_reporting', array( __CLASS__, 'sync_reporting' ), 10, 3 );
@@ -181,6 +183,10 @@ class RW_Maint_MainWP_Client {
 			return $response;
 		}
 
+		if ( in_array( $action, array( 'check', 'sync' ), true ) ) {
+			self::remember_component_versions( (int) $site->portal_site_id, $response );
+		}
+
 		RW_Maint_Audit::log(
 			'mainwp_action_sent',
 			array(
@@ -193,6 +199,103 @@ class RW_Maint_MainWP_Client {
 		);
 
 		return $response;
+	}
+
+	/**
+	 * @param int   $portal_site_id Portal site id.
+	 * @param array $response MainWP check or sync body.
+	 */
+	public static function remember_component_versions( $portal_site_id, $response ) {
+		self::$component_versions[ (int) $portal_site_id ] = self::extract_component_versions( $response );
+	}
+
+	/**
+	 * @param int $portal_site_id Portal site id.
+	 * @return array{mainwp_child_version:string,mainwp_child_reports_version:string}
+	 */
+	public static function component_versions( $portal_site_id ) {
+		$id = (int) $portal_site_id;
+		if ( isset( self::$component_versions[ $id ] ) && is_array( self::$component_versions[ $id ] ) ) {
+			return self::$component_versions[ $id ];
+		}
+
+		return array(
+			'mainwp_child_version'         => '',
+			'mainwp_child_reports_version' => '',
+		);
+	}
+
+	/**
+	 * @param mixed $data MainWP payload.
+	 * @return array{mainwp_child_version:string,mainwp_child_reports_version:string}
+	 */
+	public static function extract_component_versions( $data ) {
+		$found = array(
+			'mainwp_child_version'         => '',
+			'mainwp_child_reports_version' => '',
+		);
+		self::walk_component_versions( $data, $found );
+
+		return $found;
+	}
+
+	/**
+	 * @param mixed $data Nested MainWP payload.
+	 * @param array $found Versions found so far.
+	 */
+	private static function walk_component_versions( $data, array &$found ) {
+		if ( ! is_array( $data ) ) {
+			return;
+		}
+
+		$version = '';
+		if ( isset( $data['version'] ) && ( is_string( $data['version'] ) || is_numeric( $data['version'] ) ) ) {
+			$version = (string) $data['version'];
+		} elseif ( isset( $data['Version'] ) && ( is_string( $data['Version'] ) || is_numeric( $data['Version'] ) ) ) {
+			$version = (string) $data['Version'];
+		}
+
+		$labels = array();
+		foreach ( array( 'slug', 'plugin', 'file', 'name', 'Name' ) as $key ) {
+			if ( isset( $data[ $key ] ) && is_string( $data[ $key ] ) ) {
+				$labels[] = $data[ $key ];
+			}
+		}
+		foreach ( $labels as $label ) {
+			self::assign_component_version( $label, $version, $found );
+		}
+
+		foreach ( $data as $key => $value ) {
+			if ( is_string( $key ) && is_array( $value ) ) {
+				$nested = '';
+				if ( isset( $value['version'] ) && ( is_string( $value['version'] ) || is_numeric( $value['version'] ) ) ) {
+					$nested = (string) $value['version'];
+				} elseif ( isset( $value['Version'] ) && ( is_string( $value['Version'] ) || is_numeric( $value['Version'] ) ) ) {
+					$nested = (string) $value['Version'];
+				}
+				self::assign_component_version( $key, $nested, $found );
+			}
+			if ( is_array( $value ) ) {
+				self::walk_component_versions( $value, $found );
+			}
+		}
+	}
+
+	private static function assign_component_version( $label, $version, array &$found ) {
+		$label   = strtolower( (string) $label );
+		$version = trim( (string) $version );
+		if ( '' === $label || '' === $version || strlen( $version ) > 40 ) {
+			return;
+		}
+
+		if ( false !== strpos( $label, 'mainwp-child-reports' ) || false !== strpos( $label, 'child reports' ) ) {
+			$found['mainwp_child_reports_version'] = sanitize_text_field( $version );
+			return;
+		}
+
+		if ( false !== strpos( $label, 'mainwp-child' ) || 'mainwp child' === $label ) {
+			$found['mainwp_child_version'] = sanitize_text_field( $version );
+		}
 	}
 
 	private static function request( $method, $path, array $body = array(), array $query = array() ) {

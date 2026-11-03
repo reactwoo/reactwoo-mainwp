@@ -6,8 +6,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class RW_Connection_Orchestrator {
 	const CONNECTOR_PLUGIN = 'reactwoo-support-connector/reactwoo-support-connector.php';
-	const CHILD_PLUGIN     = 'mainwp-child/mainwp-child.php';
 	const EXPIRE_HOOK      = 'rw_portal_expire_credential';
+	const COMPONENT_POLL_SECONDS = 30;
 
 	public static function register() {
 		add_action( 'init', array( __CLASS__, 'handle_return' ), 1 );
@@ -287,15 +287,13 @@ class RW_Connection_Orchestrator {
 		}
 
 		self::mark_site( $site, RW_Connection_State::BOOTSTRAPPING, '', '', 'v2' );
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
+		}
 
 		$ready = self::ensure_active_plugin( $attempt, $user_login, $password, self::CONNECTOR_PLUGIN, 'connector_not_installed', 'Download the site plugin from this page, install and activate it on your website, then connect again.' );
 		if ( is_wp_error( $ready ) ) {
 			self::fail_and_revoke( $attempt, $user_login, $password, RW_Connection_State::ACTION_REQUIRED, $ready->get_error_code(), $ready->get_error_message() );
-		}
-
-		$child = self::ensure_active_plugin( $attempt, $user_login, $password, self::CHILD_PLUGIN, 'maintenance_component_missing', 'The maintenance component is not active on this website yet.' );
-		if ( is_wp_error( $child ) ) {
-			self::fail_and_revoke( $attempt, $user_login, $password, RW_Connection_State::ACTION_REQUIRED, $child->get_error_code(), $child->get_error_message() );
 		}
 
 		$challenge = wp_generate_password( 32, false, false );
@@ -312,8 +310,20 @@ class RW_Connection_Orchestrator {
 			self::fail_and_revoke( $attempt, $user_login, $password, $state, $code, $bootstrap->get_error_message() );
 		}
 
-		$admin    = isset( $bootstrap['admin'] ) ? sanitize_user( (string) $bootstrap['admin'] ) : $user_login;
-		$uniqueid = isset( $bootstrap['uniqueid'] ) ? (string) $bootstrap['uniqueid'] : '';
+		self::mark_site( $site, RW_Connection_State::INSTALLING, '', '', 'v2' );
+		$components = self::provision_components( $attempt, $site );
+		if ( is_wp_error( $components ) ) {
+			$code = $components->get_error_code();
+			if ( 'rw_existing_maintenance_connection' === $code ) {
+				$code = 'existing_connection';
+			}
+			$retryable = in_array( $code, array( 'existing_connection', 'components_install_failed', 'components_timeout' ), true );
+			$state     = $retryable ? RW_Connection_State::ACTION_REQUIRED : RW_Connection_State::FAILED;
+			self::fail_and_revoke( $attempt, $user_login, $password, $state, $code, $components->get_error_message() );
+		}
+
+		$admin    = isset( $components['admin'] ) ? sanitize_user( (string) $components['admin'] ) : $user_login;
+		$uniqueid = isset( $components['uniqueid'] ) ? (string) $components['uniqueid'] : '';
 		if ( '' === $admin || '' === $uniqueid ) {
 			self::fail_and_revoke( $attempt, $user_login, $password, RW_Connection_State::FAILED, 'unique_id_missing', 'Passwordless maintenance identity was not created.' );
 		}
@@ -322,8 +332,8 @@ class RW_Connection_Orchestrator {
 		if ( function_exists( 'set_time_limit' ) ) {
 			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
 		}
-		if ( ! empty( $bootstrap['child_version'] ) ) {
-			RW_Sites::update_site( (int) $site->id, array( 'mainwp_child_version' => sanitize_text_field( (string) $bootstrap['child_version'] ) ) );
+		if ( ! empty( $components['child_version'] ) ) {
+			RW_Sites::update_site( (int) $site->id, array( 'mainwp_child_version' => sanitize_text_field( (string) $components['child_version'] ) ) );
 		}
 
 		$site   = RW_Sites::get_site( (int) $site->id );
@@ -404,6 +414,80 @@ class RW_Connection_Orchestrator {
 		);
 
 		self::finish_redirect( 'Your website is protected.', 'success' );
+	}
+
+	private static function provision_components( $attempt, $site ) {
+		$secret = RW_Tokens::get_site_secret( (int) $site->id );
+		if ( ! is_string( $secret ) || '' === $secret ) {
+			return new WP_Error( 'bootstrap_failed', 'ReactWoo could not finish the secure connection. Try Connect WordPress again.' );
+		}
+
+		$installed = RW_WordPress_Client::install_components(
+			$attempt->rest_root,
+			(int) $site->id,
+			$secret,
+			array( 'mainwp-child', 'mainwp-child-reports' )
+		);
+		if ( is_wp_error( $installed ) ) {
+			if ( 'rw_existing_maintenance_connection' === $installed->get_error_code() ) {
+				return $installed;
+			}
+			return new WP_Error( 'components_install_failed', 'We could not install the maintenance components on your website. Try Connect WordPress again.' );
+		}
+
+		$status = self::wait_for_child( $attempt, (int) $site->id, $secret );
+		if ( is_wp_error( $status ) ) {
+			return $status;
+		}
+
+		$identity = RW_WordPress_Client::connector_identity( $attempt->rest_root, (int) $site->id, $secret );
+		if ( is_wp_error( $identity ) ) {
+			if ( 'rw_existing_maintenance_connection' === $identity->get_error_code() ) {
+				return $identity;
+			}
+			return new WP_Error( 'unique_id_missing', 'Passwordless maintenance identity was not created.' );
+		}
+
+		$admin    = isset( $identity['admin'] ) ? sanitize_user( (string) $identity['admin'] ) : '';
+		$uniqueid = isset( $identity['uniqueid'] ) ? (string) $identity['uniqueid'] : '';
+		if ( '' === $admin ) {
+			$admin = isset( $status['admin'] ) ? sanitize_user( (string) $status['admin'] ) : '';
+		}
+		if ( '' === $uniqueid && ! empty( $status['uniqueid'] ) ) {
+			$uniqueid = (string) $status['uniqueid'];
+		}
+		if ( '' === $admin || '' === $uniqueid ) {
+			return new WP_Error( 'unique_id_missing', 'Passwordless maintenance identity was not created.' );
+		}
+
+		$version = '';
+		if ( ! empty( $identity['child_version'] ) ) {
+			$version = (string) $identity['child_version'];
+		} elseif ( ! empty( $status['child_version'] ) ) {
+			$version = (string) $status['child_version'];
+		}
+
+		return array(
+			'admin'         => $admin,
+			'uniqueid'      => $uniqueid,
+			'child_version' => $version,
+		);
+	}
+
+	private static function wait_for_child( $attempt, $site_id, $secret ) {
+		$deadline = time() + self::COMPONENT_POLL_SECONDS;
+		do {
+			$status = RW_WordPress_Client::connector_status( $attempt->rest_root, $site_id, $secret );
+			if ( ! is_wp_error( $status ) && ! empty( $status['child_active'] ) && ! empty( $status['uniqueid'] ) ) {
+				return $status;
+			}
+			if ( time() >= $deadline ) {
+				break;
+			}
+			sleep( 2 );
+		} while ( true );
+
+		return new WP_Error( 'components_timeout', 'Setup timed out while preparing maintenance. Try again in a few minutes.' );
 	}
 
 	private static function ensure_active_plugin( $attempt, $user_login, $password, $plugin_file, $missing_code, $missing_message ) {

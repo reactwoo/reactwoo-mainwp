@@ -399,7 +399,11 @@ class RW_Component_Installer {
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $code >= 300 && $code < 400 ) {
-			$location = (string) wp_remote_retrieve_header( $response, 'location' );
+			$location = wp_remote_retrieve_header( $response, 'location' );
+			if ( is_array( $location ) ) {
+				$location = reset( $location );
+			}
+			$location = is_scalar( $location ) ? (string) $location : '';
 			$next     = self::absolute_url( $url, $location );
 			return self::download_package( $next, $hop + 1 );
 		}
@@ -427,12 +431,19 @@ class RW_Component_Installer {
 	}
 
 	/**
-	 * @param string $path Staged zip whose hash already matched.
-	 * @return true|WP_Error
+	 * Shared hosts often select FTP even when PHP can write the plugins directory.
+	 *
+	 * @param string $method Filesystem method WordPress selected.
+	 * @return string
 	 */
+	public static function direct_filesystem_method( $method = '' ) {
+		unset( $method );
+		return 'direct';
+	}
+
 	private static function install_staged_package( $path ) {
 		self::load_upgrader();
-		if ( ! class_exists( 'Plugin_Upgrader' ) || ! function_exists( 'WP_Filesystem' ) || ! WP_Filesystem() ) {
+		if ( ! class_exists( 'Plugin_Upgrader' ) || ! self::connect_filesystem() ) {
 			return new WP_Error( 'rw_component_install_failed', 'The maintenance component could not be installed.', array( 'status' => 500 ) );
 		}
 
@@ -494,6 +505,40 @@ class RW_Component_Installer {
 		if ( defined( 'ABSPATH' ) && ! function_exists( 'is_plugin_active' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
+	}
+
+	private static function connect_filesystem() {
+		if ( ! function_exists( 'WP_Filesystem' ) ) {
+			return false;
+		}
+
+		if ( self::plugins_dir_is_writable() ) {
+			add_filter( 'filesystem_method', array( __CLASS__, 'direct_filesystem_method' ) );
+		}
+
+		$context = defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : false;
+		if ( WP_Filesystem( false, $context, true ) ) {
+			return true;
+		}
+
+		if ( ! function_exists( 'request_filesystem_credentials' ) ) {
+			return false;
+		}
+
+		$creds = request_filesystem_credentials( admin_url(), '', false, $context ? $context : false, null );
+		if ( ! $creds ) {
+			return false;
+		}
+
+		return (bool) WP_Filesystem( $creds, $context, true );
+	}
+
+	private static function plugins_dir_is_writable() {
+		if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_string( WP_PLUGIN_DIR ) || '' === WP_PLUGIN_DIR ) {
+			return false;
+		}
+
+		return is_dir( WP_PLUGIN_DIR ) && is_writable( WP_PLUGIN_DIR );
 	}
 
 	private static function load_upgrader() {

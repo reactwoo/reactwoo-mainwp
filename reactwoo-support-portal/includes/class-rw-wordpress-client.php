@@ -249,7 +249,7 @@ class RW_WordPress_Client {
 	}
 
 	public static function find_application_password_uuid( $rest_root, $user_login, $password, $app_id ) {
-		$data = self::authorized_request( $rest_root, 'wp/v2/users/me/application-passwords', $user_login, $password );
+		$data = self::authorized_request( $rest_root, 'wp/v2/users/me/application-passwords?context=edit', $user_login, $password );
 		if ( is_wp_error( $data ) ) {
 			return $data;
 		}
@@ -283,6 +283,15 @@ class RW_WordPress_Client {
 
 	public static function list_plugins( $rest_root, $user_login, $password ) {
 		return self::authorized_request( $rest_root, 'wp/v2/plugins?per_page=100&context=edit', $user_login, $password );
+	}
+
+	public static function get_plugin( $rest_root, $user_login, $password, $plugin_file ) {
+		return self::authorized_request(
+			$rest_root,
+			'wp/v2/plugins/' . self::plugin_route( $plugin_file ) . '?context=edit',
+			$user_login,
+			$password
+		);
 	}
 
 	public static function activate_plugin( $rest_root, $user_login, $password, $plugin_file ) {

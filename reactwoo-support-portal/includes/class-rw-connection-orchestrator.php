@@ -10,7 +10,9 @@ class RW_Connection_Orchestrator {
 	const COMPONENT_POLL_SECONDS = 30;
 
 	public static function register() {
-		add_action( 'init', array( __CLASS__, 'handle_return' ), 1 );
+		// WooCommerce Subscriptions registers shop_subscription on init.
+		// Priority 1 runs before that, and wcs_get_subscription() then returns false.
+		add_action( 'wp_loaded', array( __CLASS__, 'handle_return' ) );
 		add_action( self::EXPIRE_HOOK, array( __CLASS__, 'expire_credential' ) );
 	}
 
@@ -453,7 +455,42 @@ class RW_Connection_Orchestrator {
 		self::finish_redirect( 'Your website is protected.', 'success' );
 	}
 
+	/**
+	 * A signature or permission failure will not succeed on the next poll.
+	 *
+	 * @param WP_Error $error Status request error.
+	 * @return bool
+	 */
+	public static function status_failure_is_terminal( $error ) {
+		if ( ! is_wp_error( $error ) ) {
+			return false;
+		}
+
+		$data = $error->get_error_data();
+		$http = ( is_array( $data ) && isset( $data['status'] ) ) ? (int) $data['status'] : 0;
+		if ( 401 === $http || 403 === $http ) {
+			return true;
+		}
+
+		return in_array(
+			$error->get_error_code(),
+			array(
+				'rw_connector_signature_invalid',
+				'rw_connector_signature_missing',
+				'rw_connector_replay',
+				'rw_connector_skew',
+				'rw_connector_secret_missing',
+				'rw_connector_site_mismatch',
+			),
+			true
+		);
+	}
+
 	private static function provision_components( $attempt, $site ) {
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
+		}
+
 		$secret = RW_Tokens::get_site_secret( (int) $site->id );
 		if ( ! is_string( $secret ) || '' === $secret ) {
 			return new WP_Error( 'bootstrap_failed', 'ReactWoo could not finish the secure connection. Try Connect WordPress again.' );
@@ -515,7 +552,11 @@ class RW_Connection_Orchestrator {
 		$deadline = time() + self::COMPONENT_POLL_SECONDS;
 		do {
 			$status = RW_WordPress_Client::connector_status( $attempt->rest_root, $site_id, $secret );
-			if ( ! is_wp_error( $status ) && ! empty( $status['child_active'] ) && ! empty( $status['uniqueid'] ) ) {
+			if ( is_wp_error( $status ) ) {
+				if ( self::status_failure_is_terminal( $status ) ) {
+					return new WP_Error( 'components_install_failed', 'We could not confirm maintenance setup on your website. Try Connect WordPress again.' );
+				}
+			} elseif ( ! empty( $status['child_active'] ) && ! empty( $status['uniqueid'] ) ) {
 				return $status;
 			}
 			if ( time() >= $deadline ) {
@@ -528,31 +569,21 @@ class RW_Connection_Orchestrator {
 	}
 
 	private static function ensure_active_plugin( $attempt, $user_login, $password, $plugin_file, $missing_code, $missing_message ) {
-		$plugins = RW_WordPress_Client::list_plugins( $attempt->rest_root, $user_login, $password );
-		if ( is_wp_error( $plugins ) ) {
+		$plugin = RW_WordPress_Client::get_plugin( $attempt->rest_root, $user_login, $password, $plugin_file );
+		if ( is_wp_error( $plugin ) ) {
 			return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
 		}
 
-		foreach ( $plugins as $plugin ) {
-			if ( ! is_array( $plugin ) || empty( $plugin['plugin'] ) ) {
-				continue;
-			}
-			if ( RW_WordPress_Client::plugin_route( $plugin['plugin'] ) !== RW_WordPress_Client::plugin_route( $plugin_file ) ) {
-				continue;
-			}
-			if ( isset( $plugin['status'] ) && 'active' === $plugin['status'] ) {
-				return true;
-			}
-
-			$activated = RW_WordPress_Client::activate_plugin( $attempt->rest_root, $user_login, $password, $plugin_file );
-			if ( is_wp_error( $activated ) ) {
-				return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
-			}
-
+		if ( isset( $plugin['status'] ) && 'active' === $plugin['status'] ) {
 			return true;
 		}
 
-		return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
+		$activated = RW_WordPress_Client::activate_plugin( $attempt->rest_root, $user_login, $password, $plugin_file );
+		if ( is_wp_error( $activated ) ) {
+			return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
+		}
+
+		return true;
 	}
 
 	private static function fail_and_revoke( $attempt, $user_login, $password, $state, $code, $message ) {

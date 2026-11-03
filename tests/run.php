@@ -329,7 +329,13 @@ function apply_filters( $tag, $value ) {
 }
 function add_filter() {
 }
-function add_action() {
+function add_action( $hook = null, $callback = null, $priority = 10, $accepted_args = 1 ) {
+	unset( $accepted_args );
+	$GLOBALS['rw_actions'][] = array(
+		'hook'     => $hook,
+		'callback' => $callback,
+		'priority' => (int) $priority,
+	);
 }
 function get_transient( $key ) {
 	return isset( $GLOBALS['rw_transients'][ $key ] ) ? $GLOBALS['rw_transients'][ $key ] : false;
@@ -779,7 +785,8 @@ $client_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes
 rw_test( 'enrol waits long enough for MainWP', false !== strpos( $client_src, 'const ENROLL_TIMEOUT  = 180' ) && false !== strpos( $client_src, 'timeout_for( $action )' ) );
 
 $orchestrator_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php' );
-rw_test( 'plugin ids match with or without .php', false !== strpos( $orchestrator_src, 'plugin_route( $plugin[\'plugin\'] )' ) );
+$plugin_lookup_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php' );
+rw_test( 'plugin ids match with or without .php', false !== strpos( $orchestrator_src, 'get_plugin(' ) && false !== strpos( $plugin_lookup_src, 'plugin_route( $plugin_file )' ) );
 rw_test(
 	'onboarding installs components after the connector is enrolled',
 	false === strpos( $orchestrator_src, 'maintenance_component_missing' )
@@ -1078,6 +1085,56 @@ $flow_request = new WP_REST_Request(
 );
 $client_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php' );
 rw_test( 'install-components stays signed against its route and the challenge stays a header', true === RW_Connector_Signing::verify_request( $flow_request ) && false !== strpos( $client_src, "'X-RW-Enrolment-Challenge' => \$challenge" ) );
+
+$GLOBALS['rw_actions'] = array();
+RW_Connection_Orchestrator::register();
+$return_hook = null;
+foreach ( $GLOBALS['rw_actions'] as $hook ) {
+	if ( is_array( $hook['callback'] ) && isset( $hook['callback'][1] ) && 'handle_return' === $hook['callback'][1] ) {
+		$return_hook = $hook;
+	}
+}
+rw_test(
+	'the connection callback waits until subscriptions are registered',
+	is_array( $return_hook ) && 'wp_loaded' === $return_hook['hook'] && $return_hook['priority'] >= 10
+);
+
+$early_wc = array();
+foreach ( array( 'reactwoo-support-portal', 'reactwoo-support-connector', 'reactwoo-maint-bridge' ) as $plugin_dir ) {
+	$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( __DIR__ . '/../' . $plugin_dir, FilesystemIterator::SKIP_DOTS ) );
+	foreach ( $iterator as $file ) {
+		if ( 'php' !== $file->getExtension() ) {
+			continue;
+		}
+		$source = file_get_contents( $file->getPathname() );
+		if ( ! preg_match_all( "/add_action\\(\\s*'init'\\s*,\\s*array\\(\\s*(?:__CLASS__|'[A-Za-z0-9_]+')\\s*,\\s*'([A-Za-z0-9_]+)'\\s*\\)(?:\\s*,\\s*(\\d+))?/", $source, $hits, PREG_SET_ORDER ) ) {
+			continue;
+		}
+		foreach ( $hits as $hit ) {
+			$priority = ( isset( $hit[2] ) && '' !== $hit[2] ) ? (int) $hit[2] : 10;
+			if ( $priority >= 20 ) {
+				continue;
+			}
+			if ( ! preg_match( '/function\\s+' . $hit[1] . '\\s*\\(/', $source, $fn, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+			$start = $fn[0][1];
+			$end   = strlen( $source );
+			if ( preg_match( '/\\n\\t(?:public|private|protected)\\s+static\\s+function\\s+/', $source, $next, PREG_OFFSET_CAPTURE, $start + 10 ) ) {
+				$end = $next[0][1];
+			}
+			$body = substr( $source, $start, $end - $start );
+			if ( preg_match( '/wcs_get_subscription|wcs_get_subscriptions|\\\\\\\\MainWP\\\\\\\\|wc_get_order\\s*\\(/', $body ) ) {
+				$early_wc[] = $file->getFilename() . ':' . $hit[1] . '@' . $priority;
+			}
+		}
+	}
+}
+rw_test( 'no early init hook calls WooCommerce Subscriptions or MainWP', array() === $early_wc );
+$denied_status = new WP_Error( 'rw_connector_signature_invalid', 'Signature mismatch.', array( 'status' => 401 ) );
+$retry_status  = new WP_Error( 'rw_wp_request_failed', 'The website could not be reached.', array( 'status' => 502 ) );
+rw_test( 'a rejected status poll stops instead of waiting out the timeout', RW_Connection_Orchestrator::status_failure_is_terminal( $denied_status ) && ! RW_Connection_Orchestrator::status_failure_is_terminal( $retry_status ) );
+rw_test( 'a writable plugins directory uses the direct filesystem', 'direct' === RW_Component_Installer::direct_filesystem_method( 'ftpext' ) );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';

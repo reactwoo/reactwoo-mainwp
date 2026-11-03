@@ -17,4 +17,11 @@ class RW_Quiet_Upgrader_Skin extends Automatic_Upgrader_Skin {
 
 	public function footer() {
 	}
+
+	public function error( $errors ) {
+	}
+
+	public function request_filesystem_credentials( $error = false, $context = '', $allow_relaxed_file_ownership = false ) {
+		return true;
+	}
 }

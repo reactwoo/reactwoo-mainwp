@@ -656,6 +656,8 @@ Customer message:
 
 Offer the manual support fallback.
 
+The customer can instead confirm **Replace existing maintenance connection**. Only that explicit action sets a takeover flag on the connection attempt. The connector re-keys the existing child link to `maint.reactwoo.com` when the portal confirms that flag. A bootstrap request without it leaves the current link unchanged.
+
 ---
 
 # 18. reactwoo.com → maint.reactwoo.com enrolment

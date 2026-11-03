@@ -74,6 +74,10 @@ class RW_Connection_Orchestrator {
 			return $attempt;
 		}
 
+		if ( self::is_explicit_takeover( isset( $details['takeover'] ) ? $details['takeover'] : false ) ) {
+			update_option( self::takeover_option_key( (int) $attempt['id'] ), '1', false );
+		}
+
 		$app_id = wp_generate_uuid4();
 		RW_Connection_Attempts::update_attempt(
 			(int) $attempt['id'],
@@ -150,6 +154,42 @@ class RW_Connection_Orchestrator {
 	 * @param string $state Raw state query value.
 	 * @return string
 	 */
+	/**
+	 * True only for an explicit confirmation. Other values, including "yes", stay off.
+	 *
+	 * @param mixed $value Form or stored flag.
+	 * @return bool
+	 */
+	public static function is_explicit_takeover( $value ) {
+		if ( true === $value || 1 === $value ) {
+			return true;
+		}
+		if ( ! is_string( $value ) ) {
+			return false;
+		}
+
+		return '1' === $value || 'true' === $value;
+	}
+
+	public static function takeover_option_key( $attempt_id ) {
+		return 'rw_connection_takeover_' . (int) $attempt_id;
+	}
+
+	/**
+	 * The portal authorises takeover only when this attempt was marked and the connector asked.
+	 *
+	 * @param int   $attempt_id Connection attempt id.
+	 * @param mixed $requested Flag sent with the challenge confirmation.
+	 * @return bool
+	 */
+	public static function consume_takeover( $attempt_id, $requested ) {
+		$key     = self::takeover_option_key( $attempt_id );
+		$stored  = get_option( $key );
+		delete_option( $key );
+
+		return self::is_explicit_takeover( $requested ) && self::is_explicit_takeover( $stored );
+	}
+
 	public static function state_from_callback_query( $state ) {
 		$state = (string) $state;
 		if ( function_exists( 'wp_unslash' ) ) {
@@ -341,7 +381,9 @@ class RW_Connection_Orchestrator {
 			array( 'challenge_hash' => hash( 'sha256', $challenge ) )
 		);
 
-		$bootstrap = RW_WordPress_Client::bootstrap_connector( $attempt->rest_root, $user_login, $password, home_url(), $challenge );
+		$takeover  = self::is_explicit_takeover( get_option( self::takeover_option_key( (int) $attempt->id ) ) );
+		$bootstrap = RW_WordPress_Client::bootstrap_connector( $attempt->rest_root, $user_login, $password, home_url(), $challenge, $takeover );
+		delete_option( self::takeover_option_key( (int) $attempt->id ) );
 		$challenge = '';
 		if ( is_wp_error( $bootstrap ) ) {
 			$code  = 'rw_existing_maintenance_connection' === $bootstrap->get_error_code() ? 'existing_connection' : 'bootstrap_failed';

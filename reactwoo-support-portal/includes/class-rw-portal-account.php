@@ -381,6 +381,17 @@ class RW_Portal_Account {
 		echo '</form>';
 	}
 
+	public static function render_replace_connection_form( $site ) {
+		echo '<form class="rw-maint-form" method="post">';
+		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		echo '<input type="hidden" name="rw_portal_action" value="connect_existing" />';
+		echo '<input type="hidden" name="takeover" value="1" />';
+		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
+		echo '<button type="submit" class="rw-maint-button">Replace existing maintenance connection</button>';
+		echo '</form>';
+		echo '<p class="rw-maint-helper">This replaces the maintenance link already on the website with ReactWoo. Your WordPress password is not stored.</p>';
+	}
+
 	public static function render_report_preferences( $site ) {
 		$site_id = (int) $site->id;
 		$email   = isset( $site->report_email ) ? (string) $site->report_email : '';
@@ -518,6 +529,7 @@ class RW_Portal_Account {
 			'benefits'        => self::benefit_cards( $reports_on, $speed_on ),
 			'reports'         => self::report_cards( $reports_on, $speed_on ),
 			'manual_pending'  => $site && class_exists( 'RW_Temporary_Access' ) && RW_Temporary_Access::is_pending( $site ),
+			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
 		);
 	}
 
@@ -890,7 +902,11 @@ class RW_Portal_Account {
 			return;
 		}
 
-		$result = RW_Connection_Orchestrator::start( $user_id, (int) $site->subscription_id, (string) $site->site_url, (int) $site->id );
+		$details = array();
+		if ( isset( $_POST['takeover'] ) ) {
+			$details['takeover'] = wp_unslash( $_POST['takeover'] );
+		}
+		$result = RW_Connection_Orchestrator::start( $user_id, (int) $site->subscription_id, (string) $site->site_url, (int) $site->id, $details );
 		if ( is_wp_error( $result ) ) {
 			self::add_notice( $result->get_error_message(), 'error' );
 		}

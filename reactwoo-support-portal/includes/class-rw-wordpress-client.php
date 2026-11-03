@@ -238,10 +238,33 @@ class RW_WordPress_Client {
 
 		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
 		if ( $code < 200 || $code >= 300 ) {
-			return new WP_Error( 'rw_wp_request_rejected', 'WordPress rejected the setup request.', array( 'status' => $code ) );
+			return self::rest_error_from_http( $code, $data );
 		}
 
 		return is_array( $data ) ? $data : array();
+	}
+
+	/**
+	 * Keep ReactWoo error codes. Other failures stay a generic rejection.
+	 *
+	 * @param int   $code HTTP status.
+	 * @param mixed $data Decoded JSON body.
+	 * @return WP_Error
+	 */
+	public static function rest_error_from_http( $code, $data ) {
+		$error_code = 'rw_wp_request_rejected';
+		$message    = 'WordPress rejected the setup request.';
+		if ( is_array( $data ) && ! empty( $data['code'] ) ) {
+			$remote = sanitize_key( (string) $data['code'] );
+			if ( 0 === strpos( $remote, 'rw_' ) ) {
+				$error_code = $remote;
+				if ( ! empty( $data['message'] ) && is_string( $data['message'] ) ) {
+					$message = sanitize_text_field( $data['message'] );
+				}
+			}
+		}
+
+		return new WP_Error( $error_code, $message, array( 'status' => (int) $code ) );
 	}
 
 	public static function get_current_user( $rest_root, $user_login, $password ) {
@@ -394,16 +417,21 @@ class RW_WordPress_Client {
 		return is_array( $data ) ? $data : array();
 	}
 
-	public static function bootstrap_connector( $rest_root, $user_login, $password, $portal_url, $challenge ) {
+	public static function bootstrap_connector( $rest_root, $user_login, $password, $portal_url, $challenge, $takeover = false ) {
+		$body = array(
+			'portal_url' => $portal_url,
+		);
+		if ( RW_Connection_Orchestrator::is_explicit_takeover( $takeover ) ) {
+			$body['takeover'] = true;
+		}
+
 		return self::authorized_request(
 			$rest_root,
 			'reactwoo-connector/v2/bootstrap',
 			$user_login,
 			$password,
 			'POST',
-			array(
-				'portal_url' => $portal_url,
-			),
+			$body,
 			array(
 				'X-RW-Enrolment-Challenge' => $challenge,
 			)

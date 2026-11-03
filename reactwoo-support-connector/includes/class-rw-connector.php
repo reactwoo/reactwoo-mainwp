@@ -186,6 +186,18 @@ class RW_Connector {
 		self::schedule_heartbeat();
 	}
 
+	public static function clear_enrolment() {
+		delete_option( 'rw_connector_portal_url' );
+		delete_option( 'rw_connector_site_id' );
+		delete_option( 'rw_connector_site_secret' );
+		delete_option( 'rw_connector_payload' );
+		delete_option( 'rw_connector_connected_at' );
+		delete_option( 'rw_connector_admin_login' );
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			wp_clear_scheduled_hook( self::HEARTBEAT_HOOK );
+		}
+	}
+
 	private static function store_connection( $portal_url, $site_id, $secret, array $payload ) {
 		update_option( 'rw_connector_portal_url', esc_url_raw( $portal_url ), false );
 		update_option( 'rw_connector_site_id', (int) $site_id, false );

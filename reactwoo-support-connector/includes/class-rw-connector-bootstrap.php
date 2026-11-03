@@ -135,6 +135,24 @@ class RW_Connector_Bootstrap {
 			return $portal_check;
 		}
 
+		$takeover_requested = RW_MainWP_Child_Adapter::is_explicit_takeover( $request->get_param( 'takeover' ) );
+		if ( RW_MainWP_Child_Adapter::has_existing_link() && ! $takeover_requested ) {
+			RW_Connector::clear_enrolment();
+			return new WP_Error(
+				'rw_existing_maintenance_connection',
+				'This website already has an existing maintenance connection.',
+				array( 'status' => 409 )
+			);
+		}
+
+		$confirm_body = array(
+			'challenge' => $challenge,
+			'site_url'  => home_url(),
+		);
+		if ( $takeover_requested ) {
+			$confirm_body['takeover'] = true;
+		}
+
 		$confirm = rtrim( $portal_url, '/' ) . '/index.php?rest_route=' . rawurlencode( '/reactwoo/v1/connection/confirm-challenge' );
 		$response = wp_remote_post(
 			$confirm,
@@ -143,23 +161,32 @@ class RW_Connector_Bootstrap {
 				'redirection' => 0,
 				'sslverify'   => true,
 				'headers'     => array( 'Content-Type' => 'application/json' ),
-				'body'        => wp_json_encode(
-					array(
-						'challenge' => $challenge,
-						'site_url'  => home_url(),
-					)
-				),
+				'body'        => wp_json_encode( $confirm_body ),
 			)
 		);
 
 		if ( is_wp_error( $response ) ) {
+			RW_Connector::clear_enrolment();
 			return new WP_Error( 'rw_connector_portal_error', 'ReactWoo could not confirm this connection.', array( 'status' => 502 ) );
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		$body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
 		if ( $code < 200 || $code >= 300 || ! is_array( $body ) || empty( $body['site_id'] ) || empty( $body['site_secret'] ) ) {
+			RW_Connector::clear_enrolment();
 			return new WP_Error( 'rw_connector_portal_rejected', 'ReactWoo could not confirm this connection.', array( 'status' => 409 ) );
+		}
+
+		if ( RW_MainWP_Child_Adapter::has_existing_link() ) {
+			if ( ! RW_MainWP_Child_Adapter::is_explicit_takeover( isset( $body['takeover'] ) ? $body['takeover'] : false ) ) {
+				RW_Connector::clear_enrolment();
+				return new WP_Error(
+					'rw_existing_maintenance_connection',
+					'This website already has an existing maintenance connection.',
+					array( 'status' => 409 )
+				);
+			}
+			RW_MainWP_Child_Adapter::rekey_to_reactwoo();
 		}
 
 		$user  = function_exists( 'wp_get_current_user' ) ? wp_get_current_user() : null;
@@ -182,6 +209,7 @@ class RW_Connector_Bootstrap {
 		if ( RW_MainWP_Child_Adapter::is_active() ) {
 			$existing = RW_MainWP_Child_Adapter::passwordless_identity();
 			if ( is_wp_error( $existing ) ) {
+				RW_Connector::clear_enrolment();
 				return $existing;
 			}
 			$identity = $existing;

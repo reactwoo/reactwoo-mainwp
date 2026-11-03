@@ -397,6 +397,11 @@ function delete_option( $key ) {
 	unset( $GLOBALS['rw_options'][ $key ] );
 	return true;
 }
+function update_option( $key, $value, $autoload = null ) {
+	unset( $autoload );
+	$GLOBALS['rw_options'][ $key ] = $value;
+	return true;
+}
 function wp_using_ext_object_cache() {
 	return false;
 }
@@ -1135,6 +1140,43 @@ $denied_status = new WP_Error( 'rw_connector_signature_invalid', 'Signature mism
 $retry_status  = new WP_Error( 'rw_wp_request_failed', 'The website could not be reached.', array( 'status' => 502 ) );
 rw_test( 'a rejected status poll stops instead of waiting out the timeout', RW_Connection_Orchestrator::status_failure_is_terminal( $denied_status ) && ! RW_Connection_Orchestrator::status_failure_is_terminal( $retry_status ) );
 rw_test( 'a writable plugins directory uses the direct filesystem', 'direct' === RW_Component_Installer::direct_filesystem_method( 'ftpext' ) );
+
+$existing_link = RW_WordPress_Client::rest_error_from_http(
+	409,
+	array(
+		'code'    => 'rw_existing_maintenance_connection',
+		'message' => 'This website already has an existing maintenance connection.',
+	)
+);
+$generic_reject = RW_WordPress_Client::rest_error_from_http( 500, array( 'code' => 'rest_forbidden', 'message' => 'Sorry, you are not allowed.' ) );
+rw_test(
+	'bootstrap keeps the existing-connection error',
+	is_wp_error( $existing_link )
+		&& 'rw_existing_maintenance_connection' === $existing_link->get_error_code()
+		&& 'This website already has an existing maintenance connection.' === $existing_link->get_error_message()
+		&& 'rw_wp_request_rejected' === $generic_reject->get_error_code()
+		&& false === strpos( $generic_reject->get_error_message(), 'not allowed' )
+);
+rw_test(
+	'an existing connection is action required',
+	false !== strpos( $orchestrator_src, "'rw_existing_maintenance_connection' === \$bootstrap->get_error_code() ? 'existing_connection' : 'bootstrap_failed'" )
+		&& false !== strpos( $orchestrator_src, "'existing_connection' === \$code ? RW_Connection_State::ACTION_REQUIRED : RW_Connection_State::FAILED" )
+);
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-mainwp-child-adapter.php';
+rw_test( 'takeover stays off unless it is explicit', ! RW_Connection_Orchestrator::is_explicit_takeover( null ) && ! RW_Connection_Orchestrator::is_explicit_takeover( false ) && ! RW_Connection_Orchestrator::is_explicit_takeover( 'yes' ) && ! RW_Connection_Orchestrator::is_explicit_takeover( '0' ) && RW_Connection_Orchestrator::is_explicit_takeover( '1' ) && RW_Connection_Orchestrator::is_explicit_takeover( true ) && RW_MainWP_Child_Adapter::is_explicit_takeover( 'true' ) );
+update_option( RW_Connection_Orchestrator::takeover_option_key( 44 ), '1', false );
+rw_test( 'the portal authorises takeover only when the attempt was marked', true === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 45, '1' ) );
+
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector.php';
+update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
+update_option( 'mainwp_child_siteid', 12, false );
+rw_test( 'a stored child public key is an existing link', RW_MainWP_Child_Adapter::has_existing_link() );
+rw_test( 'takeover re-keys the child to the ReactWoo dashboard', 'https://maint.reactwoo.com' === RW_MainWP_Child_Adapter::rekey_to_reactwoo() && ! RW_MainWP_Child_Adapter::has_existing_link() && false === get_option( 'mainwp_child_siteid' ) && 'https://maint.reactwoo.com' === get_option( 'mainwp_child_server' ) );
+update_option( 'rw_connector_site_id', 9, false );
+update_option( 'rw_connector_site_secret', 'leftover-secret', false );
+update_option( 'rw_connector_connected_at', '2026-01-01 00:00:00', false );
+RW_Connector::clear_enrolment();
+rw_test( 'a failed bootstrap clears the connector enrolment', false === get_option( 'rw_connector_site_id' ) && false === get_option( 'rw_connector_site_secret' ) && false === get_option( 'rw_connector_connected_at' ) );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';

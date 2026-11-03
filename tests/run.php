@@ -399,12 +399,40 @@ function add_query_arg( $args, $url = '', $maybe_url = null ) {
 		$args = array( $args => $url );
 		$url  = $maybe_url;
 	}
+	// WordPress add_query_arg() does not encode values it adds. Callers that
+	// put a URL in a query value must rawurlencode it themselves.
 	$parts = array();
 	foreach ( (array) $args as $key => $value ) {
-		$parts[] = rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
+		$parts[] = rawurlencode( (string) $key ) . '=' . (string) $value;
 	}
 	$join = ( false === strpos( (string) $url, '?' ) ) ? '?' : '&';
 	return $url . $join . implode( '&', $parts );
+}
+function remove_query_arg( $key, $url ) {
+	$parts = parse_url( (string) $url );
+	if ( ! is_array( $parts ) ) {
+		return (string) $url;
+	}
+	$query = array();
+	if ( ! empty( $parts['query'] ) ) {
+		parse_str( $parts['query'], $query );
+	}
+	foreach ( (array) $key as $name ) {
+		unset( $query[ $name ] );
+	}
+	$scheme  = isset( $parts['scheme'] ) ? $parts['scheme'] . '://' : '';
+	$host    = isset( $parts['host'] ) ? $parts['host'] : '';
+	$port    = isset( $parts['port'] ) ? ':' . $parts['port'] : '';
+	$path    = isset( $parts['path'] ) ? $parts['path'] : '';
+	$rebuilt = $scheme . $host . $port . $path;
+	if ( ! empty( $query ) ) {
+		$pairs = array();
+		foreach ( $query as $name => $value ) {
+			$pairs[] = rawurlencode( (string) $name ) . '=' . rawurlencode( (string) $value );
+		}
+		$rebuilt .= '?' . implode( '&', $pairs );
+	}
+	return $rebuilt;
 }
 function wp_remote_request( $url, $args = array() ) {
 	global $rw_requests;
@@ -968,6 +996,88 @@ if ( class_exists( 'ZipArchive' ) ) {
 	rw_test( 'the local connector zip version is read from the plugin header', '0.3.0' === RW_Portal_Account::connector_zip_version( $zip_path ) );
 	unlink( $zip_path );
 }
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php';
+
+$flow_site = (object) array(
+	'id'              => 7,
+	'user_id'         => 3,
+	'subscription_id' => 9,
+	'site_url'        => 'https://customer.example',
+);
+$flow_attempt = RW_Connection_Attempts::create( $flow_site );
+$flow_state   = $flow_attempt['state'];
+$auth_url     = RW_Connection_Orchestrator::authorization_redirect_url(
+	'https://customer.example/wp-admin/authorize-application.php?action=authorize-application',
+	'https://example.com/my-account/maintenance/?utm=1',
+	$flow_state,
+	'11111111-1111-4111-8111-111111111111'
+);
+$auth_query = array();
+parse_str( (string) parse_url( $auth_url, PHP_URL_QUERY ), $auth_query );
+$success_query = array();
+parse_str( (string) parse_url( $auth_query['success_url'], PHP_URL_QUERY ), $success_query );
+$reject_query = array();
+parse_str( (string) parse_url( $auth_query['reject_url'], PHP_URL_QUERY ), $reject_query );
+rw_test(
+	'parsed success_url keeps state',
+	! isset( $auth_query['state'] )
+		&& $flow_state === $success_query['state']
+		&& 'callback' === $success_query['rw_connect']
+		&& '1' === (string) $success_query['utm']
+		&& $flow_state === $reject_query['state']
+		&& 'rejected' === $reject_query['rw_connect']
+);
+
+$returned = add_query_arg(
+	array(
+		'site_url'   => 'https://customer.example',
+		'user_login' => 'owner',
+		'password'   => 'app-password',
+	),
+	$auth_query['success_url']
+);
+$returned_query = array();
+parse_str( (string) parse_url( $returned, PHP_URL_QUERY ), $returned_query );
+$callback_state = RW_Connection_Orchestrator::state_from_callback_query( $returned_query['state'] );
+$authorised     = RW_Connection_Attempts::consume( $callback_state );
+$missing_state  = RW_Connection_Attempts::consume( '' );
+rw_test( 'callback state still matches the attempt after WordPress appends the credential', is_object( $authorised ) && RW_Connection_State::AUTHORISING === $authorised->status && $flow_state === $callback_state );
+rw_test( 'a callback without state is the missing-state error', is_wp_error( $missing_state ) && 'Connection state is missing.' === $missing_state->get_error_message() );
+
+$query_root = 'https://customer.example/?rest_route=/';
+$route_ok   = true;
+foreach ( array( 'reactwoo-connector/v2/install-components', 'reactwoo-connector/v2/status', 'reactwoo-connector/v2/identity' ) as $route ) {
+	$endpoint = RW_WordPress_Client::api_url( $query_root, $route );
+	$endpoint_query = array();
+	parse_str( (string) parse_url( $endpoint, PHP_URL_QUERY ), $endpoint_query );
+	if ( ! isset( $endpoint_query['rest_route'] ) || '/' . $route !== $endpoint_query['rest_route'] ) {
+		$route_ok = false;
+	}
+}
+$pretty_install = RW_WordPress_Client::api_url( 'https://customer.example/wp-json/', 'reactwoo-connector/v2/install-components' );
+rw_test( 'install, status, and identity keep one REST route parameter', $route_ok && 'https://customer.example/wp-json/reactwoo-connector/v2/install-components' === $pretty_install );
+
+$flow_body  = '{"components":["mainwp-child","mainwp-child-reports"]}';
+$flow_route = '/reactwoo-connector/v2/install-components';
+$flow_nonce = 'flow-install-nonce';
+$flow_time  = (string) time();
+$flow_sign  = hash_hmac( 'sha256', 'POST|' . $flow_route . '|' . $flow_time . '|' . $flow_nonce . '|' . hash( 'sha256', $flow_body ), 'connector-site-secret' );
+$GLOBALS['rw_options']['rw_connector_site_id']     = 9;
+$GLOBALS['rw_options']['rw_connector_site_secret'] = 'connector-site-secret';
+$flow_request = new WP_REST_Request(
+	$flow_body,
+	array(
+		'x-rw-signature' => $flow_sign,
+		'x-rw-timestamp' => $flow_time,
+		'x-rw-nonce'     => $flow_nonce,
+		'x-rw-site-id'   => '9',
+	),
+	'POST',
+	$flow_route
+);
+$client_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php' );
+rw_test( 'install-components stays signed against its route and the challenge stays a header', true === RW_Connector_Signing::verify_request( $flow_request ) && false !== strpos( $client_src, "'X-RW-Enrolment-Challenge' => \$challenge" ) );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';

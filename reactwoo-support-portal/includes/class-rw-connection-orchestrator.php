@@ -83,29 +83,11 @@ class RW_Connection_Orchestrator {
 
 		self::mark_site( $site, RW_Connection_State::AWAITING_AUTHORISATION, '', '', 'v2' );
 
-		$account = self::account_url();
-		$success = add_query_arg(
-			array(
-				'rw_connect' => 'callback',
-				'state'      => $attempt['state'],
-			),
-			$account
-		);
-		$reject  = add_query_arg(
-			array(
-				'rw_connect' => 'rejected',
-				'state'      => $attempt['state'],
-			),
-			$account
-		);
-		$auth    = add_query_arg(
-			array(
-				'app_name'    => 'ReactWoo Maintenance',
-				'app_id'      => $app_id,
-				'success_url' => $success,
-				'reject_url'  => $reject,
-			),
-			$discovery['authorization_url']
+		$auth = self::authorization_redirect_url(
+			$discovery['authorization_url'],
+			self::account_url(),
+			$attempt['state'],
+			$app_id
 		);
 
 		RW_Audit::log(
@@ -119,6 +101,61 @@ class RW_Connection_Orchestrator {
 
 		wp_redirect( $auth );
 		exit;
+	}
+
+	/**
+	 * Authorize-application.php reads success_url from the query string.
+	 * add_query_arg() does not encode new values, so a raw callback URL would
+	 * let &state= become a separate parameter and never return.
+	 *
+	 * @param string $authorization_url Customer authorize-application.php URL.
+	 * @param string $account_url Portal maintenance account URL.
+	 * @param string $state Plaintext connection state.
+	 * @param string $app_id Application Password app id.
+	 * @return string
+	 */
+	public static function authorization_redirect_url( $authorization_url, $account_url, $state, $app_id ) {
+		$success = add_query_arg(
+			array(
+				'rw_connect' => 'callback',
+				'state'      => $state,
+			),
+			$account_url
+		);
+		$reject  = add_query_arg(
+			array(
+				'rw_connect' => 'rejected',
+				'state'      => $state,
+			),
+			$account_url
+		);
+
+		return add_query_arg(
+			array(
+				'app_name'    => rawurlencode( 'ReactWoo Maintenance' ),
+				'app_id'      => rawurlencode( (string) $app_id ),
+				'success_url' => rawurlencode( $success ),
+				'reject_url'  => rawurlencode( $reject ),
+			),
+			$authorization_url
+		);
+	}
+
+	/**
+	 * State from the WordPress return. PHP decodes the query once; decode
+	 * again when the value is still percent-encoded.
+	 *
+	 * @param string $state Raw state query value.
+	 * @return string
+	 */
+	public static function state_from_callback_query( $state ) {
+		$state = (string) $state;
+		if ( function_exists( 'wp_unslash' ) ) {
+			$state = wp_unslash( $state );
+		}
+		$state = rawurldecode( $state );
+
+		return sanitize_text_field( $state );
 	}
 
 	public static function handle_return() {
@@ -159,7 +196,7 @@ class RW_Connection_Orchestrator {
 	}
 
 	private static function handle_callback() {
-		$state    = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		$state    = self::state_from_callback_query( isset( $_GET['state'] ) ? $_GET['state'] : '' );
 		$success  = isset( $_GET['success'] ) ? sanitize_text_field( wp_unslash( $_GET['success'] ) ) : '';
 		$login    = isset( $_GET['user_login'] ) ? sanitize_user( wp_unslash( $_GET['user_login'] ) ) : '';
 		$site_url = isset( $_GET['site_url'] ) ? esc_url_raw( wp_unslash( $_GET['site_url'] ) ) : '';
@@ -227,7 +264,7 @@ class RW_Connection_Orchestrator {
 	}
 
 	private static function handle_rejected() {
-		$state   = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		$state   = self::state_from_callback_query( isset( $_GET['state'] ) ? $_GET['state'] : '' );
 		$attempt = RW_Connection_Attempts::get_by_state( $state );
 		if ( $attempt && RW_Connection_State::AWAITING_AUTHORISATION === $attempt->status ) {
 			self::mark_attempt_site( $attempt, RW_Connection_State::ACTION_REQUIRED, 'authorisation_rejected', 'WordPress authorisation was declined.' );

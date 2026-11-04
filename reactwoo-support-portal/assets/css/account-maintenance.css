@@ -1694,9 +1694,11 @@
 
 .rw-maint-site-card h3 {
 	margin-top: 16px;
-	font-size: 28px;
-	line-height: 1.2;
-	letter-spacing: -0.03em;
+	min-width: 0;
+	font-size: 20px;
+	font-weight: 700;
+	line-height: 1.3;
+	letter-spacing: -0.02em;
 	overflow-wrap: anywhere;
 }
 
@@ -1786,8 +1788,7 @@
 		width: 100%;
 	}
 
-	.rw-maint-panel h3,
-	.rw-maint-site-card h3 {
+	.rw-maint-panel h3 {
 		font-size: 24px;
 	}
 }
@@ -1832,13 +1833,22 @@
 	padding: 24px;
 }
 
-.rw-maint-dash .rw-maint-panel h3,
-.rw-maint-sites-index .rw-maint-site-card h3 {
+.rw-maint-dash .rw-maint-panel h3 {
 	margin: 0;
 	font-size: 28px;
 	font-weight: 700;
 	line-height: 1.25;
 	letter-spacing: -0.02em;
+}
+
+.rw-maint-sites-index .rw-maint-site-card h3 {
+	margin: 0;
+	min-width: 0;
+	font-size: 20px;
+	font-weight: 700;
+	line-height: 1.3;
+	letter-spacing: -0.02em;
+	overflow-wrap: anywhere;
 }
 
 .rw-maint-dash .rw-maint-panel-copy {
@@ -1990,6 +2000,7 @@
 
 .rw-maint-sites-index .rw-maint-site-actions {
 	gap: 8px;
+	margin-top: auto;
 	padding-top: 0;
 }
 
@@ -2032,8 +2043,7 @@
 }
 
 @media (max-width: 1024px) {
-	.rw-maint-dash .rw-maint-panel h3,
-	.rw-maint-sites-index .rw-maint-site-card h3 {
+	.rw-maint-dash .rw-maint-panel h3 {
 		font-size: 24px;
 	}
 
@@ -2170,4 +2180,10 @@
 .rw-maint-switcher .rw-maint-pill--attention {
 	background: #fde68a;
 	color: #78350f;
+}
+
+@media (max-width: 800px) {
+	.rw-maint-sites-index .rw-maint-site-card h3 {
+		font-size: 18px;
+	}
 }

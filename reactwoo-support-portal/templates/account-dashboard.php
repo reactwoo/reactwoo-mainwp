@@ -40,6 +40,13 @@ $host = $host ? $host : 'your website';
 		</aside>
 	</section>
 
+	<?php if ( ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['maintenance'] ) ) : ?>
+		<?php
+		$maintenance = $rw_view['maintenance'];
+		include RW_PORTAL_DIR . 'templates/partials/maintenance-status.php';
+		?>
+	<?php endif; ?>
+
 	<section class="rw-maint-band" aria-labelledby="rw-maint-status-title">
 		<h2 id="rw-maint-status-title">Overall status</h2>
 		<dl class="rw-maint-facts">

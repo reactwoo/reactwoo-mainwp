@@ -341,8 +341,8 @@ function get_transient( $key ) {
 	return isset( $GLOBALS['rw_transients'][ $key ] ) ? $GLOBALS['rw_transients'][ $key ] : false;
 }
 function set_transient( $key, $value, $ttl = 0 ) {
-	unset( $ttl );
 	$GLOBALS['rw_transients'][ $key ] = $value;
+	$GLOBALS['rw_transient_ttl'][ $key ] = (int) $ttl;
 	return true;
 }
 function delete_transient( $key ) {
@@ -1529,6 +1529,493 @@ rw_test(
 	false !== strpos( $maintenance_css, '.rw-maint-plan-block {' )
 		&& false !== strpos( $maintenance_css, 'gap: 28px' )
 		&& false !== strpos( $maintenance_css, 'border-radius: 20px' )
+);
+
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-site-snapshot.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-maintenance-status.php';
+
+$scoped_site = (object) array(
+	'portal_site_id'  => 7,
+	'subscription_id' => 3,
+	'site_url'        => 'https://shop.example',
+	'mainwp_site_id'  => 12,
+);
+$other_site = (object) array(
+	'portal_site_id'  => 9,
+	'subscription_id' => 4,
+	'site_url'        => 'https://other.example',
+	'mainwp_site_id'  => 99,
+);
+
+rw_test( 'a site belongs only to its own subscription', RW_Maint_Site_Snapshot::site_is_in_scope( $scoped_site, 3 ) && ! RW_Maint_Site_Snapshot::site_is_in_scope( $scoped_site, 4 ) && ! RW_Maint_Site_Snapshot::site_is_in_scope( $scoped_site, 0 ) && ! RW_Maint_Site_Snapshot::site_is_in_scope( null, 3 ) );
+
+$denied = RW_Maint_Site_Snapshot::guard(
+	$other_site,
+	3,
+	array(
+		'website' => array(
+			'url'     => 'https://other.example',
+			'privkey' => 'SECRETKEY',
+		),
+	)
+);
+$denied_json = wp_json_encode( $denied );
+rw_test(
+	'another subscription cannot read the site',
+	is_wp_error( $denied )
+		&& 'rw_maint_not_found' === $denied->get_error_code()
+		&& 404 === (int) $denied->get_error_data()['status']
+		&& false === stripos( (string) $denied_json, 'other.example' )
+		&& false === strpos( (string) $denied_json, 'SECRETKEY' )
+);
+
+rw_test( 'backup tasks must name this site', RW_Maint_Site_Snapshot::backup_task_includes_site( serialize( array( 12, 13 ) ), 12 ) );
+rw_test( 'backup tasks for another site stay out', ! RW_Maint_Site_Snapshot::backup_task_includes_site( serialize( array( 99 ) ), 12 ) && ! RW_Maint_Site_Snapshot::backup_task_includes_site( 'all', 12 ) );
+
+$snapshot_now = 1700604900;
+$history      = array();
+for ( $backup_index = 1; $backup_index <= 7; $backup_index++ ) {
+	$history[] = array(
+		'time'   => 1700000000 + ( $backup_index * 86400 ),
+		'status' => ( 0 === $backup_index % 2 ) ? 'failed' : 'success',
+	);
+}
+$activity_base = 1700000000;
+$activity_logs = array(
+	array( 'created' => $activity_base, 'action' => 'plugin updated', 'context' => 'plugins', 'item' => wp_json_encode( array( 'name' => 'WooCommerce', 'from' => '9.0.0', 'to' => '9.1.2' ) ) ),
+	array( 'created' => $activity_base + 20000, 'action' => 'backup completed', 'context' => 'backups', 'item' => 'Daily backup' ),
+	array( 'created' => $activity_base + 40000, 'action' => 'security scan finished', 'context' => 'security', 'item' => 'Scan' ),
+	array( 'created' => $activity_base + 60000, 'action' => 'database optimised', 'context' => 'maintenance', 'item' => 'Database tidy' ),
+	array( 'created' => $activity_base + 80000, 'action' => 'theme upgraded', 'context' => 'themes', 'item' => 'Storefront' ),
+	array( 'created' => $activity_base + 100000, 'action' => 'plugin updated', 'context' => 'plugins', 'item' => 'Akismet' ),
+	array( 'created' => $activity_base + 100500, 'action' => 'backup completed', 'context' => 'backups', 'item' => 'Nightly backup' ),
+	array( 'created' => $activity_base + 100200, 'action' => 'plugin updated', 'context' => 'plugins', 'item' => 'MainWP Child' ),
+);
+$full = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'website' => array(
+			'url'              => 'https://other.example',
+			'privkey'          => 'SECRETKEY',
+			'http_pass'        => 'password',
+			'plugin_upgrades'  => array(
+				'woocommerce/woocommerce.php' => array(
+					'Name'    => 'WooCommerce',
+					'Version' => '9.0.0',
+					'update'  => array( 'new_version' => '9.1.2' ),
+				),
+				'mainwp-child/mainwp-child.php' => array(
+					'Name'        => 'MainWP Child',
+					'Version'     => '6.4',
+					'new_version' => '6.5',
+				),
+				'mainwp-child-reports/mainwp-child-reports.php' => array(
+					'Name'        => 'MainWP Child Reports',
+					'Version'     => '2.3.1',
+					'new_version' => '2.4.0',
+				),
+				'branded/branded.php' => array(
+					'Name'        => 'ReactWoo Maintenance',
+					'Version'     => '1.0.0',
+					'new_version' => '1.1.0',
+				),
+			),
+			'theme_upgrades' => array(
+				'storefront' => array(
+					'Name'        => 'Storefront',
+					'Version'     => '4.5.0',
+					'new_version' => '4.6.0',
+				),
+			),
+			'securityIssues' => array(
+				'php_outdated' => 'PHP is old',
+				'ssl'          => 'SSL',
+			),
+			'pages'          => array(
+				array( 'title' => 'Home', 'status' => 'publish', 'dts' => 1710000000 ),
+				array( 'title' => 'Draft page', 'status' => 'draft', 'dts' => 1720000000 ),
+			),
+			'users'          => array(
+				array( 'login' => 'shopper', 'roles' => 'customer', 'last_login' => 1700001000 ),
+				array( 'login' => 'ghost', 'last_login' => 1900000000 ),
+				array( 'login' => 'older', 'role' => 'administrator', 'last_login' => 1700000000 ),
+				array( 'login' => 'jane', 'roles' => array( 'administrator' ), 'last_login' => 1700002000 ),
+			),
+		),
+		'sync'    => array(
+			'version'      => '6.7.1',
+			'dtsSync'      => 1700500000,
+			'health_value' => 100,
+			'phpversion'   => '8.2.12',
+			'last_post_gmt' => 1600000000,
+		),
+		'options' => array(
+			'wp_upgrades'          => array( 'current' => '6.7.1', 'new' => '6.7.2' ),
+			'updraftplus_history'  => $history,
+			'child_reports_login'  => array(
+				'user_login' => 'sam',
+				'time'       => 1800000000,
+				'role'       => 'administrator',
+			),
+			'woocommerce'          => array(
+				'products' => array(
+					'published'    => 12,
+					'draft'        => 2,
+					'out_of_stock' => 1,
+				),
+			),
+			'published_posts'      => 4,
+			'recent_posts'         => array(
+				array( 'title' => 'Older', 'status' => 'publish', 'dts' => 1700000000 ),
+				array( 'title' => 'Newer', 'status' => 'publish', 'dts' => 1700005000 ),
+				array( 'title' => 'Draft', 'status' => 'draft', 'dts' => 1700009000 ),
+			),
+			'next_maintenance'     => $snapshot_now + 86400,
+		),
+		'monitors' => array(
+			array( 'last_status' => 1, 'lasttime_check' => 1700600000, 'active' => 1, 'issub' => 0 ),
+		),
+		'logs'     => $activity_logs,
+		'audit'    => array(
+			array(
+				'event_type' => 'maintenance_run',
+				'message'    => wp_json_encode(
+					array(
+						'updates_applied' => false,
+						'backup'          => true,
+						'security_scan'   => true,
+						'optimisation'    => false,
+					)
+				),
+				'created_at' => gmdate( 'Y-m-d H:i:s', $activity_base + 120000 ),
+			),
+		),
+		'backup_tasks' => array(
+			array(
+				'schedule'   => 'daily',
+				'last_run'   => 1700000000 + ( 7 * 86400 ),
+				'last'       => 1700000000 + ( 7 * 86400 ),
+				'completed'  => 1,
+			),
+		),
+	),
+	$snapshot_now
+);
+$full_json = wp_json_encode( $full );
+rw_test(
+	'the snapshot is scoped to the enrolled site',
+	7 === $full['portal_site_id']
+		&& 3 === $full['subscription_id']
+		&& 'https://shop.example' === $full['site_url']
+		&& false === stripos( $full_json, 'other.example' )
+		&& false === strpos( $full_json, 'SECRETKEY' )
+		&& false === strpos( $full_json, 'password' )
+		&& false === stripos( $full_json, 'mainwp' )
+		&& false === strpos( $full_json, 'ReactWoo Maintenance' )
+);
+$pending_names = array();
+foreach ( $full['plugins']['pending'] as $pending_plugin ) {
+	$pending_names[] = $pending_plugin['name'];
+}
+rw_test(
+	'maintenance plugins are hidden and customer plugins remain',
+	1 === $full['plugins']['pending_count']
+		&& array( 'WooCommerce' ) === $pending_names
+		&& '9.0.0' === $full['plugins']['pending'][0]['current_version']
+		&& '9.1.2' === $full['plugins']['pending'][0]['new_version']
+		&& 1 === $full['themes']['pending_count']
+		&& 'Storefront' === $full['themes']['pending'][0]['name']
+);
+rw_test(
+	'core, php, health, security, sync and uptime come from the synced site',
+	'6.7.1' === $full['core']['wordpress_version']
+		&& true === $full['core']['update_available']
+		&& '6.7.2' === $full['core']['new_version']
+		&& '8.2.12' === $full['php_version']
+		&& 'good' === $full['health']['status']
+		&& 2 === $full['security']['issues_count']
+		&& null !== $full['last_sync_at']
+		&& true === $full['uptime']['monitored']
+		&& 'up' === $full['uptime']['status']
+);
+$update_names = array();
+foreach ( $full['recent_updates'] as $recent_update ) {
+	$update_names[] = $recent_update['name'];
+}
+rw_test(
+	'recent updates keep customer plugins and record versions',
+	in_array( 'WooCommerce', $update_names, true )
+		&& in_array( 'Akismet', $update_names, true )
+		&& ! in_array( 'MainWP Child', $update_names, true )
+);
+$woo_update = null;
+foreach ( $full['recent_updates'] as $recent_update ) {
+	if ( 'WooCommerce' === $recent_update['name'] ) {
+		$woo_update = $recent_update;
+	}
+}
+rw_test( 'an applied plugin update keeps both versions', is_array( $woo_update ) && '9.0.0' === $woo_update['from_version'] && '9.1.2' === $woo_update['to_version'] && 'plugin' === $woo_update['type'] );
+
+rw_test(
+	'backup history keeps the newest five and the next daily run',
+	5 === count( $full['backups']['recent'] )
+		&& gmdate( 'c', 1700000000 + ( 7 * 86400 ) ) === $full['backups']['last']['time']
+		&& 'success' === $full['backups']['last']['status']
+		&& gmdate( 'c', 1700000000 + ( 7 * 86400 ) ) === $full['backups']['recent'][0]['time']
+		&& gmdate( 'c', 1700000000 + ( 3 * 86400 ) ) === $full['backups']['recent'][4]['time']
+		&& gmdate( 'c', 1700000000 + ( 8 * 86400 ) ) === $full['backups']['next_scheduled']
+);
+rw_test(
+	'the latest administrator login is returned',
+	'sam' === $full['last_admin_login']['username']
+		&& gmdate( 'c', 1800000000 ) === $full['last_admin_login']['time']
+		&& false === strpos( $full_json, 'shopper' )
+		&& false === strpos( $full_json, 'ghost' )
+);
+rw_test(
+	'catalogue counts and last published dates are kept apart from recent lists',
+	12 === $full['content']['products']['published']
+		&& 2 === $full['content']['products']['draft']
+		&& 1 === $full['content']['products']['out_of_stock']
+		&& 4 === $full['content']['posts']['published']
+		&& gmdate( 'c', 1700005000 ) === $full['content']['posts']['last_published_at']
+		&& 1 === $full['content']['pages']['published']
+		&& gmdate( 'c', 1710000000 ) === $full['content']['pages']['last_published_at']
+);
+rw_test(
+	'the last five maintenance runs keep what was done',
+	5 === count( $full['activity']['recent'] )
+		&& gmdate( 'c', $activity_base + 120000 ) === $full['activity']['last_run']['date']
+		&& false === $full['activity']['last_run']['updates_applied']
+		&& true === $full['activity']['last_run']['backup']
+		&& true === $full['activity']['last_run']['security_scan']
+		&& false === $full['activity']['last_run']['optimisation']
+		&& gmdate( 'c', $snapshot_now + 86400 ) === $full['activity']['next_scheduled']
+);
+
+$missing = RW_Maint_Site_Snapshot::build( $scoped_site, array() );
+rw_test(
+	'missing synced fields stay empty instead of invented values',
+	null === $missing['core']['wordpress_version']
+		&& null === $missing['core']['update_available']
+		&& null === $missing['plugins']['pending_count']
+		&& null === $missing['themes']['pending_count']
+		&& array() === $missing['recent_updates']
+		&& null === $missing['php_version']
+		&& null === $missing['health']['status']
+		&& null === $missing['security']['issues_count']
+		&& null === $missing['last_sync_at']
+		&& null === $missing['backups']['last']['time']
+		&& null === $missing['backups']['last']['status']
+		&& null === $missing['backups']['next_scheduled']
+		&& array() === $missing['backups']['recent']
+		&& false === $missing['uptime']['monitored']
+		&& null === $missing['uptime']['status']
+		&& null === $missing['last_admin_login']['time']
+		&& null === $missing['last_admin_login']['username']
+		&& null === $missing['content']['products']['published']
+		&& null === $missing['content']['products']['draft']
+		&& null === $missing['content']['products']['out_of_stock']
+		&& null === $missing['content']['posts']['published']
+		&& null === $missing['content']['posts']['last_published_at']
+		&& null === $missing['content']['pages']['published']
+		&& null === $missing['content']['pages']['last_published_at']
+		&& null === $missing['activity']['last_run']
+		&& null === $missing['activity']['next_scheduled']
+		&& array() === $missing['activity']['recent']
+);
+
+$recent_only = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'recent_posts' => array(
+				array( 'title' => 'One', 'status' => 'publish', 'date' => '2026-01-02 00:00:00' ),
+				array( 'title' => 'Two', 'status' => 'publish', 'date' => '2026-03-04 00:00:00' ),
+			),
+			'recent_pages' => array(
+				array( 'title' => 'About', 'status' => 'publish', 'dts' => 1711000000 ),
+			),
+		),
+	)
+);
+rw_test(
+	'recent posts do not become a published count',
+	null === $recent_only['content']['posts']['published']
+		&& null === $recent_only['content']['pages']['published']
+		&& gmdate( 'c', strtotime( '2026-03-04 00:00:00' ) ) === $recent_only['content']['posts']['last_published_at']
+		&& gmdate( 'c', 1711000000 ) === $recent_only['content']['pages']['last_published_at']
+);
+
+$zeros = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'content' => array(
+				'products' => array(
+					'published'    => 0,
+					'draft'        => 0,
+					'out_of_stock' => 0,
+				),
+				'posts'    => array( 'published' => 0 ),
+				'pages'    => array( 'published' => 0 ),
+			),
+			'securityIssues' => array(),
+			'wp_upgrades'    => array(),
+		),
+		'sync' => array( 'version' => '6.7.1' ),
+	)
+);
+rw_test(
+	'a reported zero stays zero',
+	0 === $zeros['content']['products']['published']
+		&& 0 === $zeros['content']['products']['draft']
+		&& 0 === $zeros['content']['products']['out_of_stock']
+		&& 0 === $zeros['content']['posts']['published']
+		&& 0 === $zeros['security']['issues_count']
+		&& false === $zeros['core']['update_available']
+);
+
+$down = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'monitors' => array(
+			array( 'last_status' => 0, 'active' => 1, 'issub' => 0, 'lasttime_check' => 1700000000 ),
+		),
+		'options'  => array(
+			'primary_lasttime_backup' => 1690000000,
+		),
+	)
+);
+rw_test( 'a monitor can report the site offline', true === $down['uptime']['monitored'] && 'down' === $down['uptime']['status'] );
+rw_test( 'a backup time without a result is not marked successful', gmdate( 'c', 1690000000 ) === $down['backups']['last']['time'] && null === $down['backups']['last']['status'] );
+
+$unknown_monitor = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'monitors' => array(
+			array( 'last_status' => 99, 'active' => 1, 'issub' => 0 ),
+		),
+	)
+);
+rw_test( 'an unchecked monitor does not invent uptime', true === $unknown_monitor['uptime']['monitored'] && null === $unknown_monitor['uptime']['status'] );
+
+$blank_view = RW_Portal_Maintenance_Status::present( array() );
+$blank_states = array();
+foreach ( $blank_view['cards'] as $blank_card ) {
+	$blank_states[] = $blank_card['state'];
+}
+rw_test(
+	'missing data renders unknown status cards',
+	array( 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown' ) === $blank_states
+		&& ! $blank_view['login']['available']
+		&& 'Not available yet' === $blank_view['content']['groups'][0]['rows'][0]['value']
+		&& 'Not available yet' === $blank_view['content']['groups'][1]['rows'][1]['value']
+		&& ! $blank_view['activity']['last']['available']
+		&& ! $blank_view['activity']['next']['available']
+		&& array() === $blank_view['activity']['recent']
+);
+$live_view = RW_Portal_Maintenance_Status::present( $full );
+$live_ids  = array();
+foreach ( $live_view['cards'] as $live_card ) {
+	$live_ids[] = $live_card['id'];
+}
+rw_test(
+	'status cards cover the customer maintenance areas',
+	array( 'core', 'updates', 'security', 'health', 'backups', 'uptime' ) === $live_ids
+		&& 'attention' === $live_view['cards'][0]['state']
+		&& 'good' === $live_view['cards'][3]['state']
+		&& 'good' === $live_view['cards'][5]['state']
+		&& 'sam' === $live_view['login']['username']
+		&& '12' === $live_view['content']['groups'][0]['rows'][0]['value']
+		&& true === $live_view['activity']['last']['available']
+		&& in_array( 'Backup', $live_view['activity']['last']['done'], true )
+		&& in_array( 'Security scan', $live_view['activity']['last']['done'], true )
+);
+
+$cache_calls = 0;
+$cache_site  = (object) array(
+	'id'              => 7,
+	'subscription_id' => 3,
+);
+$cache_fetch = function ( $site ) use ( &$cache_calls ) {
+	$cache_calls++;
+	return array(
+		'portal_site_id'  => (int) $site->id,
+		'subscription_id' => (int) $site->subscription_id,
+		'core'            => array( 'wordpress_version' => '6.7.1' ),
+	);
+};
+$GLOBALS['rw_transients']    = array();
+$GLOBALS['rw_transient_ttl'] = array();
+$cached_first  = RW_Portal_Maintenance_Status::for_site( $cache_site, $cache_fetch );
+$cached_second = RW_Portal_Maintenance_Status::for_site( $cache_site, $cache_fetch );
+$cache_key     = RW_Portal_Maintenance_Status::cache_key( $cache_site );
+rw_test(
+	'a successful snapshot is cached',
+	1 === $cache_calls
+		&& $cached_first === $cached_second
+		&& 7 === $cached_second['portal_site_id']
+		&& isset( $GLOBALS['rw_transient_ttl'][ $cache_key ] )
+		&& $GLOBALS['rw_transient_ttl'][ $cache_key ] >= 600
+		&& $GLOBALS['rw_transient_ttl'][ $cache_key ] <= 900
+);
+$other_cache = (object) array(
+	'id'              => 8,
+	'subscription_id' => 3,
+);
+$cached_other = RW_Portal_Maintenance_Status::for_site( $other_cache, $cache_fetch );
+$moved_cache  = (object) array(
+	'id'              => 7,
+	'subscription_id' => 9,
+);
+$cached_moved = RW_Portal_Maintenance_Status::for_site( $moved_cache, $cache_fetch );
+rw_test(
+	'the cache is separate for each site and subscription',
+	2 === $cache_calls || 3 === $cache_calls
+);
+rw_test( 'another site is fetched on its own', 8 === $cached_other['portal_site_id'] && 9 === $cached_moved['subscription_id'] && 3 === $cache_calls );
+
+$failed_calls = 0;
+$failed_site  = (object) array(
+	'id'              => 11,
+	'subscription_id' => 3,
+);
+$failed_fetch = function () use ( &$failed_calls ) {
+	$failed_calls++;
+	return new WP_Error( 'rw_maint_bad_response', 'Maintenance hub responded with an error.' );
+};
+RW_Portal_Maintenance_Status::for_site( $failed_site, $failed_fetch );
+RW_Portal_Maintenance_Status::for_site( $failed_site, $failed_fetch );
+rw_test( 'a failed status fetch is not cached', 2 === $failed_calls && ! get_transient( RW_Portal_Maintenance_Status::cache_key( $failed_site ) ) );
+
+$status_controller = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/includes/rest/class-rw-maint-rest-controller.php' );
+$status_pos        = strpos( $status_controller, 'function site_status' );
+$scope_pos         = strpos( $status_controller, 'site_is_in_scope', $status_pos );
+$collect_pos       = strpos( $status_controller, 'RW_Maint_MainWP_Status::collect', $status_pos );
+rw_test(
+	'the status endpoint is signed and checks the subscription before reading',
+	false !== strpos( $status_controller, "'/status'" )
+		&& false !== $status_pos
+		&& false !== $scope_pos
+		&& false !== $collect_pos
+		&& $scope_pos < $collect_pos
+);
+$portal_client = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maint-client.php' );
+$fetch_pos     = strpos( $portal_client, 'function fetch_site_status' );
+rw_test(
+	'the portal requests status for the site subscription',
+	false !== $fetch_pos
+		&& false !== strpos( substr( $portal_client, $fetch_pos, 500 ), "'status'" )
+		&& false !== strpos( substr( $portal_client, $fetch_pos, 500 ), 'subscription_id' )
+);
+rw_test(
+	'status cards stack on small screens and use the account tokens',
+	false !== strpos( $maintenance_css, '.rw-maint-status-grid' )
+		&& false !== strpos( $maintenance_css, 'var(--rw-ink)' )
+		&& false !== strpos( $maintenance_css, 'var(--rw-card)' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-status-grid,' )
+		&& false !== strpos( $maintenance_css, 'grid-template-columns: 1fr' )
 );
 
 if ( $failures > 0 ) {

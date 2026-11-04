@@ -36,6 +36,8 @@ final class RW_Maint_Bridge {
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-cleanup.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp-client.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-site-snapshot.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp-status.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-settings.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-audit-admin.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-dashboard.php';

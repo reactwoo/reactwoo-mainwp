@@ -649,6 +649,7 @@ class RW_Portal_Account {
 			'reports'         => self::report_cards( $reports_on, $speed_on ),
 			'manual_pending'  => $site && class_exists( 'RW_Temporary_Access' ) && RW_Temporary_Access::is_pending( $site ),
 			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
+			'maintenance'     => ( 'connected' === $state && $site && class_exists( 'RW_Portal_Maintenance_Status' ) ) ? RW_Portal_Maintenance_Status::view_for_site( $site ) : null,
 		);
 	}
 

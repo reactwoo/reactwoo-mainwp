@@ -95,6 +95,16 @@ class RW_Maint_Rest_Controller {
 				'permission_callback' => array( __CLASS__, 'authorize_request' ),
 			)
 		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/status',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'site_status' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
 	}
 
 	/**
@@ -443,6 +453,31 @@ class RW_Maint_Rest_Controller {
 		);
 	}
 
+	/**
+	 * Read-only synced status for the site linked to this subscription.
+	 *
+	 * A subscription mismatch uses the same not-found response as a missing site.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function site_status( WP_REST_Request $request ) {
+		$portal_site_id  = self::extract_portal_site_id( $request );
+		$subscription_id = self::extract_subscription_id( $request );
+		if ( ! $portal_site_id || ! $subscription_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID and subscription ID are required.', array( 'status' => 400 ) );
+		}
+
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		if ( ! RW_Maint_Site_Snapshot::site_is_in_scope( $site, $subscription_id ) ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		return rest_ensure_response(
+			RW_Maint_Site_Snapshot::build( $site, RW_Maint_MainWP_Status::collect( $site ) )
+		);
+	}
+
 	public static function reconnect( WP_REST_Request $request ) {
 		$portal_site_id = self::extract_portal_site_id( $request );
 		if ( ! $portal_site_id ) {
@@ -471,6 +506,19 @@ class RW_Maint_Rest_Controller {
 				'status'         => 'active',
 			)
 		);
+	}
+
+	private static function extract_subscription_id( WP_REST_Request $request ) {
+		$payload = (array) $request->get_json_params();
+		if ( isset( $payload['subscription_id'] ) ) {
+			return absint( $payload['subscription_id'] );
+		}
+
+		if ( $request->has_param( 'subscription_id' ) ) {
+			return absint( $request->get_param( 'subscription_id' ) );
+		}
+
+		return 0;
 	}
 
 	private static function extract_portal_site_id( WP_REST_Request $request ) {

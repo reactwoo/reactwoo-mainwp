@@ -35,6 +35,18 @@ class RW_Support_Offers {
 	 *
 	 * @return array<string,array{id:int,kind:string}>
 	 */
+	/**
+	 * @return array<int,int>
+	 */
+	public static function offer_ids() {
+		$ids = array();
+		foreach ( self::catalogue() as $row ) {
+			$ids[] = (int) $row['id'];
+		}
+
+		return $ids;
+	}
+
 	public static function catalogue() {
 		return array(
 			'additional-support-1h' => array(
@@ -151,16 +163,21 @@ class RW_Support_Offers {
 	 */
 	public static function present( array $products, $has_maintenance, $card, $checkout_base, $subscription_id, $site_id ) {
 		$options = array();
+		$seen    = array();
 		foreach ( $products as $product ) {
 			if ( ! is_array( $product ) ) {
 				continue;
 			}
 			$slug = isset( $product['slug'] ) ? (string) $product['slug'] : '';
 			$id   = isset( $product['id'] ) ? (int) $product['id'] : 0;
-			$kind = self::kind_of( $slug, $id );
-			if ( '' === $kind ) {
+			if ( $id <= 0 || isset( $seen[ $id ] ) ) {
 				continue;
 			}
+			$kind = self::kind_of( $slug, $id );
+			if ( '' === $kind || ! in_array( $id, self::offer_ids(), true ) ) {
+				continue;
+			}
+			$seen[ $id ] = true;
 			if ( 'additional' === $kind && ! $has_maintenance ) {
 				continue;
 			}
@@ -281,13 +298,13 @@ class RW_Support_Offers {
 		$records = array();
 		foreach ( self::catalogue() as $slug => $row ) {
 			$product = self::load_product( $slug, (int) $row['id'] );
-			if ( ! $product ) {
+			if ( ! $product || ! method_exists( $product, 'get_id' ) || (int) $product->get_id() !== (int) $row['id'] ) {
 				continue;
 			}
 			$records[] = array(
-				'slug'       => method_exists( $product, 'get_slug' ) ? (string) $product->get_slug() : $slug,
-				'id'         => method_exists( $product, 'get_id' ) ? (int) $product->get_id() : (int) $row['id'],
-				'name'       => method_exists( $product, 'get_name' ) ? (string) $product->get_name() : $slug,
+				'slug'       => $slug,
+				'id'         => (int) $row['id'],
+				'name'       => self::product_label( $product, $slug ),
 				'price_html' => self::price_html( $product ),
 			);
 		}
@@ -310,11 +327,43 @@ class RW_Support_Offers {
 	}
 
 	/**
-	 * @param string $slug Catalogue slug.
-	 * @param int    $fallback_id Known product id.
-	 * @return object|null
+	 * Variation attributes are part of the label. The parent title alone is not.
+	 *
+	 * @param object $product Woo product or variation.
+	 * @param string $fallback Slug used when the product has no name.
+	 * @return string
 	 */
+	public static function product_label( $product, $fallback = '' ) {
+		$name = ( is_object( $product ) && method_exists( $product, 'get_name' ) ) ? trim( (string) $product->get_name() ) : '';
+		if ( is_object( $product ) && method_exists( $product, 'is_type' ) && $product->is_type( 'variation' ) ) {
+			$parent_name = '';
+			if ( method_exists( $product, 'get_parent_id' ) && function_exists( 'wc_get_product' ) ) {
+				$parent = wc_get_product( (int) $product->get_parent_id() );
+				if ( is_object( $parent ) && method_exists( $parent, 'get_name' ) ) {
+					$parent_name = trim( (string) $parent->get_name() );
+				}
+			}
+			$formatted = function_exists( 'wc_get_formatted_variation' ) ? (string) wc_get_formatted_variation( $product, true, false, false ) : '';
+			$formatted = trim( wp_strip_all_tags( $formatted ) );
+			if ( '' !== $parent_name && '' !== $formatted && false === strpos( $name, $formatted ) ) {
+				return $parent_name . ' — ' . $formatted;
+			}
+		}
+		if ( '' !== $name ) {
+			return $name;
+		}
+
+		return (string) $fallback;
+	}
+
 	public static function load_product( $slug, $fallback_id ) {
+		if ( function_exists( 'wc_get_product' ) && (int) $fallback_id > 0 ) {
+			$by_id = wc_get_product( (int) $fallback_id );
+			if ( is_object( $by_id ) && method_exists( $by_id, 'get_id' ) && (int) $by_id->get_id() === (int) $fallback_id ) {
+				return $by_id;
+			}
+		}
+
 		$product = null;
 		if ( function_exists( 'wc_get_products' ) ) {
 			$found = wc_get_products(

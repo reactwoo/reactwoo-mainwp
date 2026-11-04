@@ -1643,7 +1643,8 @@ $full = RW_Maint_Site_Snapshot::build(
 			),
 		),
 		'sync'    => array(
-			'version'      => '6.7.1',
+			'version'      => '5.4.0.1',
+			'wpversion'    => '6.7.1',
 			'dtsSync'      => 1700500000,
 			'health_value' => 100,
 			'phpversion'   => '8.2.12',
@@ -1755,6 +1756,172 @@ foreach ( $full['recent_updates'] as $recent_update ) {
 	}
 }
 rw_test( 'an applied plugin update keeps both versions', is_array( $woo_update ) && '9.0.0' === $woo_update['from_version'] && '9.1.2' === $woo_update['to_version'] && 'plugin' === $woo_update['type'] );
+
+$real_micro = 1700000000000000;
+$real_mainwp = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'website' => array(
+			'plugins' => array(
+				'woocommerce/woocommerce.php' => array( 'Name' => 'WooCommerce', 'Version' => '9.1.2' ),
+				'reactwoo-geo-core/reactwoo-geo-core.php' => array( 'Name' => 'ReactWoo Geo Core', 'Version' => '1.4.0' ),
+			),
+			'themes' => array(
+				'storefront' => array( 'Name' => 'Storefront', 'Version' => '4.6.0' ),
+			),
+			'plugin_upgrades' => array(
+				'woocommerce/woocommerce.php' => array(
+					'Name'    => 'WooCommerce',
+					'Version' => '9.1.2',
+					'update'  => array( 'new_version' => '9.2.0' ),
+				),
+			),
+			'theme_upgrades' => array(
+				'storefront' => array(
+					'Name'        => 'Storefront',
+					'Version'     => '4.6.0',
+					'new_version' => '4.6.1',
+				),
+			),
+			'premium_upgrades' => array(),
+			'securityIssues' => array(
+				'php_outdated' => 'PHP is old',
+			),
+			'wp_upgrades' => array( 'current' => '7.1.4', 'new' => '7.1.5' ),
+			'users' => array(
+				array( 'login' => 'jane', 'role' => 'administrator' ),
+			),
+		),
+		'sync' => array(
+			'version'   => '5.4.0.6',
+			'dtsSync'   => $real_micro,
+			'health_value' => 72,
+		),
+		'options' => array(
+			'plugins'          => '[]',
+			'themes'           => '[]',
+			'plugin_upgrades'  => '[]',
+			'theme_upgrades'   => '[]',
+			'premium_upgrades' => '[]',
+			'securityIssues'   => '[]',
+			'wp_upgrades'      => '[]',
+			'site_info'        => wp_json_encode(
+				array(
+					'wpversion'       => '7.1.4',
+					'child_version'   => '5.4.0.6',
+					'format_datetime' => array(
+						'timezone_string' => 'Europe/Paris',
+						'gmt_offset'      => 1,
+					),
+				)
+			),
+			'primary_lasttime_backup' => (string) $real_micro,
+			'recent_posts' => array(
+				array( 'title' => 'Hello', 'status' => 'publish', 'dts' => 1700000000 ),
+			),
+			'health_site_status' => array(
+				'good'        => 12,
+				'recommended' => 1,
+				'critical'    => 2,
+			),
+		),
+		'logs' => array(
+			array(
+				'created' => $real_micro,
+				'action'  => 'updated',
+				'context' => 'plugins',
+				'item'    => wp_json_encode( array( 'name' => 'ReactWoo Geo Core', 'from' => '1.3.0', 'to' => '1.4.0' ) ),
+			),
+		),
+	),
+	1700604900
+);
+$real_names = array();
+foreach ( $real_mainwp['plugins']['pending'] as $real_pending ) {
+	$real_names[] = $real_pending['name'];
+}
+$geo = null;
+foreach ( $real_mainwp['recent_updates'] as $real_update ) {
+	if ( 'ReactWoo Geo Core' === $real_update['name'] ) {
+		$geo = $real_update;
+	}
+}
+$explicit_critical = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'health_site_status' => array(
+				'status'   => 'critical',
+				'critical' => 4,
+			),
+		),
+	)
+);
+rw_test(
+	'a real MainWP row uses the site WordPress version, lists, and microsecond times',
+	'7.1.4' === $real_mainwp['core']['wordpress_version']
+		&& true === $real_mainwp['core']['update_available']
+		&& '7.1.5' === $real_mainwp['core']['new_version']
+		&& array( 'WooCommerce' ) === $real_names
+		&& 1 === $real_mainwp['themes']['pending_count']
+		&& 'Storefront' === $real_mainwp['themes']['pending'][0]['name']
+		&& 2 === $real_mainwp['inventory']['plugins']
+		&& 1 === $real_mainwp['inventory']['themes']
+		&& 1 === $real_mainwp['security']['issues_count']
+		&& 'Europe/Paris' === $real_mainwp['timezone']
+		&& gmdate( 'c', 1700000000 ) === $real_mainwp['last_sync_at']
+		&& gmdate( 'c', 1700000000 ) === $real_mainwp['backups']['last']['time']
+		&& is_array( $geo )
+		&& 'plugin' === $geo['type']
+		&& gmdate( 'c', 1700000000 ) === $geo['applied_at']
+		&& 'needs_attention' === $real_mainwp['health']['status']
+		&& 'critical' === $explicit_critical['health']['status']
+		&& null === $real_mainwp['last_admin_login']['time']
+		&& null === $real_mainwp['content']['posts']['published']
+		&& gmdate( 'c', 1700000000 ) === $real_mainwp['content']['posts']['last_published_at']
+		&& null === $real_mainwp['content']['products']['published']
+);
+$health_view = RW_Portal_Maintenance_Status::present( $real_mainwp );
+$health_card = null;
+foreach ( $health_view['cards'] as $health_row ) {
+	if ( 'health' === $health_row['id'] ) {
+		$health_card = $health_row;
+	}
+}
+rw_test( 'a few critical checks are needs attention, not critical', is_array( $health_card ) && 'Needs attention' === $health_card['state_label'] );
+
+$indexed_run = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'logs' => array(
+			array(
+				'created' => '17000000004521',
+				'action'  => 'backup completed',
+				'context' => 'backups',
+				'item'    => 'Nightly',
+			),
+		),
+	)
+);
+$absurd_when = RW_Portal_Maintenance_Status::format_when( '4378-05-06T15:06:40+00:00' );
+$indexed_when = RW_Portal_Maintenance_Status::format_when( '17000000004521' );
+$micro_when = RW_Portal_Maintenance_Status::format_when( '1700000000000000' );
+rw_test(
+	'maintenance run times ignore millisecond, microsecond and indexed stamps',
+	is_array( $indexed_run['activity']['last_run'] )
+		&& gmdate( 'c', 1700000000 ) === $indexed_run['activity']['last_run']['date']
+		&& '' === $absurd_when
+		&& false !== strpos( $indexed_when, '2023' )
+		&& false !== strpos( $micro_when, '2023' )
+		&& false === strpos( $indexed_when, '4377' )
+		&& false === strpos( $micro_when, '5292' )
+);
+rw_test(
+	'the header is needs attention when a status card is',
+	RW_Portal_Maintenance_Status::needs_attention( array( 'flags' => array(), 'cards' => array( array( 'state' => 'good' ) ) ) ) === false
+		&& RW_Portal_Maintenance_Status::needs_attention( array( 'flags' => array( 'Site health needs attention' ), 'cards' => array() ) )
+		&& RW_Portal_Maintenance_Status::needs_attention( $health_view )
+);
 
 rw_test(
 	'backup history keeps the newest five and the next daily run',
@@ -2610,6 +2777,29 @@ $offer_request['idempotency_key'] = 'no-active-plan-key';
 $offer_blocked = RW_Support_Purchase::attempt( $offer_request );
 rw_test( 'additional support is refused server-side without an active plan', 'failure' === $offer_blocked['result'] && 1 === $offer_orders );
 $offer_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/support-offer.php' );
+$duplicate_packs = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'technical-support-1h', 'id' => 3665, 'name' => 'ReactWoo Technical Support 1h', 'price_html' => '£55.00' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support 1h', 'price_html' => '£40.00' ),
+		array( 'slug' => 'not-a-pack', 'id' => 9999, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+	),
+	false,
+	null,
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+$pack_names = array();
+foreach ( $duplicate_packs['options'] as $pack_option ) {
+	$pack_names[] = $pack_option['name'];
+}
+rw_test(
+	'support packs are the four product ids, without duplicates or non-member additional support',
+	array( 'ReactWoo Technical Support 5h', 'ReactWoo Technical Support 1h' ) === $pack_names
+);
 rw_test(
 	'the support card has a pack menu, saved-card purchase, and checkout fallback',
 	false !== strpos( $offer_template, 'Buy extra support' )

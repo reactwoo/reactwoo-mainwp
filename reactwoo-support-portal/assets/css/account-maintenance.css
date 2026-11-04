@@ -1097,7 +1097,7 @@
 
 	.rw-maint-onboarding .rw-maint-hero .rw-maint-pill {
 		background: #0d2c4d;
-		color: #148cff;
+		color: #8ecbff;
 		border-radius: 18px;
 	}
 
@@ -1207,7 +1207,7 @@
 
 	.rw-maint-onboarding .rw-maint-card .rw-maint-kicker {
 		background: #0d2c4d;
-		color: #148cff;
+		color: #8ecbff;
 		border-radius: 18px;
 	}
 
@@ -1800,6 +1800,22 @@
 .rw-maint-dash .rw-maint-hero {
 	gap: 32px;
 	padding: 32px;
+}
+
+.rw-maint-dash .rw-maint-hero--attention {
+	background: #171c34;
+	color: #fff;
+}
+
+.rw-maint-dash .rw-maint-hero--attention h2,
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-lead,
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-hero-host {
+	color: #fff;
+}
+
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-lead,
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-hero-host {
+	color: #e4e8f4;
 }
 
 .rw-maint-dash .rw-maint-hero .rw-maint-lead {

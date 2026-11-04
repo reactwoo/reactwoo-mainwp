@@ -156,11 +156,207 @@ class RW_Portal_Account {
 			);
 		}
 
+		$blocks   = self::sort_subscription_blocks( $blocks );
+		$decision = self::blocks_for_request( $blocks, self::selected_subscription_id() );
+
 		echo '<div class="rw-maint">';
-		foreach ( self::sort_subscription_blocks( $blocks ) as $block ) {
-			self::render_subscription( $block['subscription'], $user_id, $block['view'] );
+		if ( 'index' === $decision['mode'] ) {
+			$rw_sites = self::site_index_cards( $decision['blocks'] );
+			include RW_PORTAL_DIR . 'templates/account-sites.php';
+		} else {
+			foreach ( $decision['blocks'] as $block ) {
+				$view = $block['view'];
+				if ( count( $blocks ) > 1 ) {
+					$view['switcher'] = self::switcher_model( $blocks, $view['subscription_id'] );
+					$view['others']   = self::other_subscriptions( $blocks, $view['subscription_id'] );
+				}
+				self::render_subscription( $block['subscription'], $user_id, $view );
+			}
 		}
 		echo '</div>';
+	}
+
+	/**
+	 * More than one plan, and no plan selected, opens the site chooser.
+	 *
+	 * @param int $count Number of maintenance subscriptions.
+	 * @param int $selected_id Selected subscription id, or 0.
+	 * @return bool
+	 */
+	public static function show_site_index( $count, $selected_id ) {
+		return (int) $count > 1 && (int) $selected_id < 1;
+	}
+
+	/**
+	 * @return int
+	 */
+	public static function selected_subscription_id() {
+		return absint( get_query_var( self::ENDPOINT ) );
+	}
+
+	/**
+	 * @param int $subscription_id Subscription id, or 0 for the chooser.
+	 * @return string
+	 */
+	public static function maintenance_url( $subscription_id = 0 ) {
+		$base = function_exists( 'wc_get_account_endpoint_url' ) ? wc_get_account_endpoint_url( self::ENDPOINT ) : home_url( '/my-account/maintenance/' );
+		$base = trailingslashit( $base );
+		$subscription_id = absint( $subscription_id );
+		if ( $subscription_id > 0 ) {
+			return $base . $subscription_id . '/';
+		}
+
+		return $base;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @param int                            $selected_id Selected subscription.
+	 * @return array{mode:string,blocks:array<int,array<string,mixed>>}
+	 */
+	public static function blocks_for_request( array $blocks, $selected_id ) {
+		$selected_id = (int) $selected_id;
+		if ( self::show_site_index( count( $blocks ), $selected_id ) ) {
+			return array(
+				'mode'   => 'index',
+				'blocks' => $blocks,
+			);
+		}
+		if ( $selected_id > 0 ) {
+			$matched = array();
+			foreach ( $blocks as $block ) {
+				$view_id = isset( $block['view']['subscription_id'] ) ? (int) $block['view']['subscription_id'] : 0;
+				if ( $view_id === $selected_id ) {
+					$matched[] = $block;
+				}
+			}
+			if ( ! empty( $matched ) ) {
+				return array(
+					'mode'   => 'dashboard',
+					'blocks' => $matched,
+				);
+			}
+			if ( count( $blocks ) > 1 ) {
+				return array(
+					'mode'   => 'index',
+					'blocks' => $blocks,
+				);
+			}
+		}
+
+		return array(
+			'mode'   => 'dashboard',
+			'blocks' => $blocks,
+		);
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @param int                            $current_id Current subscription.
+	 * @return array<string,mixed>
+	 */
+	public static function switcher_model( array $blocks, $current_id ) {
+		$current_id = (int) $current_id;
+		$sites      = array();
+		$current    = null;
+		foreach ( $blocks as $block ) {
+			$view = isset( $block['view'] ) && is_array( $block['view'] ) ? $block['view'] : array();
+			$id   = isset( $view['subscription_id'] ) ? (int) $view['subscription_id'] : 0;
+			$site = array(
+				'id'        => $id,
+				'host'      => self::subscription_host( $view ),
+				'plan'      => isset( $view['plan_name'] ) ? (string) $view['plan_name'] : '',
+				'status'    => isset( $view['status_label'] ) ? (string) $view['status_label'] : '',
+				'state'     => isset( $view['state'] ) ? (string) $view['state'] : '',
+				'attention' => self::attention_count( $view ),
+				'url'       => self::maintenance_url( $id ),
+				'current'   => $id === $current_id,
+			);
+			if ( $site['current'] ) {
+				$current = $site;
+			}
+			$sites[] = $site;
+		}
+
+		return array(
+			'count'     => count( $sites ),
+			'index_url' => self::maintenance_url( 0 ),
+			'current'   => $current,
+			'sites'     => $sites,
+		);
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function site_index_cards( array $blocks ) {
+		$cards = array();
+		foreach ( $blocks as $block ) {
+			$view      = isset( $block['view'] ) && is_array( $block['view'] ) ? $block['view'] : array();
+			$state     = isset( $view['state'] ) ? (string) $view['state'] : '';
+			$connected = 'connected' === $state;
+			$summary   = ( $connected && isset( $view['maintenance']['summary'] ) && is_array( $view['maintenance']['summary'] ) ) ? $view['maintenance']['summary'] : array();
+			$flags     = ( $connected && isset( $summary['flags'] ) && is_array( $summary['flags'] ) ) ? $summary['flags'] : array();
+			if ( ! $connected && in_array( $state, array( 'setup', 'attention', 'connecting' ), true ) ) {
+				$flags = array( 'Connect the plugin to start checks' );
+			}
+			$cards[] = array(
+				'host'              => self::subscription_host( $view ),
+				'plan'              => isset( $view['plan_name'] ) ? (string) $view['plan_name'] : '',
+				'renews'            => isset( $view['renews_on'] ) ? (string) $view['renews_on'] : '',
+				'status'            => isset( $view['status_label'] ) ? (string) $view['status_label'] : '',
+				'state'             => $state,
+				'updates'           => $connected && isset( $summary['updates_label'] ) ? (string) $summary['updates_label'] : 'Not checked yet',
+				'updates_attention' => $connected && ! empty( $summary['updates_attention'] ),
+				'backup'            => $connected && isset( $summary['backup_label'] ) ? (string) $summary['backup_label'] : 'Not available yet',
+				'flags'             => $flags,
+				'url'               => self::maintenance_url( isset( $view['subscription_id'] ) ? $view['subscription_id'] : 0 ),
+				'connected'         => $connected,
+			);
+		}
+
+		return $cards;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @param int                            $current_id Current subscription.
+	 * @return array<int,array<string,string>>
+	 */
+	private static function other_subscriptions( array $blocks, $current_id ) {
+		$current_id = (int) $current_id;
+		$others     = array();
+		foreach ( $blocks as $block ) {
+			$view = isset( $block['view'] ) && is_array( $block['view'] ) ? $block['view'] : array();
+			$id   = isset( $view['subscription_id'] ) ? (int) $view['subscription_id'] : 0;
+			if ( $id === $current_id ) {
+				continue;
+			}
+			$others[] = array(
+				'host'   => self::subscription_host( $view ),
+				'plan'   => isset( $view['plan_name'] ) ? (string) $view['plan_name'] : '',
+				'status' => isset( $view['status_label'] ) ? (string) $view['status_label'] : '',
+				'url'    => self::maintenance_url( $id ),
+			);
+		}
+
+		return $others;
+	}
+
+	/**
+	 * @param array<string,mixed> $view Subscription view.
+	 * @return int
+	 */
+	private static function attention_count( array $view ) {
+		if ( isset( $view['maintenance']['flags'] ) && is_array( $view['maintenance']['flags'] ) ) {
+			return count( $view['maintenance']['flags'] );
+		}
+		if ( isset( $view['state'] ) && 'connected' !== $view['state'] ) {
+			return 1;
+		}
+
+		return 0;
 	}
 
 	/**
@@ -220,8 +416,12 @@ class RW_Portal_Account {
 			$classes[] = 'rw-maint-plan-block--attention';
 		}
 
+		if ( 'connected' === $rw_view['state'] ) {
+			$classes[] = 'rw-maint-plan-block--dashboard';
+		}
+
 		echo '<article class="' . esc_attr( implode( ' ', $classes ) ) . '">';
-		if ( 'attention' !== $rw_view['state'] ) {
+		if ( 'attention' !== $rw_view['state'] && 'connected' !== $rw_view['state'] ) {
 			echo '<header class="rw-maint-plan-block-heading">';
 			echo '<h2>' . esc_html( $host ) . '</h2>';
 			echo '<p>' . esc_html( $rw_view['plan_name'] ) . '</p>';
@@ -229,6 +429,26 @@ class RW_Portal_Account {
 		}
 		include RW_PORTAL_DIR . 'templates/' . $file;
 		echo '</article>';
+	}
+
+	/**
+	 * @param object $subscription WooCommerce subscription.
+	 * @return string
+	 */
+	private static function renews_label( $subscription ) {
+		if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'get_date' ) ) {
+			return '';
+		}
+		$raw = (string) $subscription->get_date( 'next_payment' );
+		if ( '' === $raw ) {
+			$raw = (string) $subscription->get_date( 'end' );
+		}
+		$time = strtotime( $raw );
+		if ( ! $time ) {
+			return '';
+		}
+
+		return gmdate( 'j M Y', $time );
 	}
 
 	private static function subscription_host( $rw_view ) {
@@ -650,6 +870,7 @@ class RW_Portal_Account {
 			'manual_pending'  => $site && class_exists( 'RW_Temporary_Access' ) && RW_Temporary_Access::is_pending( $site ),
 			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
 			'maintenance'     => ( 'connected' === $state && $site && class_exists( 'RW_Portal_Maintenance_Status' ) ) ? RW_Portal_Maintenance_Status::view_for_site( $site ) : null,
+			'renews_on'       => self::renews_label( $subscription ),
 		);
 	}
 

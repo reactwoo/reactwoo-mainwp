@@ -68,6 +68,7 @@ class RW_Maint_Site_Snapshot {
 				self::value_of( $website, $options, 'premium_upgrades' ),
 			)
 		);
+		$plugins['premium'] = self::premium_plugins( $website, $options );
 		$themes = self::pending_components(
 			self::has_key( $website, 'theme_upgrades' ) || self::has_key( $options, 'theme_upgrades' ),
 			array( self::value_of( $website, $options, 'theme_upgrades' ) )
@@ -83,6 +84,10 @@ class RW_Maint_Site_Snapshot {
 			'core'            => self::core( $sync, $options, $website ),
 			'plugins'         => $plugins,
 			'themes'          => $themes,
+			'inventory'       => array(
+				'plugins' => self::inventory_count( $website, $options, 'plugins' ),
+				'themes'  => self::inventory_count( $website, $options, 'themes' ),
+			),
 			'recent_updates'  => self::recent_updates( $logs ),
 			'php_version'     => self::php_version( $sync, $options ),
 			'health'          => self::health( $sync, $options ),
@@ -311,11 +316,306 @@ class RW_Maint_Site_Snapshot {
 			$new = self::version_string( self::first_scalar( $row, array( 'new_version', 'new', 'available_version' ) ) );
 		}
 
+		$source = self::update_source_from_row( $row );
+
 		return array(
-			'name'            => $name,
-			'current_version' => $current,
-			'new_version'     => $new,
+			'name'             => $name,
+			'current_version'  => $current,
+			'new_version'      => $new,
+			'update_available' => null !== $new,
+			'update_source'    => $source,
 		);
+	}
+
+	/**
+	 * Plugins whose updates come from somewhere other than wordpress.org.
+	 *
+	 * Licence status stays unknown unless the plugin's own option or transient
+	 * states active or expired. A missing date stays empty.
+	 *
+	 * @param array<string,mixed> $website Website row.
+	 * @param array<string,mixed> $options Option map.
+	 * @return array<int,array<string,mixed>>|null
+	 */
+	private static function premium_plugins( array $website, array $options ) {
+		$known = false;
+		foreach ( array( 'plugins', 'plugin_upgrades', 'premium_upgrades' ) as $key ) {
+			if ( self::has_key( $website, $key ) || self::has_key( $options, $key ) ) {
+				$known = true;
+			}
+		}
+		if ( ! $known ) {
+			return null;
+		}
+
+		$catalog  = array();
+		$licences = self::licence_index( $options );
+		foreach ( array( 'plugins', 'plugin_upgrades', 'premium_upgrades' ) as $field ) {
+			$blob = self::value_of( $website, $options, $field );
+			$rows = self::decode_blob( $blob );
+			if ( ! is_array( $rows ) ) {
+				continue;
+			}
+			foreach ( $rows as $key => $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$item = self::pending_item( $key, $row );
+				if ( ! $item ) {
+					continue;
+				}
+				$id = self::plugin_identity( is_string( $key ) ? $key : '', isset( $row['slug'] ) ? $row['slug'] : '' );
+				if ( '' === $id ) {
+					$id = self::plugin_identity( '', $item['name'] );
+				}
+				if ( '' === $id ) {
+					continue;
+				}
+				if ( ! isset( $catalog[ $id ] ) ) {
+					$catalog[ $id ] = $item;
+					$catalog[ $id ]['from_premium_list'] = false;
+				}
+				if ( 'premium_upgrades' === $field ) {
+					$catalog[ $id ]['from_premium_list'] = true;
+				}
+				if ( null === $catalog[ $id ]['update_source'] && null !== $item['update_source'] ) {
+					$catalog[ $id ]['update_source'] = $item['update_source'];
+				}
+				if ( null !== $item['new_version'] ) {
+					$catalog[ $id ]['new_version']      = $item['new_version'];
+					$catalog[ $id ]['update_available'] = true;
+				}
+				if ( null === $catalog[ $id ]['current_version'] && null !== $item['current_version'] ) {
+					$catalog[ $id ]['current_version'] = $item['current_version'];
+				}
+			}
+		}
+
+		$premium = array();
+		foreach ( $catalog as $id => $item ) {
+			$source = $item['update_source'];
+			if ( 'wordpress.org' === $source ) {
+				continue;
+			}
+			if ( null === $source && empty( $item['from_premium_list'] ) ) {
+				continue;
+			}
+			if ( null === $source ) {
+				$source = 'external';
+			}
+			$licence = isset( $licences[ $id ] ) ? $licences[ $id ] : array(
+				'status'  => 'unknown',
+				'expires' => null,
+			);
+			$premium[] = array(
+				'name'               => $item['name'],
+				'current_version'    => $item['current_version'],
+				'new_version'        => $item['new_version'],
+				'update_available'   => (bool) $item['update_available'],
+				'update_source'      => $source,
+				'licence_status'     => $licence['status'],
+				'licence_expires_at' => $licence['expires'],
+			);
+		}
+
+		return $premium;
+	}
+
+	/**
+	 * @param array<string,mixed> $website Website row.
+	 * @param array<string,mixed> $options Option map.
+	 * @param string              $key plugins or themes.
+	 * @return int|null
+	 */
+	private static function inventory_count( array $website, array $options, $key ) {
+		if ( ! self::has_key( $website, $key ) && ! self::has_key( $options, $key ) ) {
+			return null;
+		}
+		$rows = self::decode_blob( self::value_of( $website, $options, $key ) );
+		if ( ! is_array( $rows ) ) {
+			return null;
+		}
+		$count = 0;
+		foreach ( $rows as $index => $row ) {
+			$file = is_string( $index ) ? $index : '';
+			$name = is_array( $row ) ? self::label( self::first_scalar( $row, array( 'Name', 'name', 'title' ) ) ) : '';
+			$slug = is_array( $row ) ? self::label( self::first_scalar( $row, array( 'slug' ) ) ) : '';
+			if ( self::is_hidden_component( $name, $file, $slug ) ) {
+				continue;
+			}
+			$count++;
+		}
+
+		return $count;
+	}
+
+	/**
+	 * @param array<string,mixed> $row Plugin or upgrade row.
+	 * @return string|null wordpress.org, a package host, or null when no source is recorded.
+	 */
+	private static function update_source_from_row( array $row ) {
+		$bags = array( $row );
+		if ( isset( $row['update'] ) && is_array( $row['update'] ) ) {
+			$bags[] = $row['update'];
+		}
+		foreach ( $bags as $bag ) {
+			foreach ( array( 'package', 'package_url', 'download_link', 'UpdateURI', 'update_uri' ) as $key ) {
+				if ( empty( $bag[ $key ] ) || ! is_string( $bag[ $key ] ) ) {
+					continue;
+				}
+				$host = wp_parse_url( $bag[ $key ], PHP_URL_HOST );
+				if ( ! is_string( $host ) || '' === $host ) {
+					continue;
+				}
+				$host = strtolower( $host );
+				if ( 0 === strpos( $host, 'www.' ) ) {
+					$host = substr( $host, 4 );
+				}
+				if ( 'wordpress.org' === $host || substr( $host, -14 ) === '.wordpress.org' ) {
+					return 'wordpress.org';
+				}
+
+				return $host;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param array<string,mixed> $options Option map, including synced transients.
+	 * @return array<string,array{status:string,expires:?string}>
+	 */
+	private static function licence_index( array $options ) {
+		$index = array();
+		foreach ( $options as $name => $value ) {
+			$identity = self::licence_identity( $name );
+			$decoded  = self::decode_blob( $value );
+			$parsed   = self::parse_licence( null !== $decoded ? $decoded : $value );
+			if ( null === $parsed['expires'] && preg_match( '/(?:expires|expiry|expiration)$/', strtolower( (string) $name ) ) && ( is_string( $value ) || is_numeric( $value ) ) ) {
+				$parsed['expires'] = self::licence_expiry( array( 'expires' => $value ) );
+			}
+			if ( '' === $identity && is_array( $decoded ) ) {
+				$named = self::first_scalar( $decoded, array( 'slug', 'plugin', 'plugin_slug' ) );
+				$identity = self::plugin_identity( '', $named );
+			}
+			if ( strlen( $identity ) < 4 ) {
+				continue;
+			}
+			if ( 'unknown' === $parsed['status'] && null === $parsed['expires'] && ! preg_match( '/licen[cs]e/i', (string) $name ) ) {
+				continue;
+			}
+			if ( ! isset( $index[ $identity ] ) ) {
+				$index[ $identity ] = $parsed;
+				continue;
+			}
+			if ( 'unknown' === $index[ $identity ]['status'] && 'unknown' !== $parsed['status'] ) {
+				$index[ $identity ]['status'] = $parsed['status'];
+			}
+			if ( null === $index[ $identity ]['expires'] && null !== $parsed['expires'] ) {
+				$index[ $identity ]['expires'] = $parsed['expires'];
+			}
+		}
+
+		return $index;
+	}
+
+	/**
+	 * @param string $name Option or transient name.
+	 * @return string
+	 */
+	private static function licence_identity( $name ) {
+		$name = strtolower( (string) $name );
+		$name = preg_replace( '/^_transient_(timeout_)?/', '', $name );
+		$name = preg_replace( '/^edd_/', '', $name );
+		if ( ! preg_match( '/licen[cs]e/', $name ) ) {
+			return '';
+		}
+		$name = preg_replace( '/_?licen[cs]e(?:_(?:status|data|key|expires|expiry|expiration))?.*$/', '', $name );
+
+		return self::plugin_identity( '', $name );
+	}
+
+	/**
+	 * @param string $file Plugin file.
+	 * @param mixed  $slug Slug.
+	 * @return string
+	 */
+	private static function plugin_identity( $file, $slug ) {
+		$slug = strtolower( (string) $slug );
+		$file = strtolower( str_replace( '\\', '/', (string) $file ) );
+		if ( '' === $slug && false !== strpos( $file, '/' ) ) {
+			$slug = dirname( $file );
+		}
+		if ( '' === $slug ) {
+			$slug = $file;
+		}
+		$slug = preg_replace( '/\.php$/', '', $slug );
+
+		return preg_replace( '/[^a-z0-9]+/', '', $slug );
+	}
+
+	/**
+	 * @param mixed $payload Licence option value.
+	 * @return array{status:string,expires:?string}
+	 */
+	private static function parse_licence( $payload ) {
+		if ( is_string( $payload ) || is_numeric( $payload ) ) {
+			return array(
+				'status'  => self::normalise_licence_status( (string) $payload ),
+				'expires' => null,
+			);
+		}
+		if ( ! is_array( $payload ) ) {
+			return array(
+				'status'  => 'unknown',
+				'expires' => null,
+			);
+		}
+
+		$status_raw = self::first_scalar( $payload, array( 'license', 'licence', 'status', 'license_status', 'licence_status' ) );
+		$expires    = self::licence_expiry( $payload );
+		if ( null === $status_raw && null === $expires && isset( $payload['data'] ) && is_array( $payload['data'] ) ) {
+			return self::parse_licence( $payload['data'] );
+		}
+
+		return array(
+			'status'  => self::normalise_licence_status( null === $status_raw ? '' : (string) $status_raw ),
+			'expires' => $expires,
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $payload Licence payload.
+	 * @return string|null
+	 */
+	private static function licence_expiry( array $payload ) {
+		$raw = self::first_scalar( $payload, array( 'expires', 'expiry', 'expiration', 'license_expires', 'licence_expires', 'expires_at', 'expiration_date' ) );
+		if ( null === $raw || is_array( $raw ) ) {
+			return null;
+		}
+		$text = strtolower( trim( (string) $raw ) );
+		if ( '' === $text || in_array( $text, array( 'lifetime', 'never', 'unlimited' ), true ) ) {
+			return null;
+		}
+
+		return self::iso( self::unix_of( $raw ) );
+	}
+
+	/**
+	 * @param string $value Raw licence status.
+	 * @return string active, expired, or unknown.
+	 */
+	private static function normalise_licence_status( $value ) {
+		$value = strtolower( trim( (string) $value ) );
+		if ( in_array( $value, array( 'valid', 'active', 'activated' ), true ) ) {
+			return 'active';
+		}
+		if ( 'expired' === $value ) {
+			return 'expired';
+		}
+
+		return 'unknown';
 	}
 
 	/**

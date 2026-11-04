@@ -2018,6 +2018,193 @@ rw_test(
 		&& false !== strpos( $maintenance_css, 'grid-template-columns: 1fr' )
 );
 
+$premium_snapshot = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'website' => array(
+			'plugins' => array(
+				'seo-plugin/seo-plugin.php' => array(
+					'Name'      => 'SEO Plugin',
+					'slug'      => 'seo-plugin',
+					'Version'   => '1.2.0',
+					'UpdateURI' => 'https://updates.example.com/seo',
+				),
+				'akismet/akismet.php' => array(
+					'Name'    => 'Akismet',
+					'slug'    => 'akismet',
+					'Version' => '5.0',
+				),
+			),
+			'themes' => array(
+				'storefront' => array(
+					'Name'    => 'Storefront',
+					'Version' => '4.5.0',
+				),
+			),
+			'plugin_upgrades' => array(
+				'akismet/akismet.php' => array(
+					'Name'    => 'Akismet',
+					'slug'    => 'akismet',
+					'Version' => '5.0',
+					'update'  => array(
+						'new_version' => '5.1',
+						'package'     => 'https://downloads.wordpress.org/plugin/akismet.5.1.zip',
+					),
+				),
+				'elementor-pro/elementor-pro.php' => array(
+					'Name'    => 'Elementor Pro',
+					'slug'    => 'elementor-pro',
+					'Version' => '3.20.0',
+					'update'  => array(
+						'new_version' => '3.21.0',
+						'package'     => 'https://my.elementor.com/download/elementor-pro.zip',
+					),
+				),
+			),
+			'premium_upgrades' => array(
+				'gravityforms/gravityforms.php' => array(
+					'Name'        => 'Gravity Forms',
+					'slug'        => 'gravityforms',
+					'Version'     => '2.8.0',
+					'new_version' => '2.8.1',
+				),
+				'mainwp-child/mainwp-child.php' => array(
+					'Name'        => 'MainWP Child',
+					'Version'     => '6.4',
+					'new_version' => '6.5',
+				),
+			),
+		),
+		'options' => array(
+			'elementor_pro_license_data' => array(
+				'license' => 'valid',
+				'expires' => '2027-01-01 00:00:00',
+				'timeout' => 1700000000,
+			),
+			'_transient_gravityforms_license_status' => 'expired',
+			'gravityforms_license_expires' => '2025-06-01 00:00:00',
+			'seo_plugin_license_status' => 'invalid',
+			'unrelated_plugin_license_status' => 'active',
+			'akismet_license_status' => 'valid',
+		),
+	)
+);
+$premium_by_name = array();
+foreach ( (array) $premium_snapshot['plugins']['premium'] as $premium_item ) {
+	$premium_by_name[ $premium_item['name'] ] = $premium_item;
+}
+$akismet_pending = null;
+foreach ( $premium_snapshot['plugins']['pending'] as $pending_plugin ) {
+	if ( 'Akismet' === $pending_plugin['name'] ) {
+		$akismet_pending = $pending_plugin;
+	}
+}
+rw_test(
+	'wordpress.org updates are not treated as premium',
+	! isset( $premium_by_name['Akismet'] )
+		&& is_array( $akismet_pending )
+		&& 'wordpress.org' === $akismet_pending['update_source']
+		&& true === $akismet_pending['update_available']
+		&& ! isset( $premium_by_name['MainWP Child'] )
+);
+rw_test(
+	'external update sources keep licence status and expiry',
+	isset( $premium_by_name['Elementor Pro'] )
+		&& 'my.elementor.com' === $premium_by_name['Elementor Pro']['update_source']
+		&& true === $premium_by_name['Elementor Pro']['update_available']
+		&& '3.21.0' === $premium_by_name['Elementor Pro']['new_version']
+		&& 'active' === $premium_by_name['Elementor Pro']['licence_status']
+		&& gmdate( 'c', strtotime( '2027-01-01 00:00:00' ) ) === $premium_by_name['Elementor Pro']['licence_expires_at']
+		&& isset( $premium_by_name['Gravity Forms'] )
+		&& 'external' === $premium_by_name['Gravity Forms']['update_source']
+		&& true === $premium_by_name['Gravity Forms']['update_available']
+		&& 'expired' === $premium_by_name['Gravity Forms']['licence_status']
+		&& gmdate( 'c', strtotime( '2025-06-01 00:00:00' ) ) === $premium_by_name['Gravity Forms']['licence_expires_at']
+		&& isset( $premium_by_name['SEO Plugin'] )
+		&& 'updates.example.com' === $premium_by_name['SEO Plugin']['update_source']
+		&& false === $premium_by_name['SEO Plugin']['update_available']
+		&& 'unknown' === $premium_by_name['SEO Plugin']['licence_status']
+		&& null === $premium_by_name['SEO Plugin']['licence_expires_at']
+);
+rw_test(
+	'installed plugin and theme counts ignore the maintenance plugins',
+	2 === $premium_snapshot['inventory']['plugins']
+		&& 1 === $premium_snapshot['inventory']['themes']
+);
+$premium_view = RW_Portal_Maintenance_Status::present( $premium_snapshot );
+$premium_names = array();
+foreach ( $premium_view['premium']['items'] as $premium_row ) {
+	$premium_names[] = $premium_row['name'];
+}
+rw_test(
+	'premium licences render without guessing an unmatched plugin',
+	in_array( 'Elementor Pro', $premium_names, true )
+		&& in_array( 'Gravity Forms', $premium_names, true )
+		&& ! in_array( 'Akismet', $premium_names, true )
+		&& 'ink' === $premium_view['premium']['tone']
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'backups', 'good' )
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'health', 'good' )
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'updates', 'attention' )
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'security', 'attention' )
+		&& 'paper' === RW_Portal_Maintenance_Status::card_tone( 'security', 'good' )
+		&& 'paper' === RW_Portal_Maintenance_Status::card_tone( 'core', 'good' )
+);
+$flag_lines = RW_Portal_Maintenance_Status::attention_flags( $premium_snapshot );
+rw_test( 'an expired premium licence is an attention flag', in_array( '1 premium licence expired', $flag_lines, true ) );
+
+$index_blocks = array(
+	array(
+		'view' => array(
+			'subscription_id' => 11,
+			'plan_name'       => 'Standard Maintenance',
+			'status_label'    => 'Connected',
+			'state'           => 'connected',
+			'renews_on'       => '1 Dec 2026',
+			'site'            => (object) array( 'site_url' => 'https://example-site.com' ),
+			'maintenance'     => $premium_view,
+		),
+	),
+	array(
+		'view' => array(
+			'subscription_id' => 12,
+			'plan_name'       => 'Essential Maintenance',
+			'status_label'    => 'Finish connecting',
+			'state'           => 'setup',
+			'renews_on'       => '',
+			'site'            => (object) array( 'site_url' => 'https://second-example.com' ),
+		),
+	),
+);
+rw_test( 'several plans open the site chooser until one is selected', RW_Portal_Account::show_site_index( 2, 0 ) && ! RW_Portal_Account::show_site_index( 2, 11 ) && ! RW_Portal_Account::show_site_index( 1, 0 ) );
+rw_test( 'an unknown selection falls back to the chooser', 'index' === RW_Portal_Account::blocks_for_request( $index_blocks, 99 )['mode'] && 'dashboard' === RW_Portal_Account::blocks_for_request( $index_blocks, 11 )['mode'] );
+$switcher = RW_Portal_Account::switcher_model( $index_blocks, 11 );
+$index_cards = RW_Portal_Account::site_index_cards( $index_blocks );
+rw_test(
+	'the switcher lists every plan and marks the open site',
+	2 === $switcher['count']
+		&& true === $switcher['sites'][0]['current']
+		&& false === $switcher['sites'][1]['current']
+		&& 'example-site.com' === $switcher['current']['host']
+		&& false !== strpos( $switcher['sites'][1]['url'], '/12/' )
+		&& 'Not checked yet' === $index_cards[1]['updates']
+		&& 'Not available yet' === $index_cards[1]['backup']
+		&& array( 'Connect the plugin to start checks' ) === $index_cards[1]['flags']
+);
+$dash_css = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+$sites_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-sites.php' );
+$switcher_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/site-switcher.php' );
+rw_test(
+	'attention panels use the ink colour and rows stretch',
+	false !== strpos( $dash_css, '#171c34' )
+		&& false !== strpos( $dash_css, 'align-items: stretch' )
+		&& false !== strpos( $dash_css, 'height: 100%' )
+		&& false !== strpos( $dash_css, 'overflow-wrap: anywhere' )
+		&& false === strpos( $dash_css, 'line-clamp' )
+		&& false !== strpos( $sites_template, 'Your sites' )
+		&& false !== strpos( $switcher_template, 'Viewing site' )
+		&& false !== strpos( $switcher_template, 'All sites' )
+);
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

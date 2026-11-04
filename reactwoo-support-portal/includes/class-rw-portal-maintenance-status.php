@@ -63,18 +63,207 @@ class RW_Portal_Maintenance_Status {
 	 * @return array<string,mixed>
 	 */
 	public static function present( array $payload ) {
+		$cards = array(
+			self::card_core( $payload ),
+			self::card_updates( $payload ),
+			self::card_security( $payload ),
+			self::card_health( $payload ),
+			self::card_backups( $payload ),
+			self::card_uptime( $payload ),
+		);
+		foreach ( $cards as $index => $card ) {
+			$cards[ $index ]['tone'] = self::card_tone( $card['id'], $card['state'] );
+		}
+		$login = self::section_login( $payload );
+		$login['tone'] = 'ink';
+
 		return array(
-			'cards'    => array(
-				self::card_core( $payload ),
-				self::card_updates( $payload ),
-				self::card_security( $payload ),
-				self::card_health( $payload ),
-				self::card_backups( $payload ),
-				self::card_uptime( $payload ),
-			),
-			'login'    => self::section_login( $payload ),
+			'cards'    => $cards,
+			'login'    => $login,
 			'content'  => self::section_content( $payload ),
 			'activity' => self::section_activity( $payload ),
+			'premium'   => self::premium_panel( $payload ),
+			'summary'   => self::site_summary( $payload ),
+			'flags'     => self::attention_flags( $payload ),
+			'inventory' => self::inventory_panel( $payload ),
+		);
+	}
+
+	/**
+	 * Dark cards are the attention areas from the account design.
+	 * Security stays on a white card until there is an open issue.
+	 *
+	 * @param string $id Card id.
+	 * @param string $state good, attention, or unknown.
+	 * @return string ink or paper.
+	 */
+	public static function card_tone( $id, $state ) {
+		if ( 'security' === $id ) {
+			return 'attention' === $state ? 'ink' : 'paper';
+		}
+		if ( in_array( $id, array( 'updates', 'health', 'backups', 'premium', 'login' ), true ) ) {
+			return 'ink';
+		}
+
+		return 'paper';
+	}
+
+	/**
+	 * @param array<string,mixed> $payload Snapshot.
+	 * @return array<int,string>
+	 */
+	public static function attention_flags( array $payload ) {
+		$lines   = array();
+		$premium = isset( $payload['plugins']['premium'] ) && is_array( $payload['plugins']['premium'] ) ? $payload['plugins']['premium'] : array();
+		$expired = 0;
+		foreach ( $premium as $item ) {
+			if ( is_array( $item ) && isset( $item['licence_status'] ) && 'expired' === $item['licence_status'] ) {
+				$expired++;
+			}
+		}
+		if ( 1 === $expired ) {
+			$lines[] = '1 premium licence expired';
+		} elseif ( $expired > 1 ) {
+			$lines[] = $expired . ' premium licences expired';
+		}
+
+		$backups = isset( $payload['backups'] ) && is_array( $payload['backups'] ) ? $payload['backups'] : array();
+		$last    = isset( $backups['last']['status'] ) ? (string) $backups['last']['status'] : '';
+		$failed  = 0;
+		if ( ! empty( $backups['recent'] ) && is_array( $backups['recent'] ) ) {
+			foreach ( $backups['recent'] as $row ) {
+				if ( is_array( $row ) && isset( $row['status'] ) && 'failed' === $row['status'] ) {
+					$failed++;
+				}
+			}
+		}
+		if ( 'failed' === $last ) {
+			$lines[] = 'Last backup failed';
+		} elseif ( 'success' === $last && 1 === $failed ) {
+			$lines[] = 'Backup retried once (OK)';
+		} elseif ( 'success' === $last && $failed > 1 ) {
+			$lines[] = $failed . ' earlier backups failed';
+		}
+
+		$issues = isset( $payload['security']['issues_count'] ) ? $payload['security']['issues_count'] : null;
+		if ( is_numeric( $issues ) && (int) $issues > 0 ) {
+			$count   = (int) $issues;
+			$lines[] = $count . ' security ' . ( 1 === $count ? 'issue' : 'issues' );
+		}
+
+		$health = isset( $payload['health']['status'] ) ? (string) $payload['health']['status'] : '';
+		if ( 'critical' === $health ) {
+			$lines[] = 'Site health needs attention';
+		} elseif ( 'should_be_improved' === $health ) {
+			$lines[] = 'Site health should be improved';
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * @param array<string,mixed> $payload Snapshot.
+	 * @return array<string,mixed>
+	 */
+	private static function site_summary( array $payload ) {
+		$plugins = isset( $payload['plugins']['pending_count'] ) ? $payload['plugins']['pending_count'] : null;
+		$themes  = isset( $payload['themes']['pending_count'] ) ? $payload['themes']['pending_count'] : null;
+		$pending = null;
+		if ( null !== $plugins || null !== $themes ) {
+			$pending = ( null === $plugins ? 0 : (int) $plugins ) + ( null === $themes ? 0 : (int) $themes );
+		}
+		$backup = '';
+		if ( isset( $payload['backups']['last']['time'] ) ) {
+			$backup = self::format_when( $payload['backups']['last']['time'] );
+		}
+
+		return array(
+			'updates_pending'   => $pending,
+			'updates_label'     => null === $pending ? 'Not checked yet' : $pending . ' pending',
+			'updates_attention' => null !== $pending && $pending > 0,
+			'backup_label'      => '' !== $backup ? $backup : 'Not available yet',
+			'flags'             => self::attention_flags( $payload ),
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $payload Snapshot.
+	 * @return array{known:bool,total:?int,plugins:?int,themes:?int,label:string,detail:string}
+	 */
+	private static function inventory_panel( array $payload ) {
+		$inventory = isset( $payload['inventory'] ) && is_array( $payload['inventory'] ) ? $payload['inventory'] : array();
+		$plugins   = isset( $inventory['plugins'] ) && is_numeric( $inventory['plugins'] ) ? (int) $inventory['plugins'] : null;
+		$themes    = isset( $inventory['themes'] ) && is_numeric( $inventory['themes'] ) ? (int) $inventory['themes'] : null;
+		if ( null === $plugins && null === $themes ) {
+			return array(
+				'known'   => false,
+				'total'   => null,
+				'plugins' => null,
+				'themes'  => null,
+				'label'   => 'Not available yet',
+				'detail'  => 'Installed plugins and themes have not been reported yet.',
+			);
+		}
+		$total  = ( null === $plugins ? 0 : $plugins ) + ( null === $themes ? 0 : $themes );
+		$detail = ( null === $plugins ? 'Plugins not reported' : $plugins . ' ' . ( 1 === $plugins ? 'plugin' : 'plugins' ) );
+		$detail .= ' and ' . ( null === $themes ? 'themes not reported' : $themes . ' ' . ( 1 === $themes ? 'theme' : 'themes' ) );
+
+		return array(
+			'known'   => true,
+			'total'   => $total,
+			'plugins' => $plugins,
+			'themes'  => $themes,
+			'label'   => $total . ' ' . ( 1 === $total ? 'item' : 'items' ),
+			'detail'  => $detail,
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $payload Snapshot.
+	 * @return array<string,mixed>
+	 */
+	private static function premium_panel( array $payload ) {
+		$premium = isset( $payload['plugins']['premium'] ) ? $payload['plugins']['premium'] : null;
+		$items   = array();
+		if ( is_array( $premium ) ) {
+			foreach ( $premium as $row ) {
+				if ( ! is_array( $row ) || empty( $row['name'] ) ) {
+					continue;
+				}
+				$status = isset( $row['licence_status'] ) ? (string) $row['licence_status'] : 'unknown';
+				if ( ! in_array( $status, array( 'active', 'expired', 'unknown' ), true ) ) {
+					$status = 'unknown';
+				}
+				$expires = self::format_when( isset( $row['licence_expires_at'] ) ? $row['licence_expires_at'] : null );
+				$licence = 'Licence unknown';
+				if ( 'active' === $status ) {
+					$licence = '' !== $expires ? 'Licence active until ' . $expires : 'Licence active';
+				} elseif ( 'expired' === $status ) {
+					$licence = '' !== $expires ? 'Licence expired ' . $expires : 'Licence expired';
+				}
+				$update = ! empty( $row['update_available'] );
+				$new    = isset( $row['new_version'] ) ? (string) $row['new_version'] : '';
+				$items[] = array(
+					'name'         => (string) $row['name'],
+					'version'      => isset( $row['current_version'] ) && '' !== (string) $row['current_version'] ? (string) $row['current_version'] : 'Version not reported',
+					'source'       => isset( $row['update_source'] ) ? (string) $row['update_source'] : '',
+					'update'       => $update ? ( '' !== $new ? 'Update to ' . $new : 'Update available' ) : 'Up to date',
+					'update_tone'  => $update ? 'attention' : 'good',
+					'licence'      => $licence,
+					'licence_tone' => 'active' === $status ? 'good' : ( 'expired' === $status ? 'attention' : 'muted' ),
+				);
+			}
+		}
+
+		$count = is_array( $premium ) ? count( $items ) : null;
+
+		return array(
+			'tone'  => 'ink',
+			'known' => is_array( $premium ),
+			'count' => $count,
+			'title' => null === $count ? 'Premium plugins' : $count . ' premium ' . ( 1 === $count ? 'plugin' : 'plugins' ) . ' tracked',
+			'empty' => null === $count ? 'Premium plugin information has not been reported yet.' : 'No premium plugins were reported.',
+			'items' => $items,
 		);
 	}
 
@@ -145,7 +334,8 @@ class RW_Portal_Maintenance_Status {
 
 		if ( $total > 0 ) {
 			$summary = self::count_phrase( $plugin_count, 'plugin update' ) . ' and ' . self::count_phrase( $theme_count, 'theme update' ) . ' waiting.';
-			return self::card( 'updates', 'Updates', 'Plugins and themes', 'attention', 'Updates waiting', ucfirst( $summary ), $items );
+			$label   = $total . ' ' . ( 1 === $total ? 'update' : 'updates' ) . ' pending';
+			return self::card( 'updates', 'Updates', 'Plugins and themes', 'attention', $label, ucfirst( $summary ), $items );
 		}
 
 		return self::card( 'updates', 'Updates', 'Plugins and themes', 'good', 'Up to date', 'No plugin or theme updates are waiting.' );
@@ -163,10 +353,10 @@ class RW_Portal_Maintenance_Status {
 
 		$count = (int) $security['issues_count'];
 		if ( $count > 0 ) {
-			return self::card( 'security', 'Security', 'Security issues', 'attention', 'Needs attention', $count . ' open security ' . ( 1 === $count ? 'issue' : 'issues' ) . '.' );
+			return self::card( 'security', 'Security', 'Security issues', 'attention', $count . ' ' . ( 1 === $count ? 'issue' : 'issues' ), $count . ' open security ' . ( 1 === $count ? 'issue' : 'issues' ) . '.' );
 		}
 
-		return self::card( 'security', 'Security', 'Security issues', 'good', 'No open issues', 'No open security issues were reported.' );
+		return self::card( 'security', 'Security', 'Security issues', 'good', '0 issues', 'No open security issues were reported.' );
 	}
 
 	/**

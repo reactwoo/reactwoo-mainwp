@@ -658,6 +658,8 @@ Offer the manual support fallback.
 
 The customer can instead confirm **Replace existing maintenance connection**. Only that explicit action sets a takeover flag on the connection attempt. The connector re-keys the existing child link to `maint.reactwoo.com` when the portal confirms that flag. A bootstrap request without it leaves the current link unchanged.
 
+A public key left in the database after MainWP Child was removed or deactivated is not a live link. Bootstrap continues, and those options are backed up and cleared before Child is installed or activated again. An active Child with a public key still stops setup until the customer confirms replacement.
+
 ---
 
 # 18. reactwoo.com → maint.reactwoo.com enrolment

@@ -1176,10 +1176,67 @@ update_option( RW_Connection_Orchestrator::takeover_option_key( 44 ), '1', false
 rw_test( 'the portal authorises takeover only when the attempt was marked', true === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 45, '1' ) );
 
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector.php';
+if ( ! function_exists( 'is_plugin_active' ) ) {
+	function is_plugin_active( $plugin ) {
+		$active = isset( $GLOBALS['rw_active_plugins'] ) ? $GLOBALS['rw_active_plugins'] : array();
+		return in_array( (string) $plugin, (array) $active, true );
+	}
+}
+if ( ! defined( 'WP_PLUGIN_DIR' ) ) {
+	define( 'WP_PLUGIN_DIR', sys_get_temp_dir() . '/rw-child-plugins-' . getmypid() );
+}
+$child_plugin_file = WP_PLUGIN_DIR . '/mainwp-child/mainwp-child.php';
+$GLOBALS['rw_active_plugins'] = array( 'mainwp-child/mainwp-child.php' );
 update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
 update_option( 'mainwp_child_siteid', 12, false );
-rw_test( 'a stored child public key is an existing link', RW_MainWP_Child_Adapter::has_existing_link() );
+delete_option( 'rw_connector_child_link_backup' );
+$absent_linked  = RW_MainWP_Child_Adapter::has_existing_link();
+$absent_cleared = RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
+$absent_backup  = get_option( 'rw_connector_child_link_backup' );
+rw_test(
+	'leftover options with Child absent are not a live link',
+	! is_file( $child_plugin_file )
+		&& ! $absent_linked
+		&& $absent_cleared
+		&& false === get_option( 'mainwp_child_pubkey' )
+		&& false === get_option( 'mainwp_child_siteid' )
+		&& is_array( $absent_backup )
+		&& 'dashboard-key' === $absent_backup['options']['mainwp_child_pubkey']
+);
+if ( ! is_dir( dirname( $child_plugin_file ) ) ) {
+	mkdir( dirname( $child_plugin_file ), 0777, true );
+}
+file_put_contents( $child_plugin_file, "<?php\n" );
+$GLOBALS['rw_active_plugins'] = array();
+update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
+update_option( 'mainwp_child_siteid', 12, false );
+delete_option( 'rw_connector_child_link_backup' );
+$inactive_linked  = RW_MainWP_Child_Adapter::has_existing_link();
+$inactive_cleared = RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
+rw_test(
+	'leftover options with Child inactive are not a live link',
+	RW_MainWP_Child_Adapter::is_installed()
+		&& ! RW_MainWP_Child_Adapter::is_active()
+		&& ! $inactive_linked
+		&& $inactive_cleared
+		&& false === get_option( 'mainwp_child_pubkey' )
+		&& 'dashboard-key' === get_option( 'rw_connector_child_link_backup' )['options']['mainwp_child_pubkey']
+);
+$GLOBALS['rw_active_plugins'] = array( 'mainwp-child/mainwp-child.php' );
+update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
+update_option( 'mainwp_child_siteid', 12, false );
+rw_test(
+	'an active child with a public key still blocks',
+	RW_MainWP_Child_Adapter::is_installed()
+		&& RW_MainWP_Child_Adapter::is_active()
+		&& RW_MainWP_Child_Adapter::has_existing_link()
+		&& ! RW_MainWP_Child_Adapter::backup_and_clear_inactive_link()
+		&& 'dashboard-key' === get_option( 'mainwp_child_pubkey' )
+		&& 12 === (int) get_option( 'mainwp_child_siteid' )
+);
 rw_test( 'takeover re-keys the child to the ReactWoo dashboard', 'https://maint.reactwoo.com' === RW_MainWP_Child_Adapter::rekey_to_reactwoo() && ! RW_MainWP_Child_Adapter::has_existing_link() && false === get_option( 'mainwp_child_siteid' ) && 'https://maint.reactwoo.com' === get_option( 'mainwp_child_server' ) );
+$installer_src = file_get_contents( __DIR__ . '/../reactwoo-support-connector/includes/class-rw-component-installer.php' );
+rw_test( 'a fresh child install clears leftover link options first', false !== strpos( $installer_src, 'backup_and_clear_inactive_link' ) && false !== strpos( $installer_src, 'plugin_file_exists' ) );
 update_option( 'rw_connector_site_id', 9, false );
 update_option( 'rw_connector_site_secret', 'leftover-secret', false );
 update_option( 'rw_connector_connected_at', '2026-01-01 00:00:00', false );

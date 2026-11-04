@@ -10,6 +10,7 @@ class RW_MainWP_Child_Adapter {
 	const PUBKEY_OPTION = 'mainwp_child_pubkey';
 	const SERVER_OPTION = 'mainwp_child_server';
 	const SITE_ID_OPTION = 'mainwp_child_siteid';
+	const MAINWP_SITE_OPTION = 'rw_connector_mainwp_site_id';
 	const DASHBOARD_URL = 'https://maint.reactwoo.com';
 
 	/**
@@ -83,18 +84,133 @@ class RW_MainWP_Child_Adapter {
 	}
 
 	/**
-	 * A live foreign link is an installed, active Child with a dashboard public key.
-	 * Options left behind after Child was removed or deactivated are not a link.
+	 * A foreign link is an installed, active Child whose public key belongs to
+	 * another dashboard. Our own maint.reactwoo.com link is a re-enrolment.
 	 *
 	 * @return bool
 	 */
 	public static function has_existing_link() {
+		if ( ! self::active_child_has_pubkey() ) {
+			return false;
+		}
+
+		return ! self::is_own_dashboard_link();
+	}
+
+	/**
+	 * True when this active Child is already linked to the ReactWoo dashboard.
+	 * Either the stored Child site id matches the id this connector saved, or
+	 * the Child server URL is maint.reactwoo.com.
+	 *
+	 * @return bool
+	 */
+	public static function is_own_dashboard_link() {
+		if ( ! self::active_child_has_pubkey() ) {
+			return false;
+		}
+
+		if ( self::server_is_reactwoo() ) {
+			return true;
+		}
+
+		$child_id  = self::child_site_id();
+		$stored_id = self::stored_mainwp_site_id();
+
+		return $child_id > 0 && $stored_id > 0 && $child_id === $stored_id;
+	}
+
+	/**
+	 * Bootstrap stops only for a foreign active link, and only without takeover.
+	 *
+	 * @param mixed $takeover Requested takeover flag.
+	 * @return bool
+	 */
+	public static function blocks_bootstrap( $takeover = false ) {
+		if ( self::is_own_dashboard_link() || ! self::has_existing_link() ) {
+			return false;
+		}
+
+		return ! self::is_explicit_takeover( $takeover );
+	}
+
+	/**
+	 * @return bool
+	 */
+	private static function active_child_has_pubkey() {
 		if ( ! self::is_installed() || ! self::is_active() ) {
 			return false;
 		}
 
 		$pubkey = get_option( self::PUBKEY_OPTION );
 		return is_string( $pubkey ) && '' !== trim( $pubkey );
+	}
+
+	public static function child_site_id() {
+		return (int) get_option( self::SITE_ID_OPTION, 0 );
+	}
+
+	public static function stored_mainwp_site_id() {
+		return (int) get_option( self::MAINWP_SITE_OPTION, 0 );
+	}
+
+	/**
+	 * @param int $mainwp_site_id MainWP site id from our dashboard.
+	 */
+	public static function remember_mainwp_site_id( $mainwp_site_id ) {
+		$mainwp_site_id = (int) $mainwp_site_id;
+		if ( $mainwp_site_id <= 0 ) {
+			return;
+		}
+
+		update_option( self::MAINWP_SITE_OPTION, $mainwp_site_id, false );
+	}
+
+	/**
+	 * @return string Dashboard URL stored by Child, decrypted when Child can.
+	 */
+	public static function child_server_url() {
+		$value = '';
+		if ( class_exists( '\MainWP\Child\MainWP_Child_Keys_Manager' ) && method_exists( '\MainWP\Child\MainWP_Child_Keys_Manager', 'get_encrypted_option' ) ) {
+			$value = \MainWP\Child\MainWP_Child_Keys_Manager::get_encrypted_option( self::SERVER_OPTION, '' );
+		} else {
+			$value = get_option( self::SERVER_OPTION, '' );
+		}
+
+		return is_string( $value ) ? trim( $value ) : '';
+	}
+
+	/**
+	 * @return bool
+	 */
+	public static function server_is_reactwoo() {
+		$server = self::url_identity( self::child_server_url() );
+		$ours   = self::url_identity( self::DASHBOARD_URL );
+
+		return '' !== $server && $server === $ours;
+	}
+
+	/**
+	 * @param string $url Site or dashboard URL.
+	 * @return string
+	 */
+	private static function url_identity( $url ) {
+		$parts = wp_parse_url( trim( (string) $url ) );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) $parts['host'] );
+		if ( 0 === strpos( $host, 'www.' ) ) {
+			$host = substr( $host, 4 );
+		}
+
+		$scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+		$path   = isset( $parts['path'] ) ? untrailingslashit( (string) $parts['path'] ) : '';
+		if ( '/' === $path ) {
+			$path = '';
+		}
+
+		return $scheme . '://' . $host . $path;
 	}
 
 	/**

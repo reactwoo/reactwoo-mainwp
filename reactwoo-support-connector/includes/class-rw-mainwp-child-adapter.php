@@ -99,8 +99,10 @@ class RW_MainWP_Child_Adapter {
 
 	/**
 	 * True when this active Child is already linked to the ReactWoo dashboard.
-	 * Either the stored Child site id matches the id this connector saved, or
-	 * the Child server URL is maint.reactwoo.com.
+	 * The Child server host is compared without scheme or path, so MainWP's
+	 * stored https://maint.reactwoo.com/wp-admin/ still matches. A host match
+	 * saves mainwp_child_siteid for sites linked before that id was stored.
+	 * A matching saved site id is also ours.
 	 *
 	 * @return bool
 	 */
@@ -110,6 +112,7 @@ class RW_MainWP_Child_Adapter {
 		}
 
 		if ( self::server_is_reactwoo() ) {
+			self::remember_mainwp_site_id( self::child_site_id() );
 			return true;
 		}
 
@@ -180,20 +183,25 @@ class RW_MainWP_Child_Adapter {
 	}
 
 	/**
+	 * Scheme and path are ignored. MainWP stores the dashboard as
+	 * https://maint.reactwoo.com/wp-admin/.
+	 *
 	 * @return bool
 	 */
 	public static function server_is_reactwoo() {
-		$server = self::url_identity( self::child_server_url() );
-		$ours   = self::url_identity( self::DASHBOARD_URL );
+		$server = self::dashboard_host( self::child_server_url() );
+		$ours   = self::dashboard_host( self::DASHBOARD_URL );
 
 		return '' !== $server && $server === $ours;
 	}
 
 	/**
+	 * Host only, lower-case, without a leading www.
+	 *
 	 * @param string $url Site or dashboard URL.
 	 * @return string
 	 */
-	private static function url_identity( $url ) {
+	private static function dashboard_host( $url ) {
 		$parts = wp_parse_url( trim( (string) $url ) );
 		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
 			return '';
@@ -204,13 +212,7 @@ class RW_MainWP_Child_Adapter {
 			$host = substr( $host, 4 );
 		}
 
-		$scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
-		$path   = isset( $parts['path'] ) ? untrailingslashit( (string) $parts['path'] ) : '';
-		if ( '/' === $path ) {
-			$path = '';
-		}
-
-		return $scheme . '://' . $host . $path;
+		return $host;
 	}
 
 	/**

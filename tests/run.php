@@ -1280,6 +1280,25 @@ rw_test(
 		&& false !== strpos( $bootstrap_src, 'is_own_dashboard_link' )
 		&& false !== strpos( $bootstrap_src, 'blocks_bootstrap' )
 );
+delete_option( 'rw_connector_mainwp_site_id' );
+update_option( 'mainwp_child_siteid', 12, false );
+update_option( 'mainwp_child_server', 'https://maint.reactwoo.com/wp-admin/', false );
+$stored_before_admin_path = (int) get_option( 'rw_connector_mainwp_site_id', 0 );
+$wp_admin_server = RW_MainWP_Child_Adapter::is_own_dashboard_link() && ! RW_MainWP_Child_Adapter::blocks_bootstrap();
+rw_test(
+	'a Child server stored with /wp-admin/ is our dashboard',
+	0 === $stored_before_admin_path
+		&& $wp_admin_server
+		&& 12 === (int) get_option( 'rw_connector_mainwp_site_id' )
+);
+delete_option( 'rw_connector_mainwp_site_id' );
+update_option( 'mainwp_child_server', 'HTTP://Maint.ReactWoo.com/wp-admin/', false );
+$missing_stored_id = 0 === (int) get_option( 'rw_connector_mainwp_site_id', 0 );
+$reenrol_without_stored_id = $missing_stored_id && RW_MainWP_Child_Adapter::is_own_dashboard_link() && ! RW_MainWP_Child_Adapter::blocks_bootstrap();
+rw_test(
+	'a site missing the stored MainWP id still re-enrols from the dashboard host',
+	$reenrol_without_stored_id && 12 === RW_MainWP_Child_Adapter::stored_mainwp_site_id()
+);
 update_option( 'mainwp_child_server', 'https://other-dashboard.example', false );
 update_option( 'mainwp_child_siteid', 12, false );
 update_option( 'rw_connector_mainwp_site_id', 99, false );

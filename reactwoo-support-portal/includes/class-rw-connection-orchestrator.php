@@ -630,9 +630,10 @@ class RW_Connection_Orchestrator {
 
 	private static function fail_and_revoke( $attempt, $user_login, $password, $state, $code, $message ) {
 		self::revoke_quietly( $attempt, $user_login, $password );
+		$site = RW_Sites::get_site( (int) $attempt->managed_site_id );
+		$keep = self::record_is_connected( $site ) && RW_Connection_State::CONNECTED !== (string) $state;
 		self::mark_attempt_site( $attempt, $state, $code, $message );
-		if ( RW_Connection_State::ACTION_REQUIRED === $state ) {
-			$site = RW_Sites::get_site( (int) $attempt->managed_site_id );
+		if ( RW_Connection_State::ACTION_REQUIRED === $state && ! $keep ) {
 			if ( $site ) {
 				RW_Maintenance_Emails::send_action_required( $site, $message );
 			}
@@ -731,25 +732,104 @@ class RW_Connection_Orchestrator {
 		return (int) $site_id;
 	}
 
+	/**
+	 * A site already connected stays connected. The attempt carries the error.
+	 *
+	 * @param object $site Managed site row.
+	 * @return bool
+	 */
+	public static function record_is_connected( $site ) {
+		if ( ! is_object( $site ) ) {
+			return false;
+		}
+
+		$state  = isset( $site->connection_state ) ? (string) $site->connection_state : '';
+		$status = isset( $site->status ) ? (string) $site->status : '';
+
+		return RW_Connection_State::CONNECTED === $state || 'connected' === $status;
+	}
+
+	/**
+	 * Site fields for an attempt outcome. Connected records are not downgraded.
+	 *
+	 * @param object $site Managed site row.
+	 * @param string $state Attempt state.
+	 * @param string $code Error code.
+	 * @param string $message Error message.
+	 * @return array<string,mixed>
+	 */
+	public static function outcome_for_attempt( $site, $state, $code, $message ) {
+		$code    = sanitize_key( (string) $code );
+		$message = substr( sanitize_text_field( (string) $message ), 0, 255 );
+		$state   = (string) $state;
+
+		if ( self::record_is_connected( $site ) && RW_Connection_State::CONNECTED !== $state ) {
+			return array(
+				'downgraded'                => false,
+				'connection_state'          => RW_Connection_State::CONNECTED,
+				'status'                    => 'connected',
+				'connection_error_code'     => isset( $site->connection_error_code ) ? (string) $site->connection_error_code : '',
+				'connection_error_message'  => isset( $site->connection_error_message ) ? (string) $site->connection_error_message : '',
+				'attempt_status'            => $state,
+				'attempt_error_code'        => $code,
+				'attempt_error_message'     => $message,
+			);
+		}
+
+		return array(
+			'downgraded'               => true,
+			'connection_state'         => $state,
+			'status'                   => ( $site && isset( $site->status ) ) ? (string) $site->status : '',
+			'connection_error_code'    => $code,
+			'connection_error_message' => $message,
+			'attempt_status'           => $state,
+			'attempt_error_code'       => $code,
+			'attempt_error_message'    => $message,
+		);
+	}
+
 	private static function mark_attempt_site( $attempt, $state, $code, $message ) {
+		$site    = RW_Sites::get_site( (int) $attempt->managed_site_id );
+		$outcome = self::outcome_for_attempt( $site ? $site : (object) array(), $state, $code, $message );
 		RW_Connection_Attempts::update_attempt(
 			(int) $attempt->id,
 			array(
-				'status'       => $state,
+				'status'       => $outcome['attempt_status'],
 				'completed_at' => current_time( 'mysql', true ),
 			)
 		);
-		$site = RW_Sites::get_site( (int) $attempt->managed_site_id );
 		if ( $site ) {
-			self::mark_site( $site, $state, $code, $message, isset( $site->connection_method ) ? $site->connection_method : 'v2' );
+			self::apply_attempt_outcome( $site, $outcome, isset( $site->connection_method ) ? $site->connection_method : 'v2' );
 		}
 	}
 
 	private static function mark_site( $site, $state, $code, $message, $method = '' ) {
+		$outcome = self::outcome_for_attempt( $site, $state, $code, $message );
+		self::apply_attempt_outcome( $site, $outcome, $method );
+	}
+
+	/**
+	 * @param object               $site Managed site row.
+	 * @param array<string,mixed>  $outcome Result from outcome_for_attempt().
+	 * @param string               $method Connection method to keep on a first attempt.
+	 */
+	private static function apply_attempt_outcome( $site, array $outcome, $method = '' ) {
+		if ( empty( $outcome['downgraded'] ) ) {
+			RW_Sites::update_site(
+				(int) $site->id,
+				array(
+					'status'                     => 'connected',
+					'connection_state'           => RW_Connection_State::CONNECTED,
+					'last_connection_attempt_at' => current_time( 'mysql', true ),
+				)
+			);
+			return;
+		}
+
 		$data = array(
-			'connection_state'           => $state,
-			'connection_error_code'      => sanitize_key( (string) $code ),
-			'connection_error_message'   => substr( sanitize_text_field( (string) $message ), 0, 255 ),
+			'connection_state'           => $outcome['connection_state'],
+			'connection_error_code'      => $outcome['connection_error_code'],
+			'connection_error_message'   => $outcome['connection_error_message'],
 			'last_connection_attempt_at' => current_time( 'mysql', true ),
 		);
 		if ( '' !== $method ) {

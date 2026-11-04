@@ -1970,17 +1970,38 @@ class RW_Maint_Site_Snapshot {
 	 * @return int|null
 	 */
 	private static function unix_from_magnitude( $value ) {
+		if ( is_string( $value ) && preg_match( '/^\d+\.\d+$/', trim( $value ) ) ) {
+			$value = (float) $value;
+		}
 		$time = (int) $value;
 		if ( $time <= 0 ) {
 			return null;
 		}
-		if ( $time >= 100000000000000 ) {
-			$time = (int) round( $time / 1000000 );
-		} elseif ( $time >= 100000000000 ) {
-			$time = (int) round( $time / 1000 );
+
+		$digits = strlen( (string) $time );
+		// MainWP action rows are indexed with time() concatenated to a 4-digit suffix.
+		if ( $digits >= 13 && $digits <= 15 ) {
+			$stripped = (int) floor( $time / 10000 );
+			if ( self::plausible_unix( $stripped ) ) {
+				return $stripped;
+			}
 		}
 
-		return $time > 0 ? $time : null;
+		$guard = 0;
+		while ( $time > 4102444800 && $guard < 4 ) {
+			$time = (int) round( $time / 1000 );
+			$guard++;
+		}
+
+		return self::plausible_unix( $time ) ? $time : null;
+	}
+
+	/**
+	 * @param int $time Unix seconds.
+	 * @return bool
+	 */
+	private static function plausible_unix( $time ) {
+		return $time >= 946684800 && $time <= 4102444800;
 	}
 
 	/**

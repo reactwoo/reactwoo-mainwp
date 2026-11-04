@@ -1890,6 +1890,39 @@ foreach ( $health_view['cards'] as $health_row ) {
 }
 rw_test( 'a few critical checks are needs attention, not critical', is_array( $health_card ) && 'Needs attention' === $health_card['state_label'] );
 
+$indexed_run = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'logs' => array(
+			array(
+				'created' => '17000000004521',
+				'action'  => 'backup completed',
+				'context' => 'backups',
+				'item'    => 'Nightly',
+			),
+		),
+	)
+);
+$absurd_when = RW_Portal_Maintenance_Status::format_when( '4378-05-06T15:06:40+00:00' );
+$indexed_when = RW_Portal_Maintenance_Status::format_when( '17000000004521' );
+$micro_when = RW_Portal_Maintenance_Status::format_when( '1700000000000000' );
+rw_test(
+	'maintenance run times ignore millisecond, microsecond and indexed stamps',
+	is_array( $indexed_run['activity']['last_run'] )
+		&& gmdate( 'c', 1700000000 ) === $indexed_run['activity']['last_run']['date']
+		&& '' === $absurd_when
+		&& false !== strpos( $indexed_when, '2023' )
+		&& false !== strpos( $micro_when, '2023' )
+		&& false === strpos( $indexed_when, '4377' )
+		&& false === strpos( $micro_when, '5292' )
+);
+rw_test(
+	'the header is needs attention when a status card is',
+	RW_Portal_Maintenance_Status::needs_attention( array( 'flags' => array(), 'cards' => array( array( 'state' => 'good' ) ) ) ) === false
+		&& RW_Portal_Maintenance_Status::needs_attention( array( 'flags' => array( 'Site health needs attention' ), 'cards' => array() ) )
+		&& RW_Portal_Maintenance_Status::needs_attention( $health_view )
+);
+
 rw_test(
 	'backup history keeps the newest five and the next daily run',
 	5 === count( $full['backups']['recent'] )
@@ -2744,6 +2777,29 @@ $offer_request['idempotency_key'] = 'no-active-plan-key';
 $offer_blocked = RW_Support_Purchase::attempt( $offer_request );
 rw_test( 'additional support is refused server-side without an active plan', 'failure' === $offer_blocked['result'] && 1 === $offer_orders );
 $offer_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/support-offer.php' );
+$duplicate_packs = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'technical-support-1h', 'id' => 3665, 'name' => 'ReactWoo Technical Support 1h', 'price_html' => '£55.00' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support 1h', 'price_html' => '£40.00' ),
+		array( 'slug' => 'not-a-pack', 'id' => 9999, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+	),
+	false,
+	null,
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+$pack_names = array();
+foreach ( $duplicate_packs['options'] as $pack_option ) {
+	$pack_names[] = $pack_option['name'];
+}
+rw_test(
+	'support packs are the four product ids, without duplicates or non-member additional support',
+	array( 'ReactWoo Technical Support 5h', 'ReactWoo Technical Support 1h' ) === $pack_names
+);
 rw_test(
 	'the support card has a pack menu, saved-card purchase, and checkout fallback',
 	false !== strpos( $offer_template, 'Buy extra support' )

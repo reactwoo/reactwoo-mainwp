@@ -17,6 +17,7 @@ $remaining = isset( $rw_view['included_minutes_remaining'] ) ? (int) $rw_view['i
 $used      = $granted > 0 ? max( 0, $granted - $remaining ) : 0;
 $used_pct  = $granted > 0 ? min( 100, (int) round( ( $used / $granted ) * 100 ) ) : 0;
 $switcher  = isset( $rw_view['switcher'] ) && is_array( $rw_view['switcher'] ) ? $rw_view['switcher'] : array();
+$needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['maintenance'] ) && RW_Portal_Maintenance_Status::needs_attention( $rw_view['maintenance'] );
 ?>
 <div class="rw-maint-dash">
 	<?php
@@ -24,11 +25,11 @@ $switcher  = isset( $rw_view['switcher'] ) && is_array( $rw_view['switcher'] ) ?
 		include RW_PORTAL_DIR . 'templates/partials/site-switcher.php';
 	}
 	?>
-	<section class="rw-maint-hero" aria-labelledby="rw-maint-dash-title">
+	<section class="rw-maint-hero<?php echo $needs_attention ? ' rw-maint-hero--attention' : ''; ?>" aria-labelledby="rw-maint-dash-title">
 		<div>
 			<p class="rw-maint-hero-host"><?php echo esc_html( $host ); ?></p>
-			<h2 id="rw-maint-dash-title">Your website is protected</h2>
-			<p class="rw-maint-lead">We are keeping WordPress, plugins and themes up to date, backing up your site and running regular security checks.</p>
+			<h2 id="rw-maint-dash-title"><?php echo $needs_attention ? 'Needs attention' : 'Your website is protected'; ?></h2>
+			<p class="rw-maint-lead"><?php echo $needs_attention ? 'A check on this website needs attention.' : 'We are keeping WordPress, plugins and themes up to date, backing up your site and running regular security checks.'; ?></p>
 			<div class="rw-maint-actions">
 				<?php if ( ! empty( $rw_view['support_mailto'] ) ) : ?>
 					<a class="rw-maint-button" href="<?php echo esc_url( $rw_view['support_mailto'] ); ?>">Request support</a>

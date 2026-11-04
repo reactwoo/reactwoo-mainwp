@@ -869,6 +869,14 @@ class RW_Portal_Maintenance_Status {
 	 * @return DateTimeImmutable|null
 	 */
 	private static function local_moment( $value, $timezone = null ) {
+		if ( is_int( $value ) || is_float( $value ) || ( is_string( $value ) && preg_match( '/^\d+(?:\.\d+)?$/', trim( $value ) ) ) ) {
+			$unix = self::sane_unix( $value );
+			if ( ! $unix ) {
+				return null;
+			}
+			$moment = new DateTimeImmutable( '@' . $unix );
+			return $moment->setTimezone( self::resolve_timezone( null !== $timezone ? $timezone : self::$display_timezone ) );
+		}
 		if ( ! is_string( $value ) || '' === trim( $value ) ) {
 			return null;
 		}
@@ -882,7 +890,70 @@ class RW_Portal_Maintenance_Status {
 			$moment = new DateTimeImmutable( '@' . $time );
 		}
 
+		$year = (int) $moment->format( 'Y' );
+		if ( $year > 2100 || $year < 2000 ) {
+			$unix = self::sane_unix( $moment->getTimestamp() );
+			if ( ! $unix ) {
+				return null;
+			}
+			$moment = new DateTimeImmutable( '@' . $unix );
+		}
+
 		return $moment->setTimezone( self::resolve_timezone( null !== $timezone ? $timezone : self::$display_timezone ) );
+	}
+
+	/**
+	 * Seconds, milliseconds, microseconds, or a MainWP time().rand index.
+	 * Values that still fall outside 2000–2100 are dropped.
+	 *
+	 * @param mixed $value Numeric time.
+	 * @return int|null
+	 */
+	public static function sane_unix( $value ) {
+		if ( is_string( $value ) && preg_match( '/^\d+\.\d+$/', trim( $value ) ) ) {
+			$value = (float) $value;
+		}
+		$time = (int) $value;
+		if ( $time <= 0 ) {
+			return null;
+		}
+		$digits = strlen( (string) $time );
+		if ( $digits >= 13 && $digits <= 15 ) {
+			$stripped = (int) floor( $time / 10000 );
+			if ( $stripped >= 946684800 && $stripped <= 4102444800 ) {
+				return $stripped;
+			}
+		}
+		$guard = 0;
+		while ( $time > 4102444800 && $guard < 4 ) {
+			$time = (int) round( $time / 1000 );
+			$guard++;
+		}
+		if ( $time < 946684800 || $time > 4102444800 ) {
+			return null;
+		}
+
+		return $time;
+	}
+
+	/**
+	 * @param array<string,mixed> $view Presented maintenance view.
+	 * @return bool
+	 */
+	public static function needs_attention( array $view ) {
+		if ( ! empty( $view['flags'] ) && is_array( $view['flags'] ) ) {
+			return true;
+		}
+		if ( empty( $view['cards'] ) || ! is_array( $view['cards'] ) ) {
+			return false;
+		}
+		foreach ( $view['cards'] as $card ) {
+			if ( is_array( $card ) && isset( $card['state'] ) && 'attention' === $card['state'] ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

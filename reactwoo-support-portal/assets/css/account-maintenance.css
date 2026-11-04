@@ -1802,6 +1802,22 @@
 	padding: 32px;
 }
 
+.rw-maint-dash .rw-maint-hero--attention {
+	background: #171c34;
+	color: #fff;
+}
+
+.rw-maint-dash .rw-maint-hero--attention h2,
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-lead,
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-hero-host {
+	color: #fff;
+}
+
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-lead,
+.rw-maint-dash .rw-maint-hero--attention .rw-maint-hero-host {
+	color: #e4e8f4;
+}
+
 .rw-maint-dash .rw-maint-hero .rw-maint-lead {
 	margin-top: 12px;
 	color: #e4e8f4;

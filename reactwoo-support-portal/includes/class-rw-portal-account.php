@@ -40,6 +40,20 @@ class RW_Portal_Account {
 		}
 
 		self::enqueue_maintenance_style();
+		self::enqueue_support_offer_script();
+	}
+
+	public static function enqueue_support_offer_script() {
+		if ( ! function_exists( 'wp_enqueue_script' ) ) {
+			return;
+		}
+		wp_enqueue_script(
+			'rw-portal-support-offer',
+			RW_PORTAL_URL . 'assets/js/account-support-offer.js',
+			array(),
+			RW_PORTAL_VERSION,
+			true
+		);
 	}
 
 	/**
@@ -878,6 +892,7 @@ class RW_Portal_Account {
 			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
 			'maintenance'     => ( 'connected' === $state && $site && class_exists( 'RW_Portal_Maintenance_Status' ) ) ? RW_Portal_Maintenance_Status::view_for_site( $site ) : null,
 			'renews_on'       => self::renews_label( $subscription ),
+			'support_offer'   => ( 'connected' === $state && class_exists( 'RW_Support_Offers' ) ) ? RW_Support_Offers::card_for_subscription( $subscription, $user_id, $site ) : null,
 		);
 	}
 

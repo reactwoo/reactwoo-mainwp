@@ -2398,6 +2398,226 @@ rw_test(
 		&& false !== strpos( $switcher_template, 'All sites' )
 );
 
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-offers.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-purchase.php';
+
+class RW_Offer_Product {
+	public $slug;
+	public $id;
+	public function __construct( $slug, $id ) {
+		$this->slug = $slug;
+		$this->id   = $id;
+	}
+	public function get_slug() {
+		return $this->slug;
+	}
+	public function get_id() {
+		return $this->id;
+	}
+}
+
+class RW_Offer_Order {
+	public $meta = array();
+	public $status = 'pending';
+	public $id;
+	public function __construct( $id ) {
+		$this->id = $id;
+	}
+	public function get_id() {
+		return $this->id;
+	}
+	public function update_meta_data( $key, $value ) {
+		$this->meta[ $key ] = $value;
+	}
+	public function set_payment_method( $gateway ) {
+		unset( $gateway );
+	}
+	public function save() {
+	}
+	public function get_status() {
+		return $this->status;
+	}
+	public function update_status( $status, $note = '' ) {
+		unset( $note );
+		$this->status = $status;
+	}
+}
+
+class RW_Offer_Gateway {
+	public $id = 'revolut_cc';
+	public $calls = array();
+	public $result = array( 'result' => 'success' );
+	public function supports( $feature ) {
+		return 'tokenization' === $feature;
+	}
+	public function process_payment( $wc_order_id, $revolut_public_id = '', $is_express_checkout = false, $revolut_payment_error = '', $reload_checkout = false, $is_captured = false, $is_using_saved_payment_method = false, $save_payment_method_requested = false, $wc_payment_token_id = '' ) {
+		$this->calls[] = func_get_args();
+		return $this->result;
+	}
+}
+
+$offer_catalogue = RW_Support_Offers::catalogue();
+$offer_prices = false;
+foreach ( $offer_catalogue as $offer_row ) {
+	if ( isset( $offer_row['price'] ) || isset( $offer_row['amount'] ) ) {
+		$offer_prices = true;
+	}
+}
+rw_test(
+	'support packs are matched by slug and do not store a price',
+	3663 === $offer_catalogue['additional-support-1h']['id']
+		&& 3666 === $offer_catalogue['technical-support-5h']['id']
+		&& ! $offer_prices
+		&& 'additional' === RW_Support_Offers::kind_of( 'additional-support-5h', 0 )
+		&& 'technical' === RW_Support_Offers::kind_of( 'renamed', 3665 )
+);
+rw_test(
+	'additional support needs an active maintenance product',
+	RW_Support_Offers::subscription_grants_additional( 'active', array( 3657 ) )
+		&& RW_Support_Offers::subscription_grants_additional( 'pending-cancel', array( 3660 ) )
+		&& ! RW_Support_Offers::subscription_grants_additional( 'on-hold', array( 3654 ) )
+		&& ! RW_Support_Offers::subscription_grants_additional( 'active', array( 999 ) )
+);
+rw_test(
+	'the purchasable guard blocks additional support without a plan',
+	! RW_Support_Offers::allows_purchase( true, 'additional', false )
+		&& RW_Support_Offers::allows_purchase( true, 'additional', true )
+		&& RW_Support_Offers::allows_purchase( true, 'technical', false )
+		&& ! RW_Support_Offers::allows_purchase( false, 'technical', true )
+		&& ! rw_additional_support_guard_purchasable( true, new RW_Offer_Product( 'additional-support-1h', 3663 ) )
+		&& rw_additional_support_guard_purchasable( true, new RW_Offer_Product( 'technical-support-1h', 3665 ) )
+);
+$offer_card = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support, 1 hour', 'price_html' => '<span class="woocommerce-Price-amount">£40.00</span>' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'Technical support, 5 hours', 'price_html' => wc_price_missing() ),
+	),
+	false,
+	array( 'token_id' => 9, 'gateway_id' => 'revolut_cc', 'last4' => '1234' ),
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+function wc_price_missing() {
+	return '<span class="woocommerce-Price-amount">£120.00</span>';
+}
+rw_test(
+	'without a maintenance plan only technical support is offered at the live price',
+	1 === count( $offer_card['options'] )
+		&& 'technical-support-5h' === $offer_card['options'][0]['slug']
+		&& '£120.00' === $offer_card['options'][0]['price_text']
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'add-to-cart=3666' )
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_subscription_id=11' )
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_site_id=7' )
+		&& 'Buy now with card ending ••••1234' === $offer_card['card']['label']
+);
+$offer_with_plan = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support, 1 hour', 'price_html' => '£40.00' ),
+		array( 'slug' => 'plugin', 'id' => 1, 'name' => 'Other', 'price_html' => '£9.00' ),
+	),
+	true,
+	null,
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+rw_test(
+	'an active plan shows additional support and drops unknown products',
+	1 === count( $offer_with_plan['options'] )
+		&& 'additional-support-1h' === $offer_with_plan['options'][0]['slug']
+		&& null === $offer_with_plan['card']
+);
+
+$offer_args = RW_Support_Purchase::payment_arguments(
+	array( 'wc_order_id', 'revolut_public_id', 'is_express_checkout', 'revolut_payment_error', 'reload_checkout', 'is_captured', 'is_using_saved_payment_method', 'save_payment_method_requested', 'wc_payment_token_id' ),
+	440,
+	9
+);
+rw_test(
+	'revolut process_payment receives the order and the saved token',
+	440 === $offer_args[0]
+		&& '' === $offer_args[1]
+		&& false === $offer_args[2]
+		&& true === $offer_args[6]
+		&& false === $offer_args[7]
+		&& '9' === $offer_args[8]
+);
+
+$offer_orders = 0;
+$offer_order = new RW_Offer_Order( 440 );
+RW_Support_Purchase::$order_factory = function () use ( &$offer_orders, $offer_order ) {
+	$offer_orders++;
+	return $offer_order;
+};
+$offer_gateway = new RW_Offer_Gateway();
+$offer_request = array(
+	'user_id'             => 4,
+	'can_act'             => true,
+	'nonce_ok'            => true,
+	'slug'                => 'technical-support-1h',
+	'subscription_id'     => 11,
+	'subscription_owned'  => true,
+	'subscription_status' => 'active',
+	'product_ids'         => array( 3654 ),
+	'site_id'             => 7,
+	'idempotency_key'     => 'click-once-key-1234',
+	'product'             => array(
+		'id'          => 3665,
+		'slug'        => 'technical-support-1h',
+		'purchasable' => true,
+	),
+	'token'               => array(
+		'id'         => 9,
+		'user_id'    => 4,
+		'gateway_id' => 'revolut_cc',
+		'last4'      => '1234',
+	),
+	'gateway'             => $offer_gateway,
+);
+$offer_first = RW_Support_Purchase::attempt( $offer_request );
+$offer_second = RW_Support_Purchase::attempt( $offer_request );
+rw_test(
+	'a saved card charge is idempotent and stores the plan and site',
+	'success' === $offer_first['result']
+		&& 440 === $offer_first['order_id']
+		&& $offer_first === $offer_second
+		&& 1 === $offer_orders
+		&& 1 === count( $offer_gateway->calls )
+		&& 11 === $offer_order->meta['_rw_maintenance_subscription_id']
+		&& 7 === $offer_order->meta['_rw_managed_site_id']
+		&& '9' === $_POST['wc-revolut_cc-payment-token']
+);
+$offer_request['idempotency_key'] = 'someone-elses-card1';
+$offer_request['token']['user_id'] = 8;
+$offer_rejected = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'another customer token is not charged', 'failure' === $offer_rejected['result'] && 1 === $offer_orders );
+$offer_request['token']['user_id'] = 4;
+$offer_request['can_act'] = false;
+$offer_request['idempotency_key'] = 'missing-capability';
+$offer_forbidden = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'a purchase without the account capability is refused', 'failure' === $offer_forbidden['result'] && 1 === $offer_orders );
+$offer_request['can_act'] = true;
+$offer_request['nonce_ok'] = false;
+$offer_request['idempotency_key'] = 'expired-nonce-key';
+$offer_nonce = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'a purchase with a bad nonce is refused', 'failure' === $offer_nonce['result'] && 1 === $offer_orders );
+$offer_request['nonce_ok'] = true;
+$offer_request['product']['slug'] = 'additional-support-1h';
+$offer_request['product']['id'] = 3663;
+$offer_request['subscription_status'] = 'cancelled';
+$offer_request['idempotency_key'] = 'no-active-plan-key';
+$offer_blocked = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'additional support is refused server-side without an active plan', 'failure' === $offer_blocked['result'] && 1 === $offer_orders );
+$offer_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/support-offer.php' );
+rw_test(
+	'the support card has a pack menu, saved-card purchase, and checkout fallback',
+	false !== strpos( $offer_template, 'Buy extra support' )
+		&& false !== strpos( $offer_template, 'data-offer-open' )
+		&& false !== strpos( $offer_template, 'Continue to checkout' )
+		&& false !== strpos( $offer_template, 'rw-maint-pill--good' )
+);
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

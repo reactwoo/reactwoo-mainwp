@@ -60,6 +60,13 @@ $switcher  = isset( $rw_view['switcher'] ) && is_array( $rw_view['switcher'] ) ?
 		</aside>
 	</section>
 
+	<?php if ( ! empty( $rw_view['support_offer'] ) && is_array( $rw_view['support_offer'] ) ) : ?>
+		<?php
+		$support_offer = $rw_view['support_offer'];
+		include RW_PORTAL_DIR . 'templates/partials/support-offer.php';
+		?>
+	<?php endif; ?>
+
 	<?php if ( ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['maintenance'] ) ) : ?>
 		<?php
 		$maintenance = $rw_view['maintenance'];

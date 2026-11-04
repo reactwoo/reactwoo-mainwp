@@ -18,6 +18,16 @@ class RW_Maint_Rest_Controller {
 
 		register_rest_route(
 			'reactwoo-maint/v1',
+			'/client-update',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'client_update' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
 			'/suspend',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
@@ -138,6 +148,55 @@ class RW_Maint_Rest_Controller {
 		}
 
 		return new WP_Error( 'rw_maint_auth', 'Authorization required.', array( 'status' => 401 ) );
+	}
+
+	/**
+	 * Signed subscriber update. Does not assign a MainWP site.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function client_update( WP_REST_Request $request ) {
+		$payload    = (array) $request->get_json_params();
+		$subscriber = RW_Maint_MainWP_Clients::subscriber_from_payload( $payload );
+		if ( ! $subscriber['customer_id'] || '' === $subscriber['email'] ) {
+			return new WP_Error( 'rw_maint_missing', 'Subscriber email and customer ID are required.', array( 'status' => 400 ) );
+		}
+
+		$result = RW_Maint_MainWP_Clients::sync(
+			$subscriber,
+			0,
+			array(
+				'user_id' => (int) $subscriber['customer_id'],
+			)
+		);
+		if ( is_wp_error( $result ) ) {
+			$status = 409;
+			if ( 'rw_mainwp_client_missing' === $result->get_error_code() ) {
+				$status = 400;
+			} elseif ( 'rw_mainwp_clients_unavailable' === $result->get_error_code() ) {
+				$status = 502;
+			}
+
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => $status ) );
+		}
+
+		RW_Maint_Sites::update_identity_for_user(
+			(int) $subscriber['customer_id'],
+			array(
+				'client_name'    => $subscriber['name'],
+				'client_email'   => $subscriber['email'],
+				'client_company' => $subscriber['company'],
+			)
+		);
+
+		return rest_ensure_response(
+			array(
+				'customer_id'      => (int) $result['customer_id'],
+				'mainwp_client_id' => (int) $result['mainwp_client_id'],
+				'matched_by'       => $result['matched_by'],
+			)
+		);
 	}
 
 	public static function enroll( WP_REST_Request $request ) {

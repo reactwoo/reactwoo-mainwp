@@ -65,6 +65,47 @@ class RW_Maint_Sites {
 		);
 	}
 
+	/**
+	 * Refresh subscriber fields on this customer's bridge rows only.
+	 *
+	 * @param int                 $user_id WooCommerce customer id.
+	 * @param array<string,mixed> $fields  Name, email, and company.
+	 * @return int|false
+	 */
+	public static function update_identity_for_user( $user_id, array $fields ) {
+		global $wpdb;
+
+		$user_id = absint( $user_id );
+		if ( ! $user_id ) {
+			return false;
+		}
+
+		$data = array();
+		if ( array_key_exists( 'client_name', $fields ) ) {
+			$data['client_name'] = sanitize_text_field( (string) $fields['client_name'] );
+		}
+		if ( array_key_exists( 'client_email', $fields ) ) {
+			$data['client_email'] = sanitize_email( (string) $fields['client_email'] );
+		}
+		if ( array_key_exists( 'client_company', $fields ) ) {
+			$data['client_company'] = sanitize_text_field( (string) $fields['client_company'] );
+		}
+		if ( empty( $data ) ) {
+			return false;
+		}
+
+		$data['updated_at'] = current_time( 'mysql', true );
+		$formats            = self::build_formats( $data );
+
+		return $wpdb->update(
+			RW_Maint_DB::table( 'sites' ),
+			$data,
+			array( 'user_id' => $user_id ),
+			$formats,
+			array( '%d' )
+		);
+	}
+
 	public static function update_status( $portal_site_id, $status ) {
 		$site = self::get_by_portal_site_id( $portal_site_id );
 		if ( ! $site ) {

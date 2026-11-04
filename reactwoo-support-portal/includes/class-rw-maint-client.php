@@ -13,21 +13,38 @@ class RW_Maint_Client {
 			return new WP_Error( 'rw_maint_missing_site', 'Managed site is required.' );
 		}
 
+		return self::post( 'enroll', self::enrol_payload( $site, $extra ), $idempotency_key );
+	}
+
+	/**
+	 * Signed body for operational enrolment.
+	 * Phone is included only when the subscriber has a billing phone.
+	 *
+	 * @param object              $site  Managed site.
+	 * @param array<string,mixed> $extra Connection and entitlement fields.
+	 * @return array<string,mixed>
+	 */
+	public static function enrol_payload( $site, array $extra = array() ) {
+		$customer_id = isset( $site->user_id ) ? (int) $site->user_id : 0;
+		$phone       = isset( $site->client_phone ) ? trim( (string) $site->client_phone ) : '';
+		$client      = self::client_fields(
+			isset( $site->client_name ) ? $site->client_name : '',
+			isset( $site->client_company ) ? $site->client_company : '',
+			isset( $site->client_email ) ? $site->client_email : '',
+			$customer_id,
+			$phone
+		);
+		$client['client_locale']  = isset( $site->client_locale ) ? $site->client_locale : '';
+		$client['report_email']   = isset( $site->report_email ) ? $site->report_email : '';
+		$client['report_enabled'] = isset( $site->report_enabled ) ? (int) $site->report_enabled : 1;
+
 		$payload = array(
 			'portal_site_id'  => (int) $site->id,
 			'subscription_id' => (int) $site->subscription_id,
-			'user_id'         => (int) $site->user_id,
+			'user_id'         => $customer_id,
 			'site_url'        => $site->site_url,
 			'site_name'       => isset( $site->site_name ) ? $site->site_name : '',
-			'client'          => array(
-				'client_name'    => $site->client_name,
-				'client_email'   => $site->client_email,
-				'client_company' => $site->client_company,
-				'client_phone'   => $site->client_phone,
-				'client_locale'  => $site->client_locale,
-				'report_email'   => $site->report_email,
-				'report_enabled' => (int) $site->report_enabled,
-			),
+			'client'          => $client,
 		);
 
 		if ( isset( $extra['connection'] ) && is_array( $extra['connection'] ) ) {
@@ -37,7 +54,69 @@ class RW_Maint_Client {
 			$payload['maintenance_entitlements'] = $extra['maintenance_entitlements'];
 		}
 
-		return self::post( 'enroll', $payload, $idempotency_key );
+		return $payload;
+	}
+
+	/**
+	 * Signed body for a subscriber details update.
+	 *
+	 * @param int                 $user_id  WooCommerce customer id.
+	 * @param array<string,mixed> $identity Identity from RW_Identity.
+	 * @return array<string,mixed>
+	 */
+	public static function client_update_payload( $user_id, array $identity ) {
+		$user_id = (int) $user_id;
+		$phone   = isset( $identity['client_phone'] ) ? (string) $identity['client_phone'] : '';
+
+		return array(
+			'customer_id' => $user_id,
+			'client'      => self::client_fields(
+				isset( $identity['client_name'] ) ? $identity['client_name'] : '',
+				isset( $identity['client_company'] ) ? $identity['client_company'] : '',
+				isset( $identity['client_email'] ) ? $identity['client_email'] : '',
+				$user_id,
+				$phone
+			),
+		);
+	}
+
+	/**
+	 * @param int                       $user_id WooCommerce customer id.
+	 * @param array<string,mixed>|null  $identity Subscriber identity.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function update_client( $user_id, $identity = null ) {
+		$user_id = (int) $user_id;
+		if ( ! is_array( $identity ) ) {
+			$identity = class_exists( 'RW_Identity' ) ? RW_Identity::from_user( $user_id ) : array();
+		}
+
+		return self::post( 'client-update', self::client_update_payload( $user_id, $identity ) );
+	}
+
+	/**
+	 * Subscriber fields. Billing phone is omitted when it is empty.
+	 *
+	 * @param string $name
+	 * @param string $company
+	 * @param string $email
+	 * @param int    $customer_id
+	 * @param string $phone
+	 * @return array<string,mixed>
+	 */
+	public static function client_fields( $name, $company, $email, $customer_id, $phone = '' ) {
+		$client = array(
+			'client_name'    => (string) $name,
+			'client_company' => (string) $company,
+			'client_email'   => (string) $email,
+			'customer_id'    => (int) $customer_id,
+		);
+		$phone  = trim( (string) $phone );
+		if ( '' !== $phone ) {
+			$client['client_phone'] = $phone;
+		}
+
+		return $client;
 	}
 
 	public static function update_site_status( $site, $action ) {

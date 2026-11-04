@@ -22,15 +22,27 @@ class RW_Maint_MainWP {
 			return;
 		}
 
-		if ( ! empty( $site->mainwp_site_id ) ) {
+		if ( ! empty( $site->mainwp_site_id ) && self::current_mainwp_target( $site ) ) {
 			self::apply_hide_child_branding( $site );
 			do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload );
 			return;
 		}
 
+		if ( ! empty( $site->mainwp_site_id ) ) {
+			RW_Maint_Sites::update_site( (int) $site->id, array( 'mainwp_site_id' => 0 ) );
+			$site->mainwp_site_id = 0;
+		}
+
 		$groups         = self::build_groups( $site, $payload );
 		$mainwp_site_id = apply_filters( 'rw_maint_mainwp_create_site', null, $site, $payload, $groups );
 		$mainwp_site_id = absint( $mainwp_site_id );
+		if ( $mainwp_site_id ) {
+			$candidate                 = clone $site;
+			$candidate->mainwp_site_id = $mainwp_site_id;
+			if ( ! self::current_mainwp_target( $candidate ) ) {
+				$mainwp_site_id = 0;
+			}
+		}
 
 		if ( $mainwp_site_id ) {
 			RW_Maint_Sites::update_site( (int) $site->id, array( 'mainwp_site_id' => $mainwp_site_id ) );
@@ -50,11 +62,10 @@ class RW_Maint_MainWP {
 			);
 		}
 
-		if ( ! empty( $site->mainwp_site_id ) ) {
+		if ( ! empty( $site->mainwp_site_id ) && self::current_mainwp_target( $site ) ) {
 			self::apply_hide_child_branding( $site );
+			do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload, $groups );
 		}
-
-		do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload, $groups );
 	}
 
 	/**
@@ -151,14 +162,118 @@ class RW_Maint_MainWP {
 	}
 
 	/**
+	 * Decide whether a stored MainWP id can be reused for this enrolment URL.
+	 *
+	 * A missing row or a different URL never reuses that id. Site 12 stays untouched
+	 * when it belongs to another website.
+	 *
+	 * @param int         $stored_id Saved mainwp_site_id, or 0.
+	 * @param string|null $record_url URL currently stored in mainwp_wp, or null when the row is gone.
+	 * @param string      $enrolling_url URL being enrolled.
+	 * @param int         $url_match_id Existing MainWP id whose URL already matches, or 0.
+	 * @return array{reuse_id:int,blocked_id:int,create:bool}
+	 */
+	public static function resolve_reenroll_target( $stored_id, $record_url, $enrolling_url, $url_match_id = 0 ) {
+		$stored_id    = (int) $stored_id;
+		$url_match_id = (int) $url_match_id;
+		$reuse        = 0;
+		$blocked      = 0;
+
+		if ( $stored_id > 0 && is_string( $record_url ) && '' !== $record_url ) {
+			if ( self::urls_match( $record_url, $enrolling_url ) ) {
+				$reuse = $stored_id;
+			} else {
+				$blocked = $stored_id;
+			}
+		}
+
+		if ( ! $reuse && $url_match_id > 0 && $url_match_id !== $blocked ) {
+			$reuse = $url_match_id;
+		}
+
+		return array(
+			'reuse_id'   => $reuse,
+			'blocked_id' => $blocked,
+			'create'     => 0 === $reuse,
+		);
+	}
+
+	/**
+	 * Check and sync may run only when this id still belongs to the enrolled URL.
+	 *
+	 * @param int         $mainwp_id MainWP site id.
+	 * @param string      $site_url Enrolled site URL.
+	 * @param string|null $record_url URL from mainwp_wp, or null.
+	 * @return bool
+	 */
+	public static function may_operate_on( $mainwp_id, $site_url, $record_url ) {
+		if ( (int) $mainwp_id <= 0 || ! is_string( $record_url ) || '' === $record_url ) {
+			return false;
+		}
+
+		return self::urls_match( $record_url, $site_url );
+	}
+
+	/**
+	 * @param string $left First URL.
+	 * @param string $right Second URL.
+	 * @return bool
+	 */
+	public static function urls_match( $left, $right ) {
+		$a = self::url_key( $left );
+		$b = self::url_key( $right );
+
+		return '' !== $a && $a === $b;
+	}
+
+	/**
+	 * @param object $site Bridge site row.
+	 * @return bool
+	 */
+	public static function current_mainwp_target( $site ) {
+		if ( ! $site || empty( $site->mainwp_site_id ) ) {
+			return false;
+		}
+
+		$record = RW_Maint_MainWP_Client::lookup_mainwp_site( (int) $site->mainwp_site_id );
+		$url    = ( $record && isset( $record->url ) ) ? (string) $record->url : null;
+
+		return self::may_operate_on( $site->mainwp_site_id, isset( $site->site_url ) ? $site->site_url : '', $url );
+	}
+
+	/**
+	 * @param string $url Site URL.
+	 * @return string
+	 */
+	private static function url_key( $url ) {
+		$parts = wp_parse_url( trim( (string) $url ) );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) $parts['host'] );
+		if ( 0 === strpos( $host, 'www.' ) ) {
+			$host = substr( $host, 4 );
+		}
+
+		$path = isset( $parts['path'] ) ? untrailingslashit( (string) $parts['path'] ) : '';
+		if ( '/' === $path ) {
+			$path = '';
+		}
+
+		return $host . $path;
+	}
+
+	/**
 	 * Ask the MainWP Dashboard on this site to push hide-child branding.
 	 * Enrolment still succeeds when the dashboard classes are not loaded.
+	 * Branding runs only for the id whose MainWP URL is this website.
 	 *
 	 * @param object $site Operational site row.
 	 * @return bool
 	 */
 	public static function apply_hide_child_branding( $site ) {
-		if ( ! $site || empty( $site->mainwp_site_id ) ) {
+		if ( ! $site || empty( $site->mainwp_site_id ) || ! self::current_mainwp_target( $site ) ) {
 			return false;
 		}
 

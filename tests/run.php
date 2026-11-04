@@ -804,6 +804,14 @@ require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connect
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-component-installer.php';
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-whitelabel.php';
 require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp.php';
+$deleted_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 12, null, 'https://customer.example', 0 );
+rw_test( 'a stale row with a deleted MainWP site is created again', 0 === $deleted_mainwp['reuse_id'] && 0 === $deleted_mainwp['blocked_id'] && ! empty( $deleted_mainwp['create'] ) && ! RW_Maint_MainWP::may_operate_on( 12, 'https://customer.example', null ) );
+$mismatched_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 12, 'https://aplenty.co.uk', 'https://customer.example', 0 );
+rw_test( 'a URL mismatch does not reuse or change the other MainWP site', 0 === $mismatched_mainwp['reuse_id'] && 12 === $mismatched_mainwp['blocked_id'] && ! empty( $mismatched_mainwp['create'] ) && ! RW_Maint_MainWP::may_operate_on( 12, 'https://customer.example', 'https://aplenty.co.uk' ) );
+$null_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 0, null, 'https://customer.example', 0 );
+rw_test( 'a null MainWP id creates a site', 0 === $null_mainwp['reuse_id'] && 0 === $null_mainwp['blocked_id'] && ! empty( $null_mainwp['create'] ) );
+$valid_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 12, 'https://customer.example/', 'https://www.customer.example', 0 );
+rw_test( 'a valid existing MainWP row is reused for check and sync', 12 === $valid_mainwp['reuse_id'] && empty( $valid_mainwp['create'] ) && 0 === $valid_mainwp['blocked_id'] && RW_Maint_MainWP::may_operate_on( 12, 'https://www.customer.example', 'https://customer.example/' ) );
 
 $GLOBALS['rw_options']['rw_connector_site_id']     = 9;
 $GLOBALS['rw_options']['rw_connector_site_secret'] = 'connector-site-secret';

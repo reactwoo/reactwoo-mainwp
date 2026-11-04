@@ -182,24 +182,11 @@ class RW_Maint_Site_Snapshot {
 	 * @return array{wordpress_version:?string,update_available:?bool,new_version:?string}
 	 */
 	private static function core( array $sync, array $options, array $website ) {
-		$installed = self::version_string( isset( $sync['version'] ) ? $sync['version'] : null );
-		if ( null === $installed ) {
-			$installed = self::version_string( isset( $sync['wpversion'] ) ? $sync['wpversion'] : null );
-		}
-		if ( null === $installed && isset( $options['wpversion'] ) ) {
-			$installed = self::version_string( $options['wpversion'] );
-		}
+		$installed = self::wordpress_version( $sync, $options, $website );
 
 		$offered     = null;
-		$upgrade_raw = null;
-		$known       = false;
-		if ( array_key_exists( 'wp_upgrades', $options ) ) {
-			$known       = true;
-			$upgrade_raw = $options['wp_upgrades'];
-		} elseif ( array_key_exists( 'wp_upgrades', $website ) ) {
-			$known       = true;
-			$upgrade_raw = $website['wp_upgrades'];
-		}
+		$known       = self::has_key( $website, 'wp_upgrades' ) || self::has_key( $options, 'wp_upgrades' );
+		$upgrade_raw = $known ? self::value_of( $website, $options, 'wp_upgrades' ) : null;
 		if ( $known ) {
 			$upgrade = self::decode_blob( $upgrade_raw );
 			if ( is_array( $upgrade ) ) {
@@ -235,6 +222,38 @@ class RW_Maint_Site_Snapshot {
 			'update_available'  => $available,
 			'new_version'       => $available ? $offered : null,
 		);
+	}
+
+	/**
+	 * WordPress version from the site record. sync.version and site_info.child_version
+	 * are the MainWP Child plugin, not WordPress.
+	 *
+	 * @param array<string,mixed> $sync Sync row.
+	 * @param array<string,mixed> $options Option map.
+	 * @param array<string,mixed> $website Website row.
+	 * @return string|null
+	 */
+	private static function wordpress_version( array $sync, array $options, array $website ) {
+		$candidates = array();
+		foreach ( array( $options, $sync, $website ) as $bag ) {
+			$info = isset( $bag['site_info'] ) ? self::decode_blob( $bag['site_info'] ) : null;
+			if ( is_array( $info ) && isset( $info['wpversion'] ) ) {
+				$candidates[] = $info['wpversion'];
+			}
+		}
+		foreach ( array( $website, $sync, $options ) as $bag ) {
+			if ( isset( $bag['wpversion'] ) ) {
+				$candidates[] = $bag['wpversion'];
+			}
+		}
+		foreach ( $candidates as $candidate ) {
+			$version = self::version_string( $candidate );
+			if ( null !== $version ) {
+				return $version;
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -654,14 +673,7 @@ class RW_Maint_Site_Snapshot {
 				continue;
 			}
 
-			$type = null;
-			if ( false !== strpos( $text, 'theme' ) ) {
-				$type = 'theme';
-			} elseif ( false !== strpos( $text, 'core' ) || false !== strpos( $text, 'wordpress' ) ) {
-				$type = 'core';
-			} elseif ( false !== strpos( $text, 'plugin' ) ) {
-				$type = 'plugin';
-			}
+			$type = self::update_type( $row, is_array( $item ) ? $item : array() );
 
 			$updates[] = array(
 				'name'         => $name,
@@ -685,6 +697,32 @@ class RW_Maint_Site_Snapshot {
 		}
 
 		return array_values( $updates );
+	}
+
+	/**
+	 * Core, plugin, or theme comes from the log context or an explicit type.
+	 * A plugin whose name contains "core" stays a plugin.
+	 *
+	 * @param array<string,mixed> $row Log row.
+	 * @param array<string,mixed> $item Decoded item.
+	 * @return string|null
+	 */
+	private static function update_type( array $row, array $item ) {
+		$context = strtolower( trim( (string) self::first_scalar( $row, array( 'context', 'connector' ) ) ) );
+		$named   = strtolower( trim( (string) self::first_scalar( $item, array( 'type', 'update_type', 'kind' ) ) ) );
+		foreach ( array( $named, $context ) as $value ) {
+			if ( in_array( $value, array( 'plugin', 'plugins' ), true ) ) {
+				return 'plugin';
+			}
+			if ( in_array( $value, array( 'theme', 'themes' ), true ) ) {
+				return 'theme';
+			}
+			if ( in_array( $value, array( 'core', 'wordpress', 'wp_core', 'wpcore' ), true ) ) {
+				return 'core';
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -719,30 +757,26 @@ class RW_Maint_Site_Snapshot {
 			$blob = self::decode_blob( $sync['health_site_status'] );
 		}
 		if ( is_array( $blob ) ) {
-			$named = strtolower( (string) self::first_scalar( $blob, array( 'status', 'site_status' ) ) );
-			if ( 'good' === $named ) {
-				$status = 'good';
-			} elseif ( in_array( $named, array( 'recommended', 'should_be_improved', 'should be improved' ), true ) ) {
-				$status = 'should_be_improved';
-			} elseif ( in_array( $named, array( 'critical', 'error' ), true ) ) {
+			$named       = strtolower( (string) self::first_scalar( $blob, array( 'status', 'site_status' ) ) );
+			$critical    = self::first_count( $blob, array( 'critical' ) );
+			$recommended = self::first_count( $blob, array( 'recommended' ) );
+			$good        = self::first_count( $blob, array( 'good' ) );
+			if ( in_array( $named, array( 'critical', 'error' ), true ) ) {
 				$status = 'critical';
-			} else {
-				$critical    = self::first_count( $blob, array( 'critical' ) );
-				$recommended = self::first_count( $blob, array( 'recommended' ) );
-				$good        = self::first_count( $blob, array( 'good' ) );
-				if ( null !== $critical && $critical > 0 ) {
-					$status = 'critical';
-				} elseif ( null !== $recommended && $recommended > 0 ) {
-					$status = 'should_be_improved';
-				} elseif ( null !== $good && $good > 0 ) {
-					$status = 'good';
-				}
+			} elseif ( 'good' === $named && ( null === $critical || 0 === $critical ) ) {
+				$status = 'good';
+			} elseif ( null !== $critical && $critical > 0 ) {
+				$status = 'needs_attention';
+			} elseif ( in_array( $named, array( 'recommended', 'should_be_improved', 'should be improved' ), true ) || ( null !== $recommended && $recommended > 0 ) ) {
+				$status = 'should_be_improved';
+			} elseif ( 'good' === $named || ( null !== $good && $good > 0 ) ) {
+				$status = 'good';
 			}
 		}
 
 		if ( null === $status && isset( $sync['health_value'] ) && is_numeric( $sync['health_value'] ) && (int) $sync['health_value'] > 0 ) {
 			$score  = (int) $sync['health_value'];
-			$status = $score >= 100 ? 'good' : ( $score >= 80 ? 'should_be_improved' : 'critical' );
+			$status = $score >= 80 ? 'good' : 'should_be_improved';
 		}
 
 		return array( 'status' => $status );
@@ -848,6 +882,10 @@ class RW_Maint_Site_Snapshot {
 	}
 
 	/**
+	 * Last backup comes from a primary backup timestamp or a backup plugin history
+	 * option such as UpdraftPlus. MainWP leaves both empty when no backup method
+	 * is selected, and the site row has no backup history column.
+	 *
 	 * @param array<string,mixed> $website Website row.
 	 * @param array<string,mixed> $options Option map.
 	 * @param array<int,mixed>    $tasks Backup tasks already limited to this site.
@@ -1217,6 +1255,10 @@ class RW_Maint_Site_Snapshot {
 	}
 
 	/**
+	 * MainWP's synced user rows have a login and a role, not a last-login time.
+	 * WordPress core does not record one, so this stays empty unless a plugin
+	 * field such as last_login is actually present.
+	 *
 	 * @param array<string,mixed> $website Website row.
 	 * @param array<string,mixed> $options Option map.
 	 * @return array{time:?string,username:?string}
@@ -1797,14 +1839,40 @@ class RW_Maint_Site_Snapshot {
 	 * @return mixed
 	 */
 	private static function value_of( array $website, array $options, $key ) {
-		if ( array_key_exists( $key, $options ) ) {
+		$has_option = array_key_exists( $key, $options );
+		$has_site   = array_key_exists( $key, $website );
+		if ( $has_site && $has_option && self::list_has_rows( $website[ $key ] ) && ! self::list_has_rows( $options[ $key ] ) ) {
+			return $website[ $key ];
+		}
+		if ( $has_option ) {
 			return $options[ $key ];
 		}
-		if ( array_key_exists( $key, $website ) ) {
+		if ( $has_site ) {
 			return $website[ $key ];
 		}
 
 		return null;
+	}
+
+	/**
+	 * An empty [] copy in the options table is not the site record.
+	 *
+	 * @param mixed $value Raw list.
+	 * @return bool
+	 */
+	private static function list_has_rows( $value ) {
+		if ( null === $value ) {
+			return false;
+		}
+		if ( is_string( $value ) && in_array( trim( $value ), array( '', '[]', '{}', 'a:0:{}' ), true ) ) {
+			return false;
+		}
+		$decoded = self::decode_blob( $value );
+		if ( is_array( $decoded ) ) {
+			return count( $decoded ) > 0;
+		}
+
+		return is_numeric( $value ) || ( is_string( $value ) && '' !== trim( $value ) );
 	}
 
 	/**
@@ -1883,9 +1951,8 @@ class RW_Maint_Site_Snapshot {
 	 * @return int|null
 	 */
 	private static function unix_of( $value ) {
-		if ( is_int( $value ) || ( is_string( $value ) && preg_match( '/^\d+$/', trim( $value ) ) ) ) {
-			$time = (int) $value;
-			return $time > 0 ? $time : null;
+		if ( is_int( $value ) || is_float( $value ) || ( is_string( $value ) && preg_match( '/^\d+$/', trim( $value ) ) ) ) {
+			return self::unix_from_magnitude( $value );
 		}
 		if ( is_string( $value ) && '' !== trim( $value ) ) {
 			$time = strtotime( $value );
@@ -1893,6 +1960,27 @@ class RW_Maint_Site_Snapshot {
 		}
 
 		return null;
+	}
+
+	/**
+	 * MainWP log times are sometimes microseconds. Seconds stay below 1e11,
+	 * milliseconds sit around 1e12, and microseconds sit around 1e15.
+	 *
+	 * @param mixed $value Numeric time.
+	 * @return int|null
+	 */
+	private static function unix_from_magnitude( $value ) {
+		$time = (int) $value;
+		if ( $time <= 0 ) {
+			return null;
+		}
+		if ( $time >= 100000000000000 ) {
+			$time = (int) round( $time / 1000000 );
+		} elseif ( $time >= 100000000000 ) {
+			$time = (int) round( $time / 1000 );
+		}
+
+		return $time > 0 ? $time : null;
 	}
 
 	/**
@@ -1904,7 +1992,18 @@ class RW_Maint_Site_Snapshot {
 	 * @return string|null
 	 */
 	private static function reported_timezone( array $website, array $sync, array $options ) {
+		$bags = array();
 		foreach ( array( $options, $sync, $website ) as $bag ) {
+			$info = isset( $bag['site_info'] ) ? self::decode_blob( $bag['site_info'] ) : null;
+			if ( is_array( $info ) ) {
+				if ( isset( $info['format_datetime'] ) && is_array( $info['format_datetime'] ) ) {
+					$bags[] = $info['format_datetime'];
+				}
+				$bags[] = $info;
+			}
+			$bags[] = $bag;
+		}
+		foreach ( $bags as $bag ) {
 			foreach ( array( 'timezone_string', 'timezone', 'site_timezone' ) as $key ) {
 				if ( empty( $bag[ $key ] ) || ! is_string( $bag[ $key ] ) ) {
 					continue;
@@ -1914,7 +2013,7 @@ class RW_Maint_Site_Snapshot {
 				}
 			}
 		}
-		foreach ( array( $options, $sync, $website ) as $bag ) {
+		foreach ( $bags as $bag ) {
 			if ( ! isset( $bag['gmt_offset'] ) || ! is_numeric( $bag['gmt_offset'] ) ) {
 				continue;
 			}

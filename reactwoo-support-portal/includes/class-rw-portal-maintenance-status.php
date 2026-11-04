@@ -51,7 +51,12 @@ class RW_Portal_Maintenance_Status {
 	 * @return array<string,mixed>
 	 */
 	public static function view_for_site( $site ) {
-		return self::present( self::for_site( $site ) );
+		$payload = self::for_site( $site );
+		if ( is_array( $payload ) && ( ! isset( $payload['timezone'] ) || null === $payload['timezone'] || '' === $payload['timezone'] ) && is_object( $site ) && ! empty( $site->timezone_string ) ) {
+			$payload['timezone'] = (string) $site->timezone_string;
+		}
+
+		return self::present( $payload );
 	}
 
 	/**
@@ -174,7 +179,7 @@ class RW_Portal_Maintenance_Status {
 		}
 
 		$health = isset( $payload['health']['status'] ) ? (string) $payload['health']['status'] : '';
-		if ( 'critical' === $health ) {
+		if ( in_array( $health, array( 'critical', 'needs_attention' ), true ) ) {
 			$lines[] = 'Site health needs attention';
 		} elseif ( 'should_be_improved' === $health ) {
 			$lines[] = 'Site health should be improved';
@@ -398,7 +403,10 @@ class RW_Portal_Maintenance_Status {
 			return self::card( 'health', 'Health', 'Site health', 'unknown', 'Not available yet', 'Health and PHP have not been reported yet.' );
 		}
 		if ( 'critical' === $status ) {
-			return self::card( 'health', 'Health', 'Site health', 'attention', 'Needs attention', 'Site health needs attention.', $items );
+			return self::card( 'health', 'Health', 'Site health', 'attention', 'Critical', 'MainWP reports site health as critical.', $items );
+		}
+		if ( 'needs_attention' === $status ) {
+			return self::card( 'health', 'Health', 'Site health', 'attention', 'Needs attention', 'A few site health checks need attention.', $items );
 		}
 		if ( 'should_be_improved' === $status ) {
 			return self::card( 'health', 'Health', 'Site health', 'attention', 'Should be improved', 'Site health should be improved.', $items );

@@ -266,6 +266,7 @@ class RW_Sites {
 			'connector_version'=> '%s',
 			'wp_version'       => '%s',
 			'php_version'      => '%s',
+			'timezone_string'  => '%s',
 			'last_seen'        => '%s',
 			'last_check_at'    => '%s',
 			'last_sync_at'     => '%s',

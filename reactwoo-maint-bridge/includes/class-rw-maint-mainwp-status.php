@@ -7,8 +7,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Read-only copy of one site's synced MainWP records.
  *
- * Queries are limited to the MainWP id stored for the enrolled site. Backup
- * tasks are kept only when that id is named on the task.
+ * Queries run only when the stored MainWP id still belongs to this site's URL.
+ * Backup tasks are kept only when that id is named on the task.
  */
 class RW_Maint_MainWP_Status {
 	const LOG_LIMIT = 80;
@@ -32,7 +32,7 @@ class RW_Maint_MainWP_Status {
 		$sources['audit'] = self::audit_rows( $portal_site_id );
 
 		$mainwp_id = is_object( $site ) && isset( $site->mainwp_site_id ) ? (int) $site->mainwp_site_id : 0;
-		if ( $mainwp_id <= 0 ) {
+		if ( $mainwp_id <= 0 || ! self::mainwp_url_matches( $site ) ) {
 			return $sources;
 		}
 
@@ -52,6 +52,20 @@ class RW_Maint_MainWP_Status {
 		$sources['backup_tasks'] = self::backup_tasks( $mainwp_id );
 
 		return $sources;
+	}
+
+	/**
+	 * The same guard check and sync use: the stored id must still be this URL.
+	 *
+	 * @param object $site Bridge site row.
+	 * @return bool
+	 */
+	private static function mainwp_url_matches( $site ) {
+		if ( ! is_object( $site ) || empty( $site->site_url ) || ! class_exists( 'RW_Maint_MainWP' ) ) {
+			return false;
+		}
+
+		return RW_Maint_MainWP::current_mainwp_target( $site );
 	}
 
 	/**

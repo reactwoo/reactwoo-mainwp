@@ -2257,6 +2257,79 @@ rw_test(
 );
 rw_test( 'the site zone wins over the WordPress zone', false !== strpos( $site_zone['login']['when'], 'EST' ) );
 
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp-status.php';
+
+class RW_Status_Url_Wpdb {
+	public $prefix = 'wp_';
+	public $last_error = '';
+	public $queries = array();
+	public $sites = array();
+
+	public function prepare( $query, ...$args ) {
+		$index = 0;
+		return preg_replace_callback(
+			'/%[sd]/',
+			function ( $match ) use ( &$index, $args ) {
+				$value = $args[ $index ];
+				$index++;
+				if ( '%d' === $match[0] ) {
+					return (string) (int) $value;
+				}
+				return "'" . str_replace( "'", "''", (string) $value ) . "'";
+			},
+			$query
+		);
+	}
+
+	public function get_row( $sql ) {
+		$this->queries[] = $sql;
+		if ( preg_match( '/FROM wp_mainwp_wp WHERE id = (\d+)/', $sql, $match ) ) {
+			$id = (int) $match[1];
+			return isset( $this->sites[ $id ] ) ? $this->sites[ $id ] : null;
+		}
+		return null;
+	}
+
+	public function get_var( $sql ) {
+		$this->queries[] = $sql;
+		return null;
+	}
+
+	public function get_results( $sql ) {
+		$this->queries[] = $sql;
+		return array();
+	}
+}
+
+$saved_wpdb = isset( $GLOBALS['wpdb'] ) ? $GLOBALS['wpdb'] : null;
+$url_wpdb   = new RW_Status_Url_Wpdb();
+$url_wpdb->sites[12] = (object) array(
+	'id'  => 12,
+	'url' => 'https://other.example',
+);
+$GLOBALS['wpdb'] = $url_wpdb;
+$guard_site = (object) array(
+	'portal_site_id' => 7,
+	'mainwp_site_id' => 12,
+	'site_url'       => 'https://shop.example',
+);
+$blocked_sources = RW_Maint_MainWP_Status::collect( $guard_site );
+$blocked_sql = implode( "\n", $url_wpdb->queries );
+$url_wpdb->queries = array();
+$url_wpdb->sites[12]->url = 'https://shop.example/';
+$allowed_sources = RW_Maint_MainWP_Status::collect( $guard_site );
+$allowed_sql = implode( "\n", $url_wpdb->queries );
+$GLOBALS['wpdb'] = $saved_wpdb;
+rw_test(
+	'status does not read a MainWP site whose URL does not match',
+	array() === $blocked_sources['website']
+		&& array() === $blocked_sources['options']
+		&& array() === $blocked_sources['logs']
+		&& false === strpos( $blocked_sql, 'SELECT *' )
+		&& false === strpos( $blocked_sql, 'mainwp_wp_options' )
+		&& false !== strpos( $allowed_sql, 'SHOW TABLES' )
+);
+
 $index_blocks = array(
 	array(
 		'view' => array(

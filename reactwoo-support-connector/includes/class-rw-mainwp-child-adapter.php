@@ -82,18 +82,28 @@ class RW_MainWP_Child_Adapter {
 		return '1' === $value || 'true' === $value;
 	}
 
+	/**
+	 * A live foreign link is an installed, active Child with a dashboard public key.
+	 * Options left behind after Child was removed or deactivated are not a link.
+	 *
+	 * @return bool
+	 */
 	public static function has_existing_link() {
+		if ( ! self::is_installed() || ! self::is_active() ) {
+			return false;
+		}
+
 		$pubkey = get_option( self::PUBKEY_OPTION );
 		return is_string( $pubkey ) && '' !== trim( $pubkey );
 	}
 
 	/**
-	 * Drop the previous dashboard link and point Child at ReactWoo.
+	 * Options that tie Child to a dashboard. The unique security ID is kept.
 	 *
-	 * @return string Dashboard URL that was stored.
+	 * @return string[]
 	 */
-	public static function rekey_to_reactwoo() {
-		$options = array(
+	public static function link_options() {
+		return array(
 			self::PUBKEY_OPTION,
 			self::SITE_ID_OPTION,
 			'mainwp_child_nonce',
@@ -102,7 +112,58 @@ class RW_MainWP_Child_Adapter {
 			'mainwp_child_openssl_sign_algo',
 			self::SERVER_OPTION,
 		);
-		foreach ( $options as $option ) {
+	}
+
+	/**
+	 * Back up and remove a dashboard link left behind when Child is not installed or not active.
+	 * An active Child is left unchanged so a real foreign connection still blocks setup.
+	 *
+	 * @return bool True when at least one option was saved and removed.
+	 */
+	public static function backup_and_clear_inactive_link() {
+		if ( self::is_installed() && self::is_active() ) {
+			return false;
+		}
+
+		$missing = new stdClass();
+		$saved   = array();
+		foreach ( self::link_options() as $option ) {
+			$value = get_option( $option, $missing );
+			if ( $missing === $value || null === $value || false === $value ) {
+				continue;
+			}
+			if ( is_string( $value ) && '' === trim( $value ) ) {
+				delete_option( $option );
+				continue;
+			}
+
+			$saved[ $option ] = $value;
+			delete_option( $option );
+		}
+
+		if ( ! $saved ) {
+			return false;
+		}
+
+		update_option(
+			'rw_connector_child_link_backup',
+			array(
+				'backed_up_at' => gmdate( 'c' ),
+				'options'      => $saved,
+			),
+			false
+		);
+
+		return true;
+	}
+
+	/**
+	 * Drop the previous dashboard link and point Child at ReactWoo.
+	 *
+	 * @return string Dashboard URL that was stored.
+	 */
+	public static function rekey_to_reactwoo() {
+		foreach ( self::link_options() as $option ) {
 			delete_option( $option );
 		}
 
@@ -115,11 +176,33 @@ class RW_MainWP_Child_Adapter {
 		return self::DASHBOARD_URL;
 	}
 
-	public static function is_active() {
-		if ( ! function_exists( 'is_plugin_active' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	/**
+	 * Child's main file is on disk. A stale active_plugins row does not count.
+	 *
+	 * @return bool
+	 */
+	public static function is_installed() {
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_string( WP_PLUGIN_DIR ) && '' !== WP_PLUGIN_DIR ) {
+			return is_file( trailingslashit( WP_PLUGIN_DIR ) . self::PLUGIN_FILE );
 		}
 
-		return is_plugin_active( self::PLUGIN_FILE );
+		if ( ! function_exists( 'get_plugins' ) ) {
+			return false;
+		}
+
+		$plugins = get_plugins();
+		return is_array( $plugins ) && isset( $plugins[ self::PLUGIN_FILE ] );
+	}
+
+	public static function is_active() {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			$plugin_api = defined( 'ABSPATH' ) ? ABSPATH . 'wp-admin/includes/plugin.php' : '';
+			if ( '' === $plugin_api || ! is_readable( $plugin_api ) ) {
+				return false;
+			}
+			require_once $plugin_api;
+		}
+
+		return function_exists( 'is_plugin_active' ) && is_plugin_active( self::PLUGIN_FILE );
 	}
 }

@@ -180,7 +180,11 @@ class RW_Component_Installer {
 		$file    = $catalog[ $slug ]['plugin_file'];
 		self::load_plugin_api();
 
-		if ( function_exists( 'is_plugin_active' ) && is_plugin_active( $file ) ) {
+		if ( 'mainwp-child' === $slug && class_exists( 'RW_MainWP_Child_Adapter' ) ) {
+			RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
+		}
+
+		if ( function_exists( 'is_plugin_active' ) && is_plugin_active( $file ) && self::plugin_file_exists( $file ) ) {
 			return array(
 				'status'  => 'active',
 				'version' => self::plugin_version( $file ),
@@ -491,6 +495,14 @@ class RW_Component_Installer {
 
 		$data = get_file_data( $path, array( 'Version' => 'Version' ) );
 		return isset( $data['Version'] ) ? (string) $data['Version'] : '';
+	}
+
+	private static function plugin_file_exists( $file ) {
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_string( WP_PLUGIN_DIR ) && '' !== WP_PLUGIN_DIR ) {
+			return is_file( trailingslashit( WP_PLUGIN_DIR ) . ltrim( (string) $file, '/' ) );
+		}
+
+		return self::plugin_installed( $file );
 	}
 
 	private static function plugin_installed( $file ) {

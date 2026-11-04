@@ -145,6 +145,8 @@ class RW_Connector_Bootstrap {
 			);
 		}
 
+		RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
+
 		$confirm_body = array(
 			'challenge' => $challenge,
 			'site_url'  => home_url(),

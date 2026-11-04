@@ -804,6 +804,14 @@ require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connect
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-component-installer.php';
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-whitelabel.php';
 require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp.php';
+$deleted_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 12, null, 'https://customer.example', 0 );
+rw_test( 'a stale row with a deleted MainWP site is created again', 0 === $deleted_mainwp['reuse_id'] && 0 === $deleted_mainwp['blocked_id'] && ! empty( $deleted_mainwp['create'] ) && ! RW_Maint_MainWP::may_operate_on( 12, 'https://customer.example', null ) );
+$mismatched_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 12, 'https://aplenty.co.uk', 'https://customer.example', 0 );
+rw_test( 'a URL mismatch does not reuse or change the other MainWP site', 0 === $mismatched_mainwp['reuse_id'] && 12 === $mismatched_mainwp['blocked_id'] && ! empty( $mismatched_mainwp['create'] ) && ! RW_Maint_MainWP::may_operate_on( 12, 'https://customer.example', 'https://aplenty.co.uk' ) );
+$null_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 0, null, 'https://customer.example', 0 );
+rw_test( 'a null MainWP id creates a site', 0 === $null_mainwp['reuse_id'] && 0 === $null_mainwp['blocked_id'] && ! empty( $null_mainwp['create'] ) );
+$valid_mainwp = RW_Maint_MainWP::resolve_reenroll_target( 12, 'https://customer.example/', 'https://www.customer.example', 0 );
+rw_test( 'a valid existing MainWP row is reused for check and sync', 12 === $valid_mainwp['reuse_id'] && empty( $valid_mainwp['create'] ) && 0 === $valid_mainwp['blocked_id'] && RW_Maint_MainWP::may_operate_on( 12, 'https://www.customer.example', 'https://customer.example/' ) );
 
 $GLOBALS['rw_options']['rw_connector_site_id']     = 9;
 $GLOBALS['rw_options']['rw_connector_site_secret'] = 'connector-site-secret';
@@ -1162,16 +1170,151 @@ rw_test(
 	false !== strpos( $orchestrator_src, "'rw_existing_maintenance_connection' === \$bootstrap->get_error_code() ? 'existing_connection' : 'bootstrap_failed'" )
 		&& false !== strpos( $orchestrator_src, "'existing_connection' === \$code ? RW_Connection_State::ACTION_REQUIRED : RW_Connection_State::FAILED" )
 );
+$connected_site = (object) array(
+	'status'                     => 'connected',
+	'connection_state'           => 'connected',
+	'connection_error_code'      => '',
+	'connection_error_message'   => '',
+);
+$reconnect_fail = RW_Connection_Orchestrator::outcome_for_attempt( $connected_site, RW_Connection_State::FAILED, 'bootstrap_failed', 'ReactWoo could not finish the secure connection.' );
+$reconnect_foreign = RW_Connection_Orchestrator::outcome_for_attempt( $connected_site, RW_Connection_State::ACTION_REQUIRED, 'existing_connection', 'This website already has an existing maintenance connection.' );
+$first_attempt = (object) array(
+	'status'           => 'pending',
+	'connection_state' => 'bootstrapping',
+);
+$first_fail = RW_Connection_Orchestrator::outcome_for_attempt( $first_attempt, RW_Connection_State::FAILED, 'bootstrap_failed', 'ReactWoo could not finish the secure connection.' );
+rw_test(
+	'a failed reconnect keeps the record connected',
+	! $reconnect_fail['downgraded']
+		&& 'connected' === $reconnect_fail['status']
+		&& 'connected' === $reconnect_fail['connection_state']
+		&& '' === $reconnect_fail['connection_error_code']
+		&& 'failed' === $reconnect_fail['attempt_status']
+		&& 'bootstrap_failed' === $reconnect_fail['attempt_error_code']
+		&& false !== strpos( $reconnect_fail['attempt_error_message'], 'could not finish' )
+		&& 'connected' === $reconnect_foreign['status']
+		&& 'connected' === $reconnect_foreign['connection_state']
+		&& '' === $reconnect_foreign['connection_error_code']
+		&& 'action_required' === $reconnect_foreign['attempt_status']
+		&& 'existing_connection' === $reconnect_foreign['attempt_error_code']
+		&& $first_fail['downgraded']
+		&& 'failed' === $first_fail['connection_state']
+		&& 'bootstrap_failed' === $first_fail['connection_error_code']
+);
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-mainwp-child-adapter.php';
 rw_test( 'takeover stays off unless it is explicit', ! RW_Connection_Orchestrator::is_explicit_takeover( null ) && ! RW_Connection_Orchestrator::is_explicit_takeover( false ) && ! RW_Connection_Orchestrator::is_explicit_takeover( 'yes' ) && ! RW_Connection_Orchestrator::is_explicit_takeover( '0' ) && RW_Connection_Orchestrator::is_explicit_takeover( '1' ) && RW_Connection_Orchestrator::is_explicit_takeover( true ) && RW_MainWP_Child_Adapter::is_explicit_takeover( 'true' ) );
 update_option( RW_Connection_Orchestrator::takeover_option_key( 44 ), '1', false );
 rw_test( 'the portal authorises takeover only when the attempt was marked', true === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 45, '1' ) );
 
 require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector.php';
+if ( ! function_exists( 'is_plugin_active' ) ) {
+	function is_plugin_active( $plugin ) {
+		$active = isset( $GLOBALS['rw_active_plugins'] ) ? $GLOBALS['rw_active_plugins'] : array();
+		return in_array( (string) $plugin, (array) $active, true );
+	}
+}
+if ( ! defined( 'WP_PLUGIN_DIR' ) ) {
+	define( 'WP_PLUGIN_DIR', sys_get_temp_dir() . '/rw-child-plugins-' . getmypid() );
+}
+$child_plugin_file = WP_PLUGIN_DIR . '/mainwp-child/mainwp-child.php';
+$GLOBALS['rw_active_plugins'] = array( 'mainwp-child/mainwp-child.php' );
 update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
 update_option( 'mainwp_child_siteid', 12, false );
-rw_test( 'a stored child public key is an existing link', RW_MainWP_Child_Adapter::has_existing_link() );
+delete_option( 'rw_connector_child_link_backup' );
+$absent_linked  = RW_MainWP_Child_Adapter::has_existing_link();
+$absent_cleared = RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
+$absent_backup  = get_option( 'rw_connector_child_link_backup' );
+rw_test(
+	'leftover options with Child absent are not a live link',
+	! is_file( $child_plugin_file )
+		&& ! $absent_linked
+		&& $absent_cleared
+		&& false === get_option( 'mainwp_child_pubkey' )
+		&& false === get_option( 'mainwp_child_siteid' )
+		&& is_array( $absent_backup )
+		&& 'dashboard-key' === $absent_backup['options']['mainwp_child_pubkey']
+);
+if ( ! is_dir( dirname( $child_plugin_file ) ) ) {
+	mkdir( dirname( $child_plugin_file ), 0777, true );
+}
+file_put_contents( $child_plugin_file, "<?php\n" );
+$GLOBALS['rw_active_plugins'] = array();
+update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
+update_option( 'mainwp_child_siteid', 12, false );
+delete_option( 'rw_connector_child_link_backup' );
+$inactive_linked  = RW_MainWP_Child_Adapter::has_existing_link();
+$inactive_cleared = RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
+rw_test(
+	'leftover options with Child inactive are not a live link',
+	RW_MainWP_Child_Adapter::is_installed()
+		&& ! RW_MainWP_Child_Adapter::is_active()
+		&& ! $inactive_linked
+		&& $inactive_cleared
+		&& false === get_option( 'mainwp_child_pubkey' )
+		&& 'dashboard-key' === get_option( 'rw_connector_child_link_backup' )['options']['mainwp_child_pubkey']
+);
+$GLOBALS['rw_active_plugins'] = array( 'mainwp-child/mainwp-child.php' );
+update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
+update_option( 'mainwp_child_siteid', 12, false );
+rw_test(
+	'an active child with a public key still blocks',
+	RW_MainWP_Child_Adapter::is_installed()
+		&& RW_MainWP_Child_Adapter::is_active()
+		&& RW_MainWP_Child_Adapter::has_existing_link()
+		&& ! RW_MainWP_Child_Adapter::backup_and_clear_inactive_link()
+		&& 'dashboard-key' === get_option( 'mainwp_child_pubkey' )
+		&& 12 === (int) get_option( 'mainwp_child_siteid' )
+);
+delete_option( 'rw_connector_mainwp_site_id' );
+delete_option( 'mainwp_child_server' );
+update_option( 'mainwp_child_server', 'https://maint.reactwoo.com/', false );
+$own_by_server = RW_MainWP_Child_Adapter::is_own_dashboard_link() && ! RW_MainWP_Child_Adapter::blocks_bootstrap();
+delete_option( 'mainwp_child_server' );
+update_option( 'rw_connector_mainwp_site_id', 12, false );
+$own_by_id = RW_MainWP_Child_Adapter::is_own_dashboard_link() && ! RW_MainWP_Child_Adapter::has_existing_link() && ! RW_MainWP_Child_Adapter::blocks_bootstrap();
+$bootstrap_src = file_get_contents( __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector-bootstrap.php' );
+rw_test(
+	'own-dashboard re-enrolment proceeds',
+	$own_by_server
+		&& $own_by_id
+		&& false !== strpos( $bootstrap_src, 'is_own_dashboard_link' )
+		&& false !== strpos( $bootstrap_src, 'blocks_bootstrap' )
+);
+delete_option( 'rw_connector_mainwp_site_id' );
+update_option( 'mainwp_child_siteid', 12, false );
+update_option( 'mainwp_child_server', 'https://maint.reactwoo.com/wp-admin/', false );
+$stored_before_admin_path = (int) get_option( 'rw_connector_mainwp_site_id', 0 );
+$wp_admin_server = RW_MainWP_Child_Adapter::is_own_dashboard_link() && ! RW_MainWP_Child_Adapter::blocks_bootstrap();
+rw_test(
+	'a Child server stored with /wp-admin/ is our dashboard',
+	0 === $stored_before_admin_path
+		&& $wp_admin_server
+		&& 12 === (int) get_option( 'rw_connector_mainwp_site_id' )
+);
+delete_option( 'rw_connector_mainwp_site_id' );
+update_option( 'mainwp_child_server', 'HTTP://Maint.ReactWoo.com/wp-admin/', false );
+$missing_stored_id = 0 === (int) get_option( 'rw_connector_mainwp_site_id', 0 );
+$reenrol_without_stored_id = $missing_stored_id && RW_MainWP_Child_Adapter::is_own_dashboard_link() && ! RW_MainWP_Child_Adapter::blocks_bootstrap();
+rw_test(
+	'a site missing the stored MainWP id still re-enrols from the dashboard host',
+	$reenrol_without_stored_id && 12 === RW_MainWP_Child_Adapter::stored_mainwp_site_id()
+);
+update_option( 'mainwp_child_server', 'https://other-dashboard.example', false );
+update_option( 'mainwp_child_siteid', 12, false );
+update_option( 'rw_connector_mainwp_site_id', 99, false );
+rw_test(
+	'a foreign dashboard is blocked',
+	! RW_MainWP_Child_Adapter::is_own_dashboard_link()
+		&& RW_MainWP_Child_Adapter::has_existing_link()
+		&& RW_MainWP_Child_Adapter::blocks_bootstrap()
+		&& 'dashboard-key' === get_option( 'mainwp_child_pubkey' )
+);
+delete_option( 'mainwp_child_server' );
+delete_option( 'rw_connector_mainwp_site_id' );
+update_option( 'mainwp_child_siteid', 12, false );
 rw_test( 'takeover re-keys the child to the ReactWoo dashboard', 'https://maint.reactwoo.com' === RW_MainWP_Child_Adapter::rekey_to_reactwoo() && ! RW_MainWP_Child_Adapter::has_existing_link() && false === get_option( 'mainwp_child_siteid' ) && 'https://maint.reactwoo.com' === get_option( 'mainwp_child_server' ) );
+$installer_src = file_get_contents( __DIR__ . '/../reactwoo-support-connector/includes/class-rw-component-installer.php' );
+rw_test( 'a fresh child install clears leftover link options first', false !== strpos( $installer_src, 'backup_and_clear_inactive_link' ) && false !== strpos( $installer_src, 'plugin_file_exists' ) );
 update_option( 'rw_connector_site_id', 9, false );
 update_option( 'rw_connector_site_secret', 'leftover-secret', false );
 update_option( 'rw_connector_connected_at', '2026-01-01 00:00:00', false );

@@ -136,13 +136,20 @@ class RW_Connector_Bootstrap {
 		}
 
 		$takeover_requested = RW_MainWP_Child_Adapter::is_explicit_takeover( $request->get_param( 'takeover' ) );
-		if ( RW_MainWP_Child_Adapter::has_existing_link() && ! $takeover_requested ) {
+		$own_dashboard      = RW_MainWP_Child_Adapter::is_own_dashboard_link();
+		if ( ! $own_dashboard && RW_MainWP_Child_Adapter::blocks_bootstrap( $takeover_requested ) ) {
 			RW_Connector::clear_enrolment();
 			return new WP_Error(
 				'rw_existing_maintenance_connection',
 				'This website already has an existing maintenance connection.',
 				array( 'status' => 409 )
 			);
+		}
+
+		if ( $own_dashboard ) {
+			RW_MainWP_Child_Adapter::remember_mainwp_site_id( RW_MainWP_Child_Adapter::child_site_id() );
+		} else {
+			RW_MainWP_Child_Adapter::backup_and_clear_inactive_link();
 		}
 
 		$confirm_body = array(
@@ -177,7 +184,7 @@ class RW_Connector_Bootstrap {
 			return new WP_Error( 'rw_connector_portal_rejected', 'ReactWoo could not confirm this connection.', array( 'status' => 409 ) );
 		}
 
-		if ( RW_MainWP_Child_Adapter::has_existing_link() ) {
+		if ( ! $own_dashboard && RW_MainWP_Child_Adapter::has_existing_link() ) {
 			if ( ! RW_MainWP_Child_Adapter::is_explicit_takeover( isset( $body['takeover'] ) ? $body['takeover'] : false ) ) {
 				RW_Connector::clear_enrolment();
 				return new WP_Error(

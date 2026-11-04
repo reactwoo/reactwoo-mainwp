@@ -10,6 +10,7 @@ class RW_MainWP_Child_Adapter {
 	const PUBKEY_OPTION = 'mainwp_child_pubkey';
 	const SERVER_OPTION = 'mainwp_child_server';
 	const SITE_ID_OPTION = 'mainwp_child_siteid';
+	const MAINWP_SITE_OPTION = 'rw_connector_mainwp_site_id';
 	const DASHBOARD_URL = 'https://maint.reactwoo.com';
 
 	/**
@@ -82,18 +83,145 @@ class RW_MainWP_Child_Adapter {
 		return '1' === $value || 'true' === $value;
 	}
 
+	/**
+	 * A foreign link is an installed, active Child whose public key belongs to
+	 * another dashboard. Our own maint.reactwoo.com link is a re-enrolment.
+	 *
+	 * @return bool
+	 */
 	public static function has_existing_link() {
+		if ( ! self::active_child_has_pubkey() ) {
+			return false;
+		}
+
+		return ! self::is_own_dashboard_link();
+	}
+
+	/**
+	 * True when this active Child is already linked to the ReactWoo dashboard.
+	 * The Child server host is compared without scheme or path, so MainWP's
+	 * stored https://maint.reactwoo.com/wp-admin/ still matches. A host match
+	 * saves mainwp_child_siteid for sites linked before that id was stored.
+	 * A matching saved site id is also ours.
+	 *
+	 * @return bool
+	 */
+	public static function is_own_dashboard_link() {
+		if ( ! self::active_child_has_pubkey() ) {
+			return false;
+		}
+
+		if ( self::server_is_reactwoo() ) {
+			self::remember_mainwp_site_id( self::child_site_id() );
+			return true;
+		}
+
+		$child_id  = self::child_site_id();
+		$stored_id = self::stored_mainwp_site_id();
+
+		return $child_id > 0 && $stored_id > 0 && $child_id === $stored_id;
+	}
+
+	/**
+	 * Bootstrap stops only for a foreign active link, and only without takeover.
+	 *
+	 * @param mixed $takeover Requested takeover flag.
+	 * @return bool
+	 */
+	public static function blocks_bootstrap( $takeover = false ) {
+		if ( self::is_own_dashboard_link() || ! self::has_existing_link() ) {
+			return false;
+		}
+
+		return ! self::is_explicit_takeover( $takeover );
+	}
+
+	/**
+	 * @return bool
+	 */
+	private static function active_child_has_pubkey() {
+		if ( ! self::is_installed() || ! self::is_active() ) {
+			return false;
+		}
+
 		$pubkey = get_option( self::PUBKEY_OPTION );
 		return is_string( $pubkey ) && '' !== trim( $pubkey );
 	}
 
+	public static function child_site_id() {
+		return (int) get_option( self::SITE_ID_OPTION, 0 );
+	}
+
+	public static function stored_mainwp_site_id() {
+		return (int) get_option( self::MAINWP_SITE_OPTION, 0 );
+	}
+
 	/**
-	 * Drop the previous dashboard link and point Child at ReactWoo.
-	 *
-	 * @return string Dashboard URL that was stored.
+	 * @param int $mainwp_site_id MainWP site id from our dashboard.
 	 */
-	public static function rekey_to_reactwoo() {
-		$options = array(
+	public static function remember_mainwp_site_id( $mainwp_site_id ) {
+		$mainwp_site_id = (int) $mainwp_site_id;
+		if ( $mainwp_site_id <= 0 ) {
+			return;
+		}
+
+		update_option( self::MAINWP_SITE_OPTION, $mainwp_site_id, false );
+	}
+
+	/**
+	 * @return string Dashboard URL stored by Child, decrypted when Child can.
+	 */
+	public static function child_server_url() {
+		$value = '';
+		if ( class_exists( '\MainWP\Child\MainWP_Child_Keys_Manager' ) && method_exists( '\MainWP\Child\MainWP_Child_Keys_Manager', 'get_encrypted_option' ) ) {
+			$value = \MainWP\Child\MainWP_Child_Keys_Manager::get_encrypted_option( self::SERVER_OPTION, '' );
+		} else {
+			$value = get_option( self::SERVER_OPTION, '' );
+		}
+
+		return is_string( $value ) ? trim( $value ) : '';
+	}
+
+	/**
+	 * Scheme and path are ignored. MainWP stores the dashboard as
+	 * https://maint.reactwoo.com/wp-admin/.
+	 *
+	 * @return bool
+	 */
+	public static function server_is_reactwoo() {
+		$server = self::dashboard_host( self::child_server_url() );
+		$ours   = self::dashboard_host( self::DASHBOARD_URL );
+
+		return '' !== $server && $server === $ours;
+	}
+
+	/**
+	 * Host only, lower-case, without a leading www.
+	 *
+	 * @param string $url Site or dashboard URL.
+	 * @return string
+	 */
+	private static function dashboard_host( $url ) {
+		$parts = wp_parse_url( trim( (string) $url ) );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) $parts['host'] );
+		if ( 0 === strpos( $host, 'www.' ) ) {
+			$host = substr( $host, 4 );
+		}
+
+		return $host;
+	}
+
+	/**
+	 * Options that tie Child to a dashboard. The unique security ID is kept.
+	 *
+	 * @return string[]
+	 */
+	public static function link_options() {
+		return array(
 			self::PUBKEY_OPTION,
 			self::SITE_ID_OPTION,
 			'mainwp_child_nonce',
@@ -102,7 +230,58 @@ class RW_MainWP_Child_Adapter {
 			'mainwp_child_openssl_sign_algo',
 			self::SERVER_OPTION,
 		);
-		foreach ( $options as $option ) {
+	}
+
+	/**
+	 * Back up and remove a dashboard link left behind when Child is not installed or not active.
+	 * An active Child is left unchanged so a real foreign connection still blocks setup.
+	 *
+	 * @return bool True when at least one option was saved and removed.
+	 */
+	public static function backup_and_clear_inactive_link() {
+		if ( self::is_installed() && self::is_active() ) {
+			return false;
+		}
+
+		$missing = new stdClass();
+		$saved   = array();
+		foreach ( self::link_options() as $option ) {
+			$value = get_option( $option, $missing );
+			if ( $missing === $value || null === $value || false === $value ) {
+				continue;
+			}
+			if ( is_string( $value ) && '' === trim( $value ) ) {
+				delete_option( $option );
+				continue;
+			}
+
+			$saved[ $option ] = $value;
+			delete_option( $option );
+		}
+
+		if ( ! $saved ) {
+			return false;
+		}
+
+		update_option(
+			'rw_connector_child_link_backup',
+			array(
+				'backed_up_at' => gmdate( 'c' ),
+				'options'      => $saved,
+			),
+			false
+		);
+
+		return true;
+	}
+
+	/**
+	 * Drop the previous dashboard link and point Child at ReactWoo.
+	 *
+	 * @return string Dashboard URL that was stored.
+	 */
+	public static function rekey_to_reactwoo() {
+		foreach ( self::link_options() as $option ) {
 			delete_option( $option );
 		}
 
@@ -115,11 +294,33 @@ class RW_MainWP_Child_Adapter {
 		return self::DASHBOARD_URL;
 	}
 
-	public static function is_active() {
-		if ( ! function_exists( 'is_plugin_active' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	/**
+	 * Child's main file is on disk. A stale active_plugins row does not count.
+	 *
+	 * @return bool
+	 */
+	public static function is_installed() {
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_string( WP_PLUGIN_DIR ) && '' !== WP_PLUGIN_DIR ) {
+			return is_file( trailingslashit( WP_PLUGIN_DIR ) . self::PLUGIN_FILE );
 		}
 
-		return is_plugin_active( self::PLUGIN_FILE );
+		if ( ! function_exists( 'get_plugins' ) ) {
+			return false;
+		}
+
+		$plugins = get_plugins();
+		return is_array( $plugins ) && isset( $plugins[ self::PLUGIN_FILE ] );
+	}
+
+	public static function is_active() {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			$plugin_api = defined( 'ABSPATH' ) ? ABSPATH . 'wp-admin/includes/plugin.php' : '';
+			if ( '' === $plugin_api || ! is_readable( $plugin_api ) ) {
+				return false;
+			}
+			require_once $plugin_api;
+		}
+
+		return function_exists( 'is_plugin_active' ) && is_plugin_active( self::PLUGIN_FILE );
 	}
 }

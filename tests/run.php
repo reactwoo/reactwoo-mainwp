@@ -3068,6 +3068,20 @@ rw_test(
 );
 RW_Maint_MainWP_Clients::use_directory( null );
 
+$bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
+rw_test(
+	'bridge version is 0.3.5',
+	false !== strpos( $bridge_php, 'Version: 0.3.5' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.5' )" )
+);
+$hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
+$hardening_output = array();
+$hardening_status = 0;
+exec( $hardening_cmd, $hardening_output, $hardening_status );
+foreach ( $hardening_output as $hardening_line ) {
+	echo $hardening_line . "\n";
+}
+rw_test( 'audit log failures and a missing table are reported without SHOW TABLES on every request', 0 === $hardening_status );
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

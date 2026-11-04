@@ -19,6 +19,66 @@ class RW_Maint_MainWP_Client {
 		add_action( 'rw_maint_mainwp_purge_site', array( __CLASS__, 'purge_site' ), 10, 1 );
 	}
 
+	/**
+	 * Row from mainwp_wp, or null when that id is gone.
+	 *
+	 * @param int $mainwp_site_id MainWP site id.
+	 * @return object|null
+	 */
+	public static function lookup_mainwp_site( $mainwp_site_id ) {
+		global $wpdb;
+
+		$mainwp_site_id = (int) $mainwp_site_id;
+		if ( $mainwp_site_id <= 0 || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_row' ) ) {
+			return null;
+		}
+
+		$table = $wpdb->prefix . 'mainwp_wp';
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT id, url FROM {$table} WHERE id = %d", $mainwp_site_id ) );
+		if ( ! is_object( $row ) || empty( $row->id ) ) {
+			return null;
+		}
+
+		return $row;
+	}
+
+	/**
+	 * MainWP id whose stored URL is this website, or 0.
+	 *
+	 * @param string $site_url Enrolling URL.
+	 * @return int
+	 */
+	public static function lookup_mainwp_id_for_url( $site_url ) {
+		global $wpdb;
+
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_results' ) ) {
+			return 0;
+		}
+
+		$host = wp_parse_url( (string) $site_url, PHP_URL_HOST );
+		if ( ! is_string( $host ) || '' === $host ) {
+			return 0;
+		}
+
+		$table = $wpdb->prefix . 'mainwp_wp';
+		$like  = '%' . $wpdb->esc_like( $host ) . '%';
+		$rows  = $wpdb->get_results( $wpdb->prepare( "SELECT id, url FROM {$table} WHERE url LIKE %s", $like ) );
+		if ( ! is_array( $rows ) ) {
+			return 0;
+		}
+
+		foreach ( $rows as $row ) {
+			if ( ! is_object( $row ) || empty( $row->id ) || empty( $row->url ) ) {
+				continue;
+			}
+			if ( RW_Maint_MainWP::urls_match( $row->url, $site_url ) ) {
+				return (int) $row->id;
+			}
+		}
+
+		return 0;
+	}
+
 	public static function create_site( $existing_id, $site, $payload = array(), $groups = array() ) {
 		if ( $existing_id ) {
 			return $existing_id;
@@ -138,10 +198,18 @@ class RW_Maint_MainWP_Client {
 	}
 
 	public static function check_site( $site ) {
+		if ( ! RW_Maint_MainWP::current_mainwp_target( $site ) ) {
+			return new WP_Error( 'rw_mainwp_stale_site', 'The saved maintenance site is not the website being checked.' );
+		}
+
 		return self::send_lifecycle_action( $site, 'check' );
 	}
 
 	public static function sync_site( $site ) {
+		if ( ! RW_Maint_MainWP::current_mainwp_target( $site ) ) {
+			return new WP_Error( 'rw_mainwp_stale_site', 'The saved maintenance site is not the website being synced.' );
+		}
+
 		return self::send_lifecycle_action( $site, 'sync' );
 	}
 

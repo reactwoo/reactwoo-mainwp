@@ -154,10 +154,20 @@ class RW_Maint_Rest_Controller {
 
 		$existing = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
 		if ( $existing ) {
+			$stored_id  = ! empty( $existing->mainwp_site_id ) ? (int) $existing->mainwp_site_id : 0;
+			$record     = $stored_id ? RW_Maint_MainWP_Client::lookup_mainwp_site( $stored_id ) : null;
+			$record_url = ( $record && isset( $record->url ) ) ? (string) $record->url : null;
+			$match_id   = RW_Maint_MainWP_Client::lookup_mainwp_id_for_url( $site_url );
+			$target     = RW_Maint_MainWP::resolve_reenroll_target( $stored_id, $record_url, $site_url, $match_id );
+			$reuse_id   = ( ! empty( $target['reuse_id'] ) && (int) $target['reuse_id'] !== (int) $target['blocked_id'] ) ? (int) $target['reuse_id'] : 0;
+
 			RW_Maint_Sites::update_site(
 				(int) $existing->id,
 				array(
 					'status'          => 'active',
+					'site_url'        => $site_url,
+					'subscription_id' => $subscription_id,
+					'mainwp_site_id'  => $reuse_id,
 					'client_name'     => isset( $client['client_name'] ) ? sanitize_text_field( $client['client_name'] ) : $existing->client_name,
 					'client_email'    => isset( $client['client_email'] ) ? sanitize_email( $client['client_email'] ) : $existing->client_email,
 					'client_company'  => isset( $client['client_company'] ) ? sanitize_text_field( $client['client_company'] ) : $existing->client_company,

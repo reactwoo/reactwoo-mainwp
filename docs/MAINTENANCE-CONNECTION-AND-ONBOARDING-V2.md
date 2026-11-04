@@ -791,12 +791,13 @@ Do not commit production secrets.
 2. verify nonce/timestamp;
 3. verify idempotency key;
 4. resolve existing record by `portal_site_id`;
-5. reuse an existing operational site if already created;
-6. create only if absent;
-7. preserve `mainwp_site_id` across retries;
-8. run initial check;
-9. run initial sync;
-10. return explicit status.
+5. reuse the stored `mainwp_site_id` only when that row still exists in `mainwp_wp` and its URL matches the enrolling `site_url`;
+6. when the stored id is missing, null, or belongs to a different URL, add or link a MainWP site with the provided unique ID and admin, then store that new id;
+7. never edit or reuse a MainWP site whose URL is different (a live site such as site 12 must stay untouched), and do not run check, sync, or branding against a stale id;
+8. update `site_url` and `subscription_id` on re-enrolment;
+9. run initial check;
+10. run initial sync;
+11. return explicit status.
 
 Example response:
 

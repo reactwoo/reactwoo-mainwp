@@ -138,6 +138,15 @@ class RW_Portal_Account {
 			wp_die( esc_html__( 'This download link has expired. Return to your account and try again.', 'reactwoo-support-portal' ), '', array( 'response' => 403 ) );
 		}
 
+		$signed = self::connector_signed_download_url();
+		if ( '' !== $signed ) {
+			nocache_headers();
+			header( 'Referrer-Policy: no-referrer' );
+			header( 'X-Content-Type-Options: nosniff' );
+			wp_redirect( $signed, 302 );
+			exit;
+		}
+
 		$file = RW_PORTAL_DIR . 'downloads/reactwoo-site-plugin.zip';
 		if ( ! is_readable( $file ) ) {
 			wp_die( esc_html__( 'The site plugin is not available for download yet.', 'reactwoo-support-portal' ), '', array( 'response' => 404 ) );
@@ -150,6 +159,202 @@ class RW_Portal_Account {
 		header( 'X-Content-Type-Options: nosniff' );
 		readfile( $file );
 		exit;
+	}
+
+	/**
+	 * Short-lived package URL from api.reactwoo.com.
+	 *
+	 * Empty when the service does not return a public HTTPS address, and when
+	 * the zip shipped with this portal is a newer connector than the API.
+	 *
+	 * @return string
+	 */
+	private static function connector_signed_download_url() {
+		$package = self::connector_update_package();
+		if ( ! is_array( $package ) || '' === $package['url'] ) {
+			return '';
+		}
+
+		$local = self::connector_zip_version( RW_PORTAL_DIR . 'downloads/reactwoo-site-plugin.zip' );
+		if ( self::connector_download_prefers_local( $package['version'], $local ) ) {
+			return '';
+		}
+
+		return $package['url'];
+	}
+
+	/**
+	 * @return array{url:string,version:string}|null
+	 */
+	private static function connector_update_package() {
+		$slug = 'reactwoo-support-connector';
+		$urls = array(
+			add_query_arg(
+				array(
+					'slug'    => $slug,
+					'channel' => 'stable',
+				),
+				'https://api.reactwoo.com/api/v5/updates'
+			),
+		);
+
+		foreach ( $urls as $url ) {
+			$response = wp_remote_get(
+				$url,
+				array(
+					'timeout'     => 12,
+					'redirection' => 0,
+					'sslverify'   => true,
+					'headers'     => array( 'Accept' => 'application/json' ),
+				)
+			);
+			$package = self::package_from_updates_response( $response );
+			if ( is_array( $package ) ) {
+				return $package;
+			}
+		}
+
+		$response = wp_remote_post(
+			'https://api.reactwoo.com/api/v5/updates/check',
+			array(
+				'timeout'     => 12,
+				'redirection' => 0,
+				'sslverify'   => true,
+				'headers'     => array(
+					'Accept'       => 'application/json',
+					'Content-Type' => 'application/json',
+				),
+				'body'        => wp_json_encode(
+					array(
+						'slug'            => $slug,
+						'current_version' => '0.0.0',
+						'channel'         => 'stable',
+						'site_host'       => (string) wp_parse_url( home_url(), PHP_URL_HOST ),
+					)
+				),
+			)
+		);
+
+		return self::package_from_updates_response( $response );
+	}
+
+	/**
+	 * Use the portal zip when it is newer than the published connector.
+	 *
+	 * A missing version on either side keeps the signed URL, when one exists.
+	 *
+	 * @param string $api_version Version advertised by api.reactwoo.com.
+	 * @param string $local_version Version inside the local zip.
+	 * @return bool
+	 */
+	public static function connector_download_prefers_local( $api_version, $local_version ) {
+		$api_version   = trim( (string) $api_version );
+		$local_version = trim( (string) $local_version );
+		if ( '' === $api_version || '' === $local_version ) {
+			return false;
+		}
+
+		return version_compare( $local_version, $api_version, '>' );
+	}
+
+	/**
+	 * Plugin header version from a connector zip.
+	 *
+	 * @param string $file Zip path.
+	 * @return string
+	 */
+	public static function connector_zip_version( $file ) {
+		if ( ! is_string( $file ) || ! is_readable( $file ) || ! class_exists( 'ZipArchive' ) ) {
+			return '';
+		}
+
+		$zip = new ZipArchive();
+		if ( true !== $zip->open( $file ) ) {
+			return '';
+		}
+
+		$version = '';
+		for ( $i = 0; $i < $zip->numFiles; $i++ ) {
+			$name = (string) $zip->getNameIndex( $i );
+			if ( ! preg_match( '#(^|/)reactwoo-support-connector\.php$#', $name ) ) {
+				continue;
+			}
+			$contents = $zip->getFromIndex( $i );
+			if ( is_string( $contents ) && preg_match( '/^[ \t]*\*[ \t]*Version:[ \t]*(\S+)/m', $contents, $matches ) ) {
+				$version = $matches[1];
+				break;
+			}
+		}
+		$zip->close();
+
+		return $version;
+	}
+
+	/**
+	 * @param mixed $response HTTP API response.
+	 * @return array{url:string,version:string}|null
+	 */
+	private static function package_from_updates_response( $response ) {
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return null;
+		}
+
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		if ( ! is_array( $data ) ) {
+			return null;
+		}
+
+		$url = '';
+		foreach ( array( 'download_url', 'signed_url', 'url' ) as $key ) {
+			if ( ! empty( $data[ $key ] ) && is_string( $data[ $key ] ) ) {
+				$url = $data[ $key ];
+				break;
+			}
+		}
+
+		$url = self::public_download_redirect( $url );
+		if ( '' === $url ) {
+			return null;
+		}
+
+		$version = '';
+		if ( ! empty( $data['version'] ) && is_string( $data['version'] ) ) {
+			$version = trim( $data['version'] );
+		}
+
+		return array(
+			'url'     => $url,
+			'version' => $version,
+		);
+	}
+
+	/**
+	 * Keep the query string. Signed package URLs are useless without it.
+	 *
+	 * @param string $url Candidate redirect.
+	 * @return string
+	 */
+	private static function public_download_redirect( $url ) {
+		$parts = wp_parse_url( trim( (string) $url ) );
+		if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+		if ( 'https' !== strtolower( (string) $parts['scheme'] ) ) {
+			return '';
+		}
+		if ( ! empty( $parts['user'] ) || ! empty( $parts['pass'] ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) $parts['host'] );
+		if ( RW_Site_Url::is_blocked_host( $host ) ) {
+			return '';
+		}
+		if ( filter_var( $host, FILTER_VALIDATE_IP ) && RW_Site_Url::is_blocked_ip( $host ) ) {
+			return '';
+		}
+
+		return trim( (string) $url );
 	}
 
 	public static function render_connect_form( $subscription_id, $compact = false ) {
@@ -174,6 +379,17 @@ class RW_Portal_Account {
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
 		echo '<button type="submit" class="rw-maint-button">Connect WordPress</button>';
 		echo '</form>';
+	}
+
+	public static function render_replace_connection_form( $site ) {
+		echo '<form class="rw-maint-form" method="post">';
+		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		echo '<input type="hidden" name="rw_portal_action" value="connect_existing" />';
+		echo '<input type="hidden" name="takeover" value="1" />';
+		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
+		echo '<button type="submit" class="rw-maint-button">Replace existing maintenance connection</button>';
+		echo '</form>';
+		echo '<p class="rw-maint-helper">This replaces the maintenance link already on the website with ReactWoo. Your WordPress password is not stored.</p>';
 	}
 
 	public static function render_report_preferences( $site ) {
@@ -313,6 +529,7 @@ class RW_Portal_Account {
 			'benefits'        => self::benefit_cards( $reports_on, $speed_on ),
 			'reports'         => self::report_cards( $reports_on, $speed_on ),
 			'manual_pending'  => $site && class_exists( 'RW_Temporary_Access' ) && RW_Temporary_Access::is_pending( $site ),
+			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
 		);
 	}
 
@@ -387,7 +604,7 @@ class RW_Portal_Account {
 		$map   = array(
 			RW_Connection_State::AWAITING_AUTHORISATION => 0,
 			RW_Connection_State::AUTHORISING            => 0,
-			RW_Connection_State::INSTALLING             => 1,
+			RW_Connection_State::INSTALLING             => 2,
 			RW_Connection_State::BOOTSTRAPPING          => 1,
 			RW_Connection_State::CONNECTING_MAINTENANCE => 2,
 			RW_Connection_State::VERIFYING              => 4,
@@ -685,7 +902,11 @@ class RW_Portal_Account {
 			return;
 		}
 
-		$result = RW_Connection_Orchestrator::start( $user_id, (int) $site->subscription_id, (string) $site->site_url, (int) $site->id );
+		$details = array();
+		if ( isset( $_POST['takeover'] ) ) {
+			$details['takeover'] = wp_unslash( $_POST['takeover'] );
+		}
+		$result = RW_Connection_Orchestrator::start( $user_id, (int) $site->subscription_id, (string) $site->site_url, (int) $site->id, $details );
 		if ( is_wp_error( $result ) ) {
 			self::add_notice( $result->get_error_message(), 'error' );
 		}

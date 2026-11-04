@@ -312,11 +312,16 @@ class RW_Rest_Controller {
 
 		$secret = RW_Tokens::generate_site_secret();
 		RW_Tokens::store_site_secret( (int) $attempt->managed_site_id, $secret );
+		$takeover = RW_Connection_Orchestrator::consume_takeover(
+			(int) $attempt->id,
+			$request->get_param( 'takeover' )
+		);
 
 		return rest_ensure_response(
 			array(
 				'site_id'     => (int) $attempt->managed_site_id,
 				'site_secret' => $secret,
+				'takeover'    => $takeover,
 			)
 		);
 	}

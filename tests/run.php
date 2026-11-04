@@ -47,9 +47,13 @@ class WP_Error {
 class WP_REST_Request {
 	private $body;
 	private $headers;
-	public function __construct( $body = '', array $headers = array() ) {
+	private $method;
+	private $route;
+	public function __construct( $body = '', array $headers = array(), $method = 'POST', $route = '/reactwoo-maint/v1/enroll' ) {
 		$this->body    = (string) $body;
 		$this->headers = array();
+		$this->method  = $method;
+		$this->route   = $route;
 		foreach ( $headers as $name => $value ) {
 			$this->headers[ strtolower( $name ) ] = $value;
 		}
@@ -62,10 +66,14 @@ class WP_REST_Request {
 		return isset( $this->headers[ $name ] ) ? $this->headers[ $name ] : '';
 	}
 	public function get_method() {
-		return 'POST';
+		return $this->method;
 	}
 	public function get_route() {
-		return '/reactwoo-maint/v1/enroll';
+		return $this->route;
+	}
+	public function get_json_params() {
+		$decoded = json_decode( $this->body, true );
+		return is_array( $decoded ) ? $decoded : array();
 	}
 }
 
@@ -276,6 +284,7 @@ function wp_parse_url( $url, $component = -1 ) {
 		PHP_URL_HOST   => 'host',
 		PHP_URL_PORT   => 'port',
 		PHP_URL_PATH   => 'path',
+		PHP_URL_QUERY  => 'query',
 	);
 	$key = isset( $map[ $component ] ) ? $map[ $component ] : '';
 	return ( $parsed && $key && isset( $parsed[ $key ] ) ) ? $parsed[ $key ] : null;
@@ -320,7 +329,13 @@ function apply_filters( $tag, $value ) {
 }
 function add_filter() {
 }
-function add_action() {
+function add_action( $hook = null, $callback = null, $priority = 10, $accepted_args = 1 ) {
+	unset( $accepted_args );
+	$GLOBALS['rw_actions'][] = array(
+		'hook'     => $hook,
+		'callback' => $callback,
+		'priority' => (int) $priority,
+	);
 }
 function get_transient( $key ) {
 	return isset( $GLOBALS['rw_transients'][ $key ] ) ? $GLOBALS['rw_transients'][ $key ] : false;
@@ -382,16 +397,53 @@ function delete_option( $key ) {
 	unset( $GLOBALS['rw_options'][ $key ] );
 	return true;
 }
+function update_option( $key, $value, $autoload = null ) {
+	unset( $autoload );
+	$GLOBALS['rw_options'][ $key ] = $value;
+	return true;
+}
 function wp_using_ext_object_cache() {
 	return false;
 }
-function add_query_arg( $args, $url ) {
+function add_query_arg( $args, $url = '', $maybe_url = null ) {
+	if ( is_string( $args ) && null !== $maybe_url ) {
+		$args = array( $args => $url );
+		$url  = $maybe_url;
+	}
+	// WordPress add_query_arg() does not encode values it adds. Callers that
+	// put a URL in a query value must rawurlencode it themselves.
 	$parts = array();
 	foreach ( (array) $args as $key => $value ) {
-		$parts[] = rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
+		$parts[] = rawurlencode( (string) $key ) . '=' . (string) $value;
 	}
-	$join = ( false === strpos( $url, '?' ) ) ? '?' : '&';
+	$join = ( false === strpos( (string) $url, '?' ) ) ? '?' : '&';
 	return $url . $join . implode( '&', $parts );
+}
+function remove_query_arg( $key, $url ) {
+	$parts = parse_url( (string) $url );
+	if ( ! is_array( $parts ) ) {
+		return (string) $url;
+	}
+	$query = array();
+	if ( ! empty( $parts['query'] ) ) {
+		parse_str( $parts['query'], $query );
+	}
+	foreach ( (array) $key as $name ) {
+		unset( $query[ $name ] );
+	}
+	$scheme  = isset( $parts['scheme'] ) ? $parts['scheme'] . '://' : '';
+	$host    = isset( $parts['host'] ) ? $parts['host'] : '';
+	$port    = isset( $parts['port'] ) ? ':' . $parts['port'] : '';
+	$path    = isset( $parts['path'] ) ? $parts['path'] : '';
+	$rebuilt = $scheme . $host . $port . $path;
+	if ( ! empty( $query ) ) {
+		$pairs = array();
+		foreach ( $query as $name => $value ) {
+			$pairs[] = rawurlencode( (string) $name ) . '=' . rawurlencode( (string) $value );
+		}
+		$rebuilt .= '?' . implode( '&', $pairs );
+	}
+	return $rebuilt;
 }
 function wp_remote_request( $url, $args = array() ) {
 	global $rw_requests;
@@ -405,7 +457,51 @@ function wp_remote_retrieve_response_code( $response ) {
 	return (int) $response['response']['code'];
 }
 function wp_remote_retrieve_body( $response ) {
-	return (string) $response['body'];
+	return isset( $response['body'] ) ? (string) $response['body'] : '';
+}
+function wp_remote_retrieve_headers( $response ) {
+	return isset( $response['headers'] ) ? $response['headers'] : array();
+}
+function wp_remote_retrieve_header( $response, $header ) {
+	$headers = wp_remote_retrieve_headers( $response );
+	$name    = strtolower( (string) $header );
+	if ( is_object( $headers ) && method_exists( $headers, 'getAll' ) ) {
+		$all = $headers->getAll();
+		if ( is_array( $all ) && isset( $all[ $name ] ) ) {
+			return $all[ $name ];
+		}
+		return '';
+	}
+	if ( is_array( $headers ) ) {
+		foreach ( $headers as $key => $value ) {
+			if ( strtolower( (string) $key ) === $name ) {
+				return $value;
+			}
+		}
+	}
+	return '';
+}
+function wp_remote_get( $url, $args = array() ) {
+	unset( $args );
+	$GLOBALS['rw_http_get_log'][] = $url;
+	if ( isset( $GLOBALS['rw_http_get'][ $url ] ) ) {
+		return $GLOBALS['rw_http_get'][ $url ];
+	}
+	return array(
+		'response' => array( 'code' => 404 ),
+		'headers'  => array(),
+		'body'     => '',
+	);
+}
+
+class RW_Test_HeaderBag {
+	private $all;
+	public function __construct( array $all ) {
+		$this->all = $all;
+	}
+	public function getAll() {
+		return $this->all;
+	}
 }
 
 $root = dirname( __DIR__ );
@@ -694,7 +790,393 @@ $client_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes
 rw_test( 'enrol waits long enough for MainWP', false !== strpos( $client_src, 'const ENROLL_TIMEOUT  = 180' ) && false !== strpos( $client_src, 'timeout_for( $action )' ) );
 
 $orchestrator_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php' );
-rw_test( 'plugin ids match with or without .php', false !== strpos( $orchestrator_src, 'plugin_route( $plugin[\'plugin\'] )' ) );
+$plugin_lookup_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php' );
+rw_test( 'plugin ids match with or without .php', false !== strpos( $orchestrator_src, 'get_plugin(' ) && false !== strpos( $plugin_lookup_src, 'plugin_route( $plugin_file )' ) );
+rw_test(
+	'onboarding installs components after the connector is enrolled',
+	false === strpos( $orchestrator_src, 'maintenance_component_missing' )
+		&& false !== strpos( $orchestrator_src, 'install_components' )
+		&& false !== strpos( $orchestrator_src, 'connector_identity' )
+		&& false !== strpos( $orchestrator_src, 'components_timeout' )
+);
+
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector-signing.php';
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-component-installer.php';
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-whitelabel.php';
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp.php';
+
+$GLOBALS['rw_options']['rw_connector_site_id']     = 9;
+$GLOBALS['rw_options']['rw_connector_site_secret'] = 'connector-site-secret';
+$install_route = '/reactwoo-connector/v2/install-components';
+$install_body  = '{"components":["mainwp-child","mainwp-child-reports"]}';
+
+function rw_connector_signed( $secret, $nonce, $body, $route, $signature = null ) {
+	$timestamp = (string) time();
+	$payload   = 'POST|' . $route . '|' . $timestamp . '|' . $nonce . '|' . hash( 'sha256', $body );
+	if ( null === $signature ) {
+		$signature = hash_hmac( 'sha256', $payload, $secret );
+	}
+	return new WP_REST_Request(
+		$body,
+		array(
+			'x-rw-signature' => $signature,
+			'x-rw-timestamp' => $timestamp,
+			'x-rw-nonce'     => $nonce,
+			'x-rw-site-id'   => '9',
+		),
+		'POST',
+		$route
+	);
+}
+
+$rejected = RW_Connector_Signing::verify_request( rw_connector_signed( 'connector-site-secret', 'install-nonce', $install_body, $install_route, str_repeat( 'b', 64 ) ) );
+$accepted = RW_Connector_Signing::verify_request( rw_connector_signed( 'connector-site-secret', 'install-nonce', $install_body, $install_route ) );
+$replayed = RW_Connector_Signing::verify_request( rw_connector_signed( 'connector-site-secret', 'install-nonce', $install_body, $install_route ) );
+rw_test( 'a bad component signature is rejected and does not burn the nonce', is_wp_error( $rejected ) && 'rw_connector_signature_invalid' === $rejected->get_error_code() && true === $accepted );
+rw_test( 'a component signature cannot be replayed', is_wp_error( $replayed ) && 'rw_connector_replay' === $replayed->get_error_code() );
+
+$unknown = RW_Component_Installer::requested_slugs( array( 'components' => array( 'hello-dolly' ) ) );
+$supplied = RW_Component_Installer::requested_slugs(
+	array(
+		'components'   => array( 'mainwp-child' ),
+		'download_url' => 'https://evil.example/plugin.zip',
+	)
+);
+$allowed = RW_Component_Installer::requested_slugs( array( 'components' => array( 'mainwp-child', 'mainwp-child-reports' ) ) );
+rw_test( 'only the two maintenance components are allowed', is_wp_error( $unknown ) && 'rw_component_not_allowed' === $unknown->get_error_code() );
+rw_test( 'a caller-supplied package URL is rejected', is_wp_error( $supplied ) && 'rw_component_url_rejected' === $supplied->get_error_code() );
+rw_test( 'the allowlist accepts both pinned components', array( 'mainwp-child', 'mainwp-child-reports' ) === $allowed );
+rw_test( 'wordpress.org and R2 hosts are the only package hosts', RW_Component_Installer::allowed_package_url( 'https://downloads.wordpress.org/plugin/mainwp-child.6.4.zip' ) && RW_Component_Installer::allowed_package_url( 'https://example.r2.cloudflarestorage.com/bucket/mainwp-child.zip?X-Amz-Signature=abc' ) && ! RW_Component_Installer::allowed_package_url( 'https://evil.example/plugin.zip' ) && ! RW_Component_Installer::allowed_package_url( 'http://downloads.wordpress.org/plugin/mainwp-child.6.4.zip' ) );
+
+$package_path = tempnam( sys_get_temp_dir(), 'rwhash' );
+file_put_contents( $package_path, 'maintenance-package' );
+$package_hash = hash( 'sha256', 'maintenance-package' );
+rw_test( 'a matching package hash is accepted', RW_Component_Installer::package_hash_matches( $package_path, $package_hash ) );
+rw_test( 'a package hash mismatch is rejected', ! RW_Component_Installer::package_hash_matches( $package_path, str_repeat( 'a', 64 ) ) && ! RW_Component_Installer::package_hash_matches( $package_path, 'not-a-hash' ) );
+unlink( $package_path );
+
+$pins = json_decode( (string) file_get_contents( __DIR__ . '/../scripts/component-pins.json' ), true );
+$catalog = RW_Component_Installer::catalog();
+$pins_match = is_array( $pins ) && isset( $pins['components'] ) && 2 === count( $pins['components'] );
+foreach ( (array) $pins['components'] as $pin ) {
+	$slug = $pin['slug'];
+	$pins_match = $pins_match && isset( $catalog[ $slug ] ) && $catalog[ $slug ]['version'] === $pin['version'] && $catalog[ $slug ]['sha256'] === $pin['sha256'];
+}
+rw_test( 'connector catalog matches the pinned component manifest', $pins_match );
+
+$plugins = array(
+	'mainwp-child/mainwp-child.php'                         => array( 'Name' => 'MainWP Child' ),
+	'mainwp-child-reports/mainwp-child-reports.php'         => array( 'Name' => 'MainWP Child Reports' ),
+	'reactwoo-support-connector/reactwoo-support-connector.php' => array( 'Name' => 'ReactWoo Support Connector' ),
+	'akismet/akismet.php'                                   => array( 'Name' => 'Akismet' ),
+);
+$visible = RW_Whitelabel::filter_plugins( $plugins );
+rw_test( 'plugins stay visible before the site is managed', isset( $visible['mainwp-child/mainwp-child.php'] ) && isset( $visible['akismet/akismet.php'] ) );
+$GLOBALS['rw_options']['rw_connector_managed'] = '1';
+$hidden = RW_Whitelabel::filter_plugins( $plugins );
+rw_test( 'managed sites hide the child and reports plugins', ! isset( $hidden['mainwp-child/mainwp-child.php'] ) && ! isset( $hidden['mainwp-child-reports/mainwp-child-reports.php'] ) && isset( $hidden['reactwoo-support-connector/reactwoo-support-connector.php'] ) && isset( $hidden['akismet/akismet.php'] ) );
+rw_test( 'action links for a hidden plugin are removed', array() === RW_Whitelabel::filter_action_links( array( 'deactivate' => 'Deactivate' ), 'mainwp-child/mainwp-child.php' ) && isset( RW_Whitelabel::filter_action_links( array( 'deactivate' => 'Deactivate' ), 'akismet/akismet.php' )['deactivate'] ) );
+$updates = new stdClass();
+$updates->response = array(
+	'mainwp-child/mainwp-child.php' => (object) array( 'new_version' => '6.4' ),
+	'akismet/akismet.php'           => (object) array( 'new_version' => '5.0' ),
+);
+$updates->no_update = array( 'mainwp-child-reports/mainwp-child-reports.php' => (object) array( 'new_version' => '2.3.1' ) );
+$filtered_updates = RW_Whitelabel::filter_updates( $updates );
+rw_test( 'update notices for hidden plugins are removed', ! isset( $filtered_updates->response['mainwp-child/mainwp-child.php'] ) && ! isset( $filtered_updates->no_update['mainwp-child-reports/mainwp-child-reports.php'] ) && isset( $filtered_updates->response['akismet/akismet.php'] ) );
+rw_test( 'child and reports admin pages are blocked', RW_Whitelabel::is_blocked_page( 'mainwp_child_tab' ) && RW_Whitelabel::is_blocked_page( 'mainwp-reports-page' ) && RW_Whitelabel::is_blocked_page( 'mainwp-reports-settings' ) && ! RW_Whitelabel::is_blocked_page( 'plugins' ) );
+$notice_path = new ReflectionMethod( 'RW_Whitelabel', 'path_is_hidden' );
+$notice_path->setAccessible( true );
+rw_test( 'notices from the hidden plugin directories are selected', $notice_path->invoke( null, '/wp-content/plugins/mainwp-child/class/class-mainwp-pages.php' ) && $notice_path->invoke( null, '/wp-content/plugins/mainwp-child-reports/classes/class-admin.php' ) && ! $notice_path->invoke( null, '/wp-content/plugins/akismet/akismet.php' ) );
+rw_test( 'a ReactWoo support email bypasses the hide', RW_Whitelabel::is_reactwoo_support_email( 'support@reactwoo.com' ) && ! RW_Whitelabel::is_reactwoo_support_email( 'owner@example.com' ) );
+$GLOBALS['rw_options']['rw_connector_hide_self'] = '1';
+$hidden_self = RW_Whitelabel::filter_plugins( $plugins );
+rw_test( 'the connector is hidden only when that flag is set', ! isset( $hidden_self['reactwoo-support-connector/reactwoo-support-connector.php'] ) );
+unset( $GLOBALS['rw_options']['rw_connector_managed'], $GLOBALS['rw_options']['rw_connector_hide_self'] );
+
+$branding = RW_Maint_MainWP::branding_calls();
+$branding_settings = json_decode( base64_decode( $branding[0]['params']['settings'] ), true );
+rw_test( 'enrol pushes the hide-child branding settings', 'branding_child_plugin' === $branding[0]['what'] && 1 === (int) $branding_settings['child_plugin_hide'] && 'client_report' === $branding[1]['what'] && 'hide' === $branding[1]['params']['showhide'] );
+
+$component_versions = RW_Maint_MainWP_Client::extract_component_versions(
+	array(
+		'plugins' => array(
+			'mainwp-child/mainwp-child.php'                 => array( 'version' => '6.4' ),
+			'mainwp-child-reports/mainwp-child-reports.php' => array( 'version' => '2.3.1' ),
+		),
+	)
+);
+rw_test( 'check and sync can read both component versions', '6.4' === $component_versions['mainwp_child_version'] && '2.3.1' === $component_versions['mainwp_child_reports_version'] );
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php';
+
+$link_values = array(
+	'<https://example.com/?p=1>; rel="shortlink"',
+	'<https://example.com/blog/wp-json/>; rel="https://api.w.org/"',
+);
+$from_array = '';
+foreach ( RW_WordPress_Client::header_values( array( 'headers' => array( 'link' => $link_values ) ), 'link' ) as $value ) {
+	$found = RW_WordPress_Client::rest_root_from_link( $value );
+	if ( '' !== $found ) {
+		$from_array = $found;
+	}
+}
+rw_test( 'multiple Link headers still expose the REST root', 'https://example.com/blog/wp-json/' === $from_array );
+$from_bag = '';
+foreach ( RW_WordPress_Client::header_values( array( 'headers' => new RW_Test_HeaderBag( array( 'link' => $link_values ) ) ), 'link' ) as $value ) {
+	$found = RW_WordPress_Client::rest_root_from_link( $value );
+	if ( '' !== $found ) {
+		$from_bag = $found;
+	}
+}
+rw_test( 'header getAll() exposes the REST root', 'https://example.com/blog/wp-json/' === $from_bag );
+rw_test(
+	'an HTML API link is read in either attribute order',
+	'https://example.com/blog/wp-json/' === RW_WordPress_Client::rest_root_from_html( '<html><link href="https://example.com/blog/wp-json/" rel="https://api.w.org/"></html>' )
+		&& 'https://example.com/blog/wp-json/' === RW_WordPress_Client::rest_root_from_html( "<html><link rel='https://api.w.org/' href='https://example.com/blog/wp-json/' /></html>" )
+);
+
+function rw_rest_index_body() {
+	return wp_json_encode(
+		array(
+			'namespaces'       => array( 'wp/v2' ),
+			'authentication'   => array(
+				'application-passwords' => array(
+					'endpoints' => array(
+						'authorization' => 'https://example.com/wp-admin/authorize-application.php',
+					),
+				),
+			),
+		)
+	);
+}
+function rw_http_page( $code, $body, $headers = array() ) {
+	return array(
+		'response' => array( 'code' => $code ),
+		'headers'  => $headers,
+		'body'     => $body,
+	);
+}
+
+$home = RW_Site_Url::assert_public_https( 'https://example.com' );
+$blog_root = RW_Site_Url::assert_public_https( 'https://example.com/blog/wp-json/' );
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 200, '<html>front</html>', array( 'link' => $link_values ) ),
+	$blog_root => rw_http_page( 200, rw_rest_index_body() ),
+);
+$discovered = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'discovery follows an array of Link headers', is_array( $discovered ) && $blog_root === $discovered['rest_root'] && false === array_search( RW_WordPress_Client::rest_probe_urls( $home )[0], $GLOBALS['rw_http_get_log'], true ) );
+
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 200, '<html><link href="https://example.com/blog/wp-json/" rel="https://api.w.org/"></html>' ),
+	$blog_root => rw_http_page( 200, rw_rest_index_body() ),
+);
+$from_html = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'discovery reads the HTML API link when no Link header is present', is_array( $from_html ) && $blog_root === $from_html['rest_root'] );
+
+$probes = RW_WordPress_Client::rest_probe_urls( $home );
+$pretty = RW_Site_Url::assert_public_https( $probes[0] );
+$plain  = $probes[1];
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 403, '<html>staging login wall</html>' ),
+	$pretty => rw_http_page( 200, rw_rest_index_body() ),
+);
+$walled = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'a hidden front page still discovers /wp-json/', is_array( $walled ) && $pretty === $walled['rest_root'] && in_array( $pretty, $GLOBALS['rw_http_get_log'], true ) );
+
+$GLOBALS['rw_http_get_log'] = array();
+$GLOBALS['rw_http_get'] = array(
+	$home => rw_http_page( 200, '<html>staging login wall</html>' ),
+	$pretty => rw_http_page( 404, 'missing' ),
+	$plain => rw_http_page( 200, rw_rest_index_body() ),
+);
+$plain_discovered = RW_WordPress_Client::discover( 'https://example.com' );
+rw_test( 'discovery falls through to ?rest_route=/ when /wp-json/ is hidden', is_array( $plain_discovered ) && false !== strpos( $plain_discovered['rest_root'], 'rest_route' ) && in_array( $plain, $GLOBALS['rw_http_get_log'], true ) );
+unset( $GLOBALS['rw_http_get'], $GLOBALS['rw_http_get_log'] );
+
+rw_test( 'a newer local connector zip wins over the published version', RW_Portal_Account::connector_download_prefers_local( '0.2.1', '0.3.0' ) && ! RW_Portal_Account::connector_download_prefers_local( '0.3.0', '0.2.1' ) && ! RW_Portal_Account::connector_download_prefers_local( '0.3.0', '0.3.0' ) && ! RW_Portal_Account::connector_download_prefers_local( '', '0.3.0' ) );
+if ( class_exists( 'ZipArchive' ) ) {
+	$zip_path = tempnam( sys_get_temp_dir(), 'rwzip' );
+	$zip = new ZipArchive();
+	$zip->open( $zip_path, ZipArchive::OVERWRITE );
+	$zip->addFromString( 'reactwoo-support-connector/reactwoo-support-connector.php', "<?php\n/**\n * Version: 0.3.0\n */\n" );
+	$zip->close();
+	rw_test( 'the local connector zip version is read from the plugin header', '0.3.0' === RW_Portal_Account::connector_zip_version( $zip_path ) );
+	unlink( $zip_path );
+}
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php';
+
+$flow_site = (object) array(
+	'id'              => 7,
+	'user_id'         => 3,
+	'subscription_id' => 9,
+	'site_url'        => 'https://customer.example',
+);
+$flow_attempt = RW_Connection_Attempts::create( $flow_site );
+$flow_state   = $flow_attempt['state'];
+$auth_url     = RW_Connection_Orchestrator::authorization_redirect_url(
+	'https://customer.example/wp-admin/authorize-application.php?action=authorize-application',
+	'https://example.com/my-account/maintenance/?utm=1',
+	$flow_state,
+	'11111111-1111-4111-8111-111111111111'
+);
+$auth_query = array();
+parse_str( (string) parse_url( $auth_url, PHP_URL_QUERY ), $auth_query );
+$success_query = array();
+parse_str( (string) parse_url( $auth_query['success_url'], PHP_URL_QUERY ), $success_query );
+$reject_query = array();
+parse_str( (string) parse_url( $auth_query['reject_url'], PHP_URL_QUERY ), $reject_query );
+rw_test(
+	'parsed success_url keeps state',
+	! isset( $auth_query['state'] )
+		&& $flow_state === $success_query['state']
+		&& 'callback' === $success_query['rw_connect']
+		&& '1' === (string) $success_query['utm']
+		&& $flow_state === $reject_query['state']
+		&& 'rejected' === $reject_query['rw_connect']
+);
+
+$returned = add_query_arg(
+	array(
+		'site_url'   => 'https://customer.example',
+		'user_login' => 'owner',
+		'password'   => 'app-password',
+	),
+	$auth_query['success_url']
+);
+$returned_query = array();
+parse_str( (string) parse_url( $returned, PHP_URL_QUERY ), $returned_query );
+$callback_state = RW_Connection_Orchestrator::state_from_callback_query( $returned_query['state'] );
+$authorised     = RW_Connection_Attempts::consume( $callback_state );
+$missing_state  = RW_Connection_Attempts::consume( '' );
+rw_test( 'callback state still matches the attempt after WordPress appends the credential', is_object( $authorised ) && RW_Connection_State::AUTHORISING === $authorised->status && $flow_state === $callback_state );
+rw_test( 'a callback without state is the missing-state error', is_wp_error( $missing_state ) && 'Connection state is missing.' === $missing_state->get_error_message() );
+
+$query_root = 'https://customer.example/?rest_route=/';
+$route_ok   = true;
+foreach ( array( 'reactwoo-connector/v2/install-components', 'reactwoo-connector/v2/status', 'reactwoo-connector/v2/identity' ) as $route ) {
+	$endpoint = RW_WordPress_Client::api_url( $query_root, $route );
+	$endpoint_query = array();
+	parse_str( (string) parse_url( $endpoint, PHP_URL_QUERY ), $endpoint_query );
+	if ( ! isset( $endpoint_query['rest_route'] ) || '/' . $route !== $endpoint_query['rest_route'] ) {
+		$route_ok = false;
+	}
+}
+$pretty_install = RW_WordPress_Client::api_url( 'https://customer.example/wp-json/', 'reactwoo-connector/v2/install-components' );
+rw_test( 'install, status, and identity keep one REST route parameter', $route_ok && 'https://customer.example/wp-json/reactwoo-connector/v2/install-components' === $pretty_install );
+
+$flow_body  = '{"components":["mainwp-child","mainwp-child-reports"]}';
+$flow_route = '/reactwoo-connector/v2/install-components';
+$flow_nonce = 'flow-install-nonce';
+$flow_time  = (string) time();
+$flow_sign  = hash_hmac( 'sha256', 'POST|' . $flow_route . '|' . $flow_time . '|' . $flow_nonce . '|' . hash( 'sha256', $flow_body ), 'connector-site-secret' );
+$GLOBALS['rw_options']['rw_connector_site_id']     = 9;
+$GLOBALS['rw_options']['rw_connector_site_secret'] = 'connector-site-secret';
+$flow_request = new WP_REST_Request(
+	$flow_body,
+	array(
+		'x-rw-signature' => $flow_sign,
+		'x-rw-timestamp' => $flow_time,
+		'x-rw-nonce'     => $flow_nonce,
+		'x-rw-site-id'   => '9',
+	),
+	'POST',
+	$flow_route
+);
+$client_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php' );
+rw_test( 'install-components stays signed against its route and the challenge stays a header', true === RW_Connector_Signing::verify_request( $flow_request ) && false !== strpos( $client_src, "'X-RW-Enrolment-Challenge' => \$challenge" ) );
+
+$GLOBALS['rw_actions'] = array();
+RW_Connection_Orchestrator::register();
+$return_hook = null;
+foreach ( $GLOBALS['rw_actions'] as $hook ) {
+	if ( is_array( $hook['callback'] ) && isset( $hook['callback'][1] ) && 'handle_return' === $hook['callback'][1] ) {
+		$return_hook = $hook;
+	}
+}
+rw_test(
+	'the connection callback waits until subscriptions are registered',
+	is_array( $return_hook ) && 'wp_loaded' === $return_hook['hook'] && $return_hook['priority'] >= 10
+);
+
+$early_wc = array();
+foreach ( array( 'reactwoo-support-portal', 'reactwoo-support-connector', 'reactwoo-maint-bridge' ) as $plugin_dir ) {
+	$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( __DIR__ . '/../' . $plugin_dir, FilesystemIterator::SKIP_DOTS ) );
+	foreach ( $iterator as $file ) {
+		if ( 'php' !== $file->getExtension() ) {
+			continue;
+		}
+		$source = file_get_contents( $file->getPathname() );
+		if ( ! preg_match_all( "/add_action\\(\\s*'init'\\s*,\\s*array\\(\\s*(?:__CLASS__|'[A-Za-z0-9_]+')\\s*,\\s*'([A-Za-z0-9_]+)'\\s*\\)(?:\\s*,\\s*(\\d+))?/", $source, $hits, PREG_SET_ORDER ) ) {
+			continue;
+		}
+		foreach ( $hits as $hit ) {
+			$priority = ( isset( $hit[2] ) && '' !== $hit[2] ) ? (int) $hit[2] : 10;
+			if ( $priority >= 20 ) {
+				continue;
+			}
+			if ( ! preg_match( '/function\\s+' . $hit[1] . '\\s*\\(/', $source, $fn, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+			$start = $fn[0][1];
+			$end   = strlen( $source );
+			if ( preg_match( '/\\n\\t(?:public|private|protected)\\s+static\\s+function\\s+/', $source, $next, PREG_OFFSET_CAPTURE, $start + 10 ) ) {
+				$end = $next[0][1];
+			}
+			$body = substr( $source, $start, $end - $start );
+			if ( preg_match( '/wcs_get_subscription|wcs_get_subscriptions|\\\\\\\\MainWP\\\\\\\\|wc_get_order\\s*\\(/', $body ) ) {
+				$early_wc[] = $file->getFilename() . ':' . $hit[1] . '@' . $priority;
+			}
+		}
+	}
+}
+rw_test( 'no early init hook calls WooCommerce Subscriptions or MainWP', array() === $early_wc );
+$denied_status = new WP_Error( 'rw_connector_signature_invalid', 'Signature mismatch.', array( 'status' => 401 ) );
+$retry_status  = new WP_Error( 'rw_wp_request_failed', 'The website could not be reached.', array( 'status' => 502 ) );
+rw_test( 'a rejected status poll stops instead of waiting out the timeout', RW_Connection_Orchestrator::status_failure_is_terminal( $denied_status ) && ! RW_Connection_Orchestrator::status_failure_is_terminal( $retry_status ) );
+rw_test( 'a writable plugins directory uses the direct filesystem', 'direct' === RW_Component_Installer::direct_filesystem_method( 'ftpext' ) );
+
+$existing_link = RW_WordPress_Client::rest_error_from_http(
+	409,
+	array(
+		'code'    => 'rw_existing_maintenance_connection',
+		'message' => 'This website already has an existing maintenance connection.',
+	)
+);
+$generic_reject = RW_WordPress_Client::rest_error_from_http( 500, array( 'code' => 'rest_forbidden', 'message' => 'Sorry, you are not allowed.' ) );
+rw_test(
+	'bootstrap keeps the existing-connection error',
+	is_wp_error( $existing_link )
+		&& 'rw_existing_maintenance_connection' === $existing_link->get_error_code()
+		&& 'This website already has an existing maintenance connection.' === $existing_link->get_error_message()
+		&& 'rw_wp_request_rejected' === $generic_reject->get_error_code()
+		&& false === strpos( $generic_reject->get_error_message(), 'not allowed' )
+);
+rw_test(
+	'an existing connection is action required',
+	false !== strpos( $orchestrator_src, "'rw_existing_maintenance_connection' === \$bootstrap->get_error_code() ? 'existing_connection' : 'bootstrap_failed'" )
+		&& false !== strpos( $orchestrator_src, "'existing_connection' === \$code ? RW_Connection_State::ACTION_REQUIRED : RW_Connection_State::FAILED" )
+);
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-mainwp-child-adapter.php';
+rw_test( 'takeover stays off unless it is explicit', ! RW_Connection_Orchestrator::is_explicit_takeover( null ) && ! RW_Connection_Orchestrator::is_explicit_takeover( false ) && ! RW_Connection_Orchestrator::is_explicit_takeover( 'yes' ) && ! RW_Connection_Orchestrator::is_explicit_takeover( '0' ) && RW_Connection_Orchestrator::is_explicit_takeover( '1' ) && RW_Connection_Orchestrator::is_explicit_takeover( true ) && RW_MainWP_Child_Adapter::is_explicit_takeover( 'true' ) );
+update_option( RW_Connection_Orchestrator::takeover_option_key( 44 ), '1', false );
+rw_test( 'the portal authorises takeover only when the attempt was marked', true === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 44, true ) && false === RW_Connection_Orchestrator::consume_takeover( 45, '1' ) );
+
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector.php';
+update_option( 'mainwp_child_pubkey', 'dashboard-key', false );
+update_option( 'mainwp_child_siteid', 12, false );
+rw_test( 'a stored child public key is an existing link', RW_MainWP_Child_Adapter::has_existing_link() );
+rw_test( 'takeover re-keys the child to the ReactWoo dashboard', 'https://maint.reactwoo.com' === RW_MainWP_Child_Adapter::rekey_to_reactwoo() && ! RW_MainWP_Child_Adapter::has_existing_link() && false === get_option( 'mainwp_child_siteid' ) && 'https://maint.reactwoo.com' === get_option( 'mainwp_child_server' ) );
+update_option( 'rw_connector_site_id', 9, false );
+update_option( 'rw_connector_site_secret', 'leftover-secret', false );
+update_option( 'rw_connector_connected_at', '2026-01-01 00:00:00', false );
+RW_Connector::clear_enrolment();
+rw_test( 'a failed bootstrap clears the connector enrolment', false === get_option( 'rw_connector_site_id' ) && false === get_option( 'rw_connector_site_secret' ) && false === get_option( 'rw_connector_connected_at' ) );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-balance.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-plans.php';

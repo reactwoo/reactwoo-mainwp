@@ -10,6 +10,7 @@ class RW_Connector {
 	public static function register() {
 		self::load_dependencies();
 		RW_Connector_Updater::init();
+		RW_Whitelabel::register();
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
 		add_action( self::HEARTBEAT_HOOK, array( __CLASS__, 'send_heartbeat' ) );
 	}
@@ -21,12 +22,15 @@ class RW_Connector {
 	private static function load_dependencies() {
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-signing.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-mainwp-child-adapter.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-component-installer.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-whitelabel.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-bootstrap.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-updater.php';
 	}
 
 	public static function register_routes() {
 		RW_Connector_Bootstrap::register_routes();
+		RW_Component_Installer::register_routes();
 
 		register_rest_route(
 			'reactwoo-connector/v1',
@@ -180,6 +184,18 @@ class RW_Connector {
 	public static function persist_enrolment( $portal_url, $site_id, $secret, array $payload ) {
 		self::store_connection( $portal_url, $site_id, $secret, $payload );
 		self::schedule_heartbeat();
+	}
+
+	public static function clear_enrolment() {
+		delete_option( 'rw_connector_portal_url' );
+		delete_option( 'rw_connector_site_id' );
+		delete_option( 'rw_connector_site_secret' );
+		delete_option( 'rw_connector_payload' );
+		delete_option( 'rw_connector_connected_at' );
+		delete_option( 'rw_connector_admin_login' );
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			wp_clear_scheduled_hook( self::HEARTBEAT_HOOK );
+		}
 	}
 
 	private static function store_connection( $portal_url, $site_id, $secret, array $payload ) {

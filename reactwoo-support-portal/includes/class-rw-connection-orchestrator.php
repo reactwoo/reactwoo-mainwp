@@ -6,11 +6,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class RW_Connection_Orchestrator {
 	const CONNECTOR_PLUGIN = 'reactwoo-support-connector/reactwoo-support-connector.php';
-	const CHILD_PLUGIN     = 'mainwp-child/mainwp-child.php';
 	const EXPIRE_HOOK      = 'rw_portal_expire_credential';
+	const COMPONENT_POLL_SECONDS = 30;
 
 	public static function register() {
-		add_action( 'init', array( __CLASS__, 'handle_return' ), 1 );
+		// WooCommerce Subscriptions registers shop_subscription on init.
+		// Priority 1 runs before that, and wcs_get_subscription() then returns false.
+		add_action( 'wp_loaded', array( __CLASS__, 'handle_return' ) );
 		add_action( self::EXPIRE_HOOK, array( __CLASS__, 'expire_credential' ) );
 	}
 
@@ -72,6 +74,10 @@ class RW_Connection_Orchestrator {
 			return $attempt;
 		}
 
+		if ( self::is_explicit_takeover( isset( $details['takeover'] ) ? $details['takeover'] : false ) ) {
+			update_option( self::takeover_option_key( (int) $attempt['id'] ), '1', false );
+		}
+
 		$app_id = wp_generate_uuid4();
 		RW_Connection_Attempts::update_attempt(
 			(int) $attempt['id'],
@@ -83,29 +89,11 @@ class RW_Connection_Orchestrator {
 
 		self::mark_site( $site, RW_Connection_State::AWAITING_AUTHORISATION, '', '', 'v2' );
 
-		$account = self::account_url();
-		$success = add_query_arg(
-			array(
-				'rw_connect' => 'callback',
-				'state'      => $attempt['state'],
-			),
-			$account
-		);
-		$reject  = add_query_arg(
-			array(
-				'rw_connect' => 'rejected',
-				'state'      => $attempt['state'],
-			),
-			$account
-		);
-		$auth    = add_query_arg(
-			array(
-				'app_name'    => 'ReactWoo Maintenance',
-				'app_id'      => $app_id,
-				'success_url' => $success,
-				'reject_url'  => $reject,
-			),
-			$discovery['authorization_url']
+		$auth = self::authorization_redirect_url(
+			$discovery['authorization_url'],
+			self::account_url(),
+			$attempt['state'],
+			$app_id
 		);
 
 		RW_Audit::log(
@@ -119,6 +107,97 @@ class RW_Connection_Orchestrator {
 
 		wp_redirect( $auth );
 		exit;
+	}
+
+	/**
+	 * Authorize-application.php reads success_url from the query string.
+	 * add_query_arg() does not encode new values, so a raw callback URL would
+	 * let &state= become a separate parameter and never return.
+	 *
+	 * @param string $authorization_url Customer authorize-application.php URL.
+	 * @param string $account_url Portal maintenance account URL.
+	 * @param string $state Plaintext connection state.
+	 * @param string $app_id Application Password app id.
+	 * @return string
+	 */
+	public static function authorization_redirect_url( $authorization_url, $account_url, $state, $app_id ) {
+		$success = add_query_arg(
+			array(
+				'rw_connect' => 'callback',
+				'state'      => $state,
+			),
+			$account_url
+		);
+		$reject  = add_query_arg(
+			array(
+				'rw_connect' => 'rejected',
+				'state'      => $state,
+			),
+			$account_url
+		);
+
+		return add_query_arg(
+			array(
+				'app_name'    => rawurlencode( 'ReactWoo Maintenance' ),
+				'app_id'      => rawurlencode( (string) $app_id ),
+				'success_url' => rawurlencode( $success ),
+				'reject_url'  => rawurlencode( $reject ),
+			),
+			$authorization_url
+		);
+	}
+
+	/**
+	 * State from the WordPress return. PHP decodes the query once; decode
+	 * again when the value is still percent-encoded.
+	 *
+	 * @param string $state Raw state query value.
+	 * @return string
+	 */
+	/**
+	 * True only for an explicit confirmation. Other values, including "yes", stay off.
+	 *
+	 * @param mixed $value Form or stored flag.
+	 * @return bool
+	 */
+	public static function is_explicit_takeover( $value ) {
+		if ( true === $value || 1 === $value ) {
+			return true;
+		}
+		if ( ! is_string( $value ) ) {
+			return false;
+		}
+
+		return '1' === $value || 'true' === $value;
+	}
+
+	public static function takeover_option_key( $attempt_id ) {
+		return 'rw_connection_takeover_' . (int) $attempt_id;
+	}
+
+	/**
+	 * The portal authorises takeover only when this attempt was marked and the connector asked.
+	 *
+	 * @param int   $attempt_id Connection attempt id.
+	 * @param mixed $requested Flag sent with the challenge confirmation.
+	 * @return bool
+	 */
+	public static function consume_takeover( $attempt_id, $requested ) {
+		$key     = self::takeover_option_key( $attempt_id );
+		$stored  = get_option( $key );
+		delete_option( $key );
+
+		return self::is_explicit_takeover( $requested ) && self::is_explicit_takeover( $stored );
+	}
+
+	public static function state_from_callback_query( $state ) {
+		$state = (string) $state;
+		if ( function_exists( 'wp_unslash' ) ) {
+			$state = wp_unslash( $state );
+		}
+		$state = rawurldecode( $state );
+
+		return sanitize_text_field( $state );
 	}
 
 	public static function handle_return() {
@@ -159,7 +238,7 @@ class RW_Connection_Orchestrator {
 	}
 
 	private static function handle_callback() {
-		$state    = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		$state    = self::state_from_callback_query( isset( $_GET['state'] ) ? $_GET['state'] : '' );
 		$success  = isset( $_GET['success'] ) ? sanitize_text_field( wp_unslash( $_GET['success'] ) ) : '';
 		$login    = isset( $_GET['user_login'] ) ? sanitize_user( wp_unslash( $_GET['user_login'] ) ) : '';
 		$site_url = isset( $_GET['site_url'] ) ? esc_url_raw( wp_unslash( $_GET['site_url'] ) ) : '';
@@ -227,7 +306,7 @@ class RW_Connection_Orchestrator {
 	}
 
 	private static function handle_rejected() {
-		$state   = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		$state   = self::state_from_callback_query( isset( $_GET['state'] ) ? $_GET['state'] : '' );
 		$attempt = RW_Connection_Attempts::get_by_state( $state );
 		if ( $attempt && RW_Connection_State::AWAITING_AUTHORISATION === $attempt->status ) {
 			self::mark_attempt_site( $attempt, RW_Connection_State::ACTION_REQUIRED, 'authorisation_rejected', 'WordPress authorisation was declined.' );
@@ -287,15 +366,13 @@ class RW_Connection_Orchestrator {
 		}
 
 		self::mark_site( $site, RW_Connection_State::BOOTSTRAPPING, '', '', 'v2' );
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
+		}
 
 		$ready = self::ensure_active_plugin( $attempt, $user_login, $password, self::CONNECTOR_PLUGIN, 'connector_not_installed', 'Download the site plugin from this page, install and activate it on your website, then connect again.' );
 		if ( is_wp_error( $ready ) ) {
 			self::fail_and_revoke( $attempt, $user_login, $password, RW_Connection_State::ACTION_REQUIRED, $ready->get_error_code(), $ready->get_error_message() );
-		}
-
-		$child = self::ensure_active_plugin( $attempt, $user_login, $password, self::CHILD_PLUGIN, 'maintenance_component_missing', 'The maintenance component is not active on this website yet.' );
-		if ( is_wp_error( $child ) ) {
-			self::fail_and_revoke( $attempt, $user_login, $password, RW_Connection_State::ACTION_REQUIRED, $child->get_error_code(), $child->get_error_message() );
 		}
 
 		$challenge = wp_generate_password( 32, false, false );
@@ -304,7 +381,9 @@ class RW_Connection_Orchestrator {
 			array( 'challenge_hash' => hash( 'sha256', $challenge ) )
 		);
 
-		$bootstrap = RW_WordPress_Client::bootstrap_connector( $attempt->rest_root, $user_login, $password, home_url(), $challenge );
+		$takeover  = self::is_explicit_takeover( get_option( self::takeover_option_key( (int) $attempt->id ) ) );
+		$bootstrap = RW_WordPress_Client::bootstrap_connector( $attempt->rest_root, $user_login, $password, home_url(), $challenge, $takeover );
+		delete_option( self::takeover_option_key( (int) $attempt->id ) );
 		$challenge = '';
 		if ( is_wp_error( $bootstrap ) ) {
 			$code  = 'rw_existing_maintenance_connection' === $bootstrap->get_error_code() ? 'existing_connection' : 'bootstrap_failed';
@@ -312,8 +391,20 @@ class RW_Connection_Orchestrator {
 			self::fail_and_revoke( $attempt, $user_login, $password, $state, $code, $bootstrap->get_error_message() );
 		}
 
-		$admin    = isset( $bootstrap['admin'] ) ? sanitize_user( (string) $bootstrap['admin'] ) : $user_login;
-		$uniqueid = isset( $bootstrap['uniqueid'] ) ? (string) $bootstrap['uniqueid'] : '';
+		self::mark_site( $site, RW_Connection_State::INSTALLING, '', '', 'v2' );
+		$components = self::provision_components( $attempt, $site );
+		if ( is_wp_error( $components ) ) {
+			$code = $components->get_error_code();
+			if ( 'rw_existing_maintenance_connection' === $code ) {
+				$code = 'existing_connection';
+			}
+			$retryable = in_array( $code, array( 'existing_connection', 'components_install_failed', 'components_timeout' ), true );
+			$state     = $retryable ? RW_Connection_State::ACTION_REQUIRED : RW_Connection_State::FAILED;
+			self::fail_and_revoke( $attempt, $user_login, $password, $state, $code, $components->get_error_message() );
+		}
+
+		$admin    = isset( $components['admin'] ) ? sanitize_user( (string) $components['admin'] ) : $user_login;
+		$uniqueid = isset( $components['uniqueid'] ) ? (string) $components['uniqueid'] : '';
 		if ( '' === $admin || '' === $uniqueid ) {
 			self::fail_and_revoke( $attempt, $user_login, $password, RW_Connection_State::FAILED, 'unique_id_missing', 'Passwordless maintenance identity was not created.' );
 		}
@@ -322,8 +413,8 @@ class RW_Connection_Orchestrator {
 		if ( function_exists( 'set_time_limit' ) ) {
 			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
 		}
-		if ( ! empty( $bootstrap['child_version'] ) ) {
-			RW_Sites::update_site( (int) $site->id, array( 'mainwp_child_version' => sanitize_text_field( (string) $bootstrap['child_version'] ) ) );
+		if ( ! empty( $components['child_version'] ) ) {
+			RW_Sites::update_site( (int) $site->id, array( 'mainwp_child_version' => sanitize_text_field( (string) $components['child_version'] ) ) );
 		}
 
 		$site   = RW_Sites::get_site( (int) $site->id );
@@ -406,32 +497,135 @@ class RW_Connection_Orchestrator {
 		self::finish_redirect( 'Your website is protected.', 'success' );
 	}
 
-	private static function ensure_active_plugin( $attempt, $user_login, $password, $plugin_file, $missing_code, $missing_message ) {
-		$plugins = RW_WordPress_Client::list_plugins( $attempt->rest_root, $user_login, $password );
-		if ( is_wp_error( $plugins ) ) {
-			return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
+	/**
+	 * A signature or permission failure will not succeed on the next poll.
+	 *
+	 * @param WP_Error $error Status request error.
+	 * @return bool
+	 */
+	public static function status_failure_is_terminal( $error ) {
+		if ( ! is_wp_error( $error ) ) {
+			return false;
 		}
 
-		foreach ( $plugins as $plugin ) {
-			if ( ! is_array( $plugin ) || empty( $plugin['plugin'] ) ) {
-				continue;
-			}
-			if ( RW_WordPress_Client::plugin_route( $plugin['plugin'] ) !== RW_WordPress_Client::plugin_route( $plugin_file ) ) {
-				continue;
-			}
-			if ( isset( $plugin['status'] ) && 'active' === $plugin['status'] ) {
-				return true;
-			}
-
-			$activated = RW_WordPress_Client::activate_plugin( $attempt->rest_root, $user_login, $password, $plugin_file );
-			if ( is_wp_error( $activated ) ) {
-				return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
-			}
-
+		$data = $error->get_error_data();
+		$http = ( is_array( $data ) && isset( $data['status'] ) ) ? (int) $data['status'] : 0;
+		if ( 401 === $http || 403 === $http ) {
 			return true;
 		}
 
-		return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
+		return in_array(
+			$error->get_error_code(),
+			array(
+				'rw_connector_signature_invalid',
+				'rw_connector_signature_missing',
+				'rw_connector_replay',
+				'rw_connector_skew',
+				'rw_connector_secret_missing',
+				'rw_connector_site_mismatch',
+			),
+			true
+		);
+	}
+
+	private static function provision_components( $attempt, $site ) {
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( RW_Maint_Client::ENROLL_TIMEOUT );
+		}
+
+		$secret = RW_Tokens::get_site_secret( (int) $site->id );
+		if ( ! is_string( $secret ) || '' === $secret ) {
+			return new WP_Error( 'bootstrap_failed', 'ReactWoo could not finish the secure connection. Try Connect WordPress again.' );
+		}
+
+		$installed = RW_WordPress_Client::install_components(
+			$attempt->rest_root,
+			(int) $site->id,
+			$secret,
+			array( 'mainwp-child', 'mainwp-child-reports' )
+		);
+		if ( is_wp_error( $installed ) ) {
+			if ( 'rw_existing_maintenance_connection' === $installed->get_error_code() ) {
+				return $installed;
+			}
+			return new WP_Error( 'components_install_failed', 'We could not install the maintenance components on your website. Try Connect WordPress again.' );
+		}
+
+		$status = self::wait_for_child( $attempt, (int) $site->id, $secret );
+		if ( is_wp_error( $status ) ) {
+			return $status;
+		}
+
+		$identity = RW_WordPress_Client::connector_identity( $attempt->rest_root, (int) $site->id, $secret );
+		if ( is_wp_error( $identity ) ) {
+			if ( 'rw_existing_maintenance_connection' === $identity->get_error_code() ) {
+				return $identity;
+			}
+			return new WP_Error( 'unique_id_missing', 'Passwordless maintenance identity was not created.' );
+		}
+
+		$admin    = isset( $identity['admin'] ) ? sanitize_user( (string) $identity['admin'] ) : '';
+		$uniqueid = isset( $identity['uniqueid'] ) ? (string) $identity['uniqueid'] : '';
+		if ( '' === $admin ) {
+			$admin = isset( $status['admin'] ) ? sanitize_user( (string) $status['admin'] ) : '';
+		}
+		if ( '' === $uniqueid && ! empty( $status['uniqueid'] ) ) {
+			$uniqueid = (string) $status['uniqueid'];
+		}
+		if ( '' === $admin || '' === $uniqueid ) {
+			return new WP_Error( 'unique_id_missing', 'Passwordless maintenance identity was not created.' );
+		}
+
+		$version = '';
+		if ( ! empty( $identity['child_version'] ) ) {
+			$version = (string) $identity['child_version'];
+		} elseif ( ! empty( $status['child_version'] ) ) {
+			$version = (string) $status['child_version'];
+		}
+
+		return array(
+			'admin'         => $admin,
+			'uniqueid'      => $uniqueid,
+			'child_version' => $version,
+		);
+	}
+
+	private static function wait_for_child( $attempt, $site_id, $secret ) {
+		$deadline = time() + self::COMPONENT_POLL_SECONDS;
+		do {
+			$status = RW_WordPress_Client::connector_status( $attempt->rest_root, $site_id, $secret );
+			if ( is_wp_error( $status ) ) {
+				if ( self::status_failure_is_terminal( $status ) ) {
+					return new WP_Error( 'components_install_failed', 'We could not confirm maintenance setup on your website. Try Connect WordPress again.' );
+				}
+			} elseif ( ! empty( $status['child_active'] ) && ! empty( $status['uniqueid'] ) ) {
+				return $status;
+			}
+			if ( time() >= $deadline ) {
+				break;
+			}
+			sleep( 2 );
+		} while ( true );
+
+		return new WP_Error( 'components_timeout', 'Setup timed out while preparing maintenance. Try again in a few minutes.' );
+	}
+
+	private static function ensure_active_plugin( $attempt, $user_login, $password, $plugin_file, $missing_code, $missing_message ) {
+		$plugin = RW_WordPress_Client::get_plugin( $attempt->rest_root, $user_login, $password, $plugin_file );
+		if ( is_wp_error( $plugin ) ) {
+			return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
+		}
+
+		if ( isset( $plugin['status'] ) && 'active' === $plugin['status'] ) {
+			return true;
+		}
+
+		$activated = RW_WordPress_Client::activate_plugin( $attempt->rest_root, $user_login, $password, $plugin_file );
+		if ( is_wp_error( $activated ) ) {
+			return new WP_Error( $missing_code, $missing_message, array( 'status' => 409 ) );
+		}
+
+		return true;
 	}
 
 	private static function fail_and_revoke( $attempt, $user_login, $password, $state, $code, $message ) {

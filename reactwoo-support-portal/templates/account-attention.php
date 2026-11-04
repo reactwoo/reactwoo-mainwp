@@ -21,8 +21,12 @@ $host = $host ? $host : 'your website';
 			<p class="rw-maint-lead"><?php echo esc_html( $rw_view['message'] ? $rw_view['message'] : 'Automated setup did not finish. Connect WordPress again to continue.' ); ?></p>
 			<?php if ( $rw_view['can_connect'] && $site ) : ?>
 				<?php RW_Portal_Account::render_plugin_download(); ?>
-				<?php RW_Portal_Account::render_connect_existing_form( $site ); ?>
-				<p class="rw-maint-helper">No WordPress password required.</p>
+				<?php if ( ! empty( $rw_view['replace_connection'] ) ) : ?>
+					<?php RW_Portal_Account::render_replace_connection_form( $site ); ?>
+				<?php else : ?>
+					<?php RW_Portal_Account::render_connect_existing_form( $site ); ?>
+					<p class="rw-maint-helper">No WordPress password required.</p>
+				<?php endif; ?>
 			<?php endif; ?>
 			<?php if ( $site && ! empty( $rw_view['manual_pending'] ) ) : ?>
 				<p class="rw-maint-helper">We already have your request. ReactWoo will finish connecting this website.</p>

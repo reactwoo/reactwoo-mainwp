@@ -2109,3 +2109,65 @@
 		padding: 24px;
 	}
 }
+
+.rw-maint-dash .rw-maint-panel > .rw-maint-kicker,
+.rw-maint-dash .rw-maint-panel > .rw-maint-pill,
+.rw-maint-dash .rw-maint-pills .rw-maint-pill,
+.rw-maint-dash .rw-maint-history-list .rw-maint-pill {
+	align-self: flex-start;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-kicker {
+	background: #2b3256;
+	color: #ffffff;
+}
+
+.rw-maint-dash .rw-maint-pill--good,
+.rw-maint-sites-index .rw-maint-pill--good,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-pill--good,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-premium-list .rw-maint-pill--good,
+.rw-maint-dash .rw-maint-panel--ink p.rw-maint-pill--good {
+	background: #a7f3d0;
+	color: #064e3b;
+}
+
+.rw-maint-dash .rw-maint-pill--warn,
+.rw-maint-sites-index .rw-maint-pill--warn,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-pill--warn,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-premium-list .rw-maint-pill--warn,
+.rw-maint-dash .rw-maint-panel--ink p.rw-maint-pill--warn {
+	background: #fde68a;
+	color: #78350f;
+}
+
+.rw-maint-dash .rw-maint-pill--bad,
+.rw-maint-sites-index .rw-maint-pill--bad,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-pill--bad,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-premium-list .rw-maint-pill--bad,
+.rw-maint-dash .rw-maint-panel--ink p.rw-maint-pill--bad {
+	background: #fecaca;
+	color: #7f1d1d;
+}
+
+.rw-maint-dash .rw-maint-pill--muted,
+.rw-maint-sites-index .rw-maint-pill--muted,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-pill--muted,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-premium-list .rw-maint-pill--muted,
+.rw-maint-dash .rw-maint-panel--ink p.rw-maint-pill--muted,
+.rw-maint-dash .rw-maint-pill--unknown,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-pill--unknown,
+.rw-maint-dash .rw-maint-panel--ink p.rw-maint-pill--unknown {
+	background: #e4e8f4;
+	color: #171c34;
+}
+
+.rw-maint-dash .rw-maint-pill--attention,
+.rw-maint-dash .rw-maint-panel--ink .rw-maint-pill--attention,
+.rw-maint-dash .rw-maint-panel--ink p.rw-maint-pill--attention,
+.rw-maint-sites-index .rw-maint-pill--attention,
+.rw-maint-switcher .rw-maint-pill--attention {
+	background: #fde68a;
+	color: #78350f;
+}

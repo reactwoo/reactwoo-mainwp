@@ -2149,6 +2149,21 @@ rw_test(
 		&& 'paper' === RW_Portal_Maintenance_Status::card_tone( 'security', 'good' )
 		&& 'paper' === RW_Portal_Maintenance_Status::card_tone( 'core', 'good' )
 );
+$licence_by_name = array();
+foreach ( $premium_view['premium']['items'] as $licence_row ) {
+	$licence_by_name[ $licence_row['name'] ] = $licence_row;
+}
+rw_test(
+	'licence pills use a date and no clock time',
+	'Active · 1 Jan 2027' === $licence_by_name['Elementor Pro']['licence']
+		&& 'good' === $licence_by_name['Elementor Pro']['licence_tone']
+		&& 'Update 3.21.0' === $licence_by_name['Elementor Pro']['update']
+		&& 'warn' === $licence_by_name['Elementor Pro']['update_tone']
+		&& 'Expired · 1 Jun 2025' === $licence_by_name['Gravity Forms']['licence']
+		&& 'bad' === $licence_by_name['Gravity Forms']['licence_tone']
+		&& 'Unknown' === $licence_by_name['SEO Plugin']['licence']
+		&& false === strpos( $licence_by_name['Elementor Pro']['licence'], ':' )
+);
 $flag_lines = RW_Portal_Maintenance_Status::attention_flags( $premium_snapshot );
 rw_test( 'an expired premium licence is an attention flag', in_array( '1 premium licence expired', $flag_lines, true ) );
 

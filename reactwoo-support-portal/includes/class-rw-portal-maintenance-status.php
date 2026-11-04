@@ -256,12 +256,12 @@ class RW_Portal_Maintenance_Status {
 				if ( ! in_array( $status, array( 'active', 'expired', 'unknown' ), true ) ) {
 					$status = 'unknown';
 				}
-				$expires = self::format_when( isset( $row['licence_expires_at'] ) ? $row['licence_expires_at'] : null );
-				$licence = 'Licence unknown';
+				$expires = self::format_day( isset( $row['licence_expires_at'] ) ? $row['licence_expires_at'] : null );
+				$licence = 'Unknown';
 				if ( 'active' === $status ) {
-					$licence = '' !== $expires ? 'Licence active until ' . $expires : 'Licence active';
+					$licence = '' !== $expires ? 'Active · ' . $expires : 'Active';
 				} elseif ( 'expired' === $status ) {
-					$licence = '' !== $expires ? 'Licence expired ' . $expires : 'Licence expired';
+					$licence = '' !== $expires ? 'Expired · ' . $expires : 'Expired';
 				}
 				$update = ! empty( $row['update_available'] );
 				$new    = isset( $row['new_version'] ) ? (string) $row['new_version'] : '';
@@ -269,10 +269,10 @@ class RW_Portal_Maintenance_Status {
 					'name'         => (string) $row['name'],
 					'version'      => isset( $row['current_version'] ) && '' !== (string) $row['current_version'] ? (string) $row['current_version'] : 'Version not reported',
 					'source'       => isset( $row['update_source'] ) ? (string) $row['update_source'] : '',
-					'update'       => $update ? ( '' !== $new ? 'Update to ' . $new : 'Update available' ) : 'Up to date',
-					'update_tone'  => $update ? 'attention' : 'good',
+					'update'       => $update ? ( '' !== $new ? 'Update ' . $new : 'Update' ) : 'Up to date',
+					'update_tone'  => $update ? 'warn' : 'good',
 					'licence'      => $licence,
-					'licence_tone' => 'active' === $status ? 'good' : ( 'expired' === $status ? 'attention' : 'muted' ),
+					'licence_tone' => 'active' === $status ? 'good' : ( 'expired' === $status ? 'bad' : 'muted' ),
 				);
 			}
 		}
@@ -541,12 +541,12 @@ class RW_Portal_Maintenance_Status {
 			case 'failed':
 				return array(
 					'label' => 'Failed',
-					'tone'  => 'attention',
+					'tone'  => 'bad',
 				);
 			case 'warning':
 				return array(
 					'label' => 'Warning',
-					'tone'  => 'attention',
+					'tone'  => 'warn',
 				);
 			case 'running':
 				return array(
@@ -837,23 +837,44 @@ class RW_Portal_Maintenance_Status {
 	 * @param mixed $value ISO time.
 	 * @return string
 	 */
-	public static function format_when( $value, $timezone = null ) {
-		if ( ! is_string( $value ) || '' === trim( $value ) ) {
+	public static function format_day( $value, $timezone = null ) {
+		$moment = self::local_moment( $value, $timezone );
+		if ( ! $moment ) {
 			return '';
+		}
+
+		return $moment->format( 'j M Y' );
+	}
+
+	public static function format_when( $value, $timezone = null ) {
+		$moment = self::local_moment( $value, $timezone );
+		if ( ! $moment ) {
+			return '';
+		}
+
+		return $moment->format( 'j M Y, H:i' ) . ' ' . self::zone_label( $moment );
+	}
+
+	/**
+	 * @param mixed $value ISO time.
+	 * @param mixed $timezone Optional zone override.
+	 * @return DateTimeImmutable|null
+	 */
+	private static function local_moment( $value, $timezone = null ) {
+		if ( ! is_string( $value ) || '' === trim( $value ) ) {
+			return null;
 		}
 		try {
 			$moment = new DateTimeImmutable( $value );
 		} catch ( Exception $e ) {
 			$time = strtotime( $value );
 			if ( ! $time ) {
-				return '';
+				return null;
 			}
 			$moment = new DateTimeImmutable( '@' . $time );
 		}
 
-		$moment = $moment->setTimezone( self::resolve_timezone( null !== $timezone ? $timezone : self::$display_timezone ) );
-
-		return $moment->format( 'j M Y, H:i' ) . ' ' . self::zone_label( $moment );
+		return $moment->setTimezone( self::resolve_timezone( null !== $timezone ? $timezone : self::$display_timezone ) );
 	}
 
 	/**

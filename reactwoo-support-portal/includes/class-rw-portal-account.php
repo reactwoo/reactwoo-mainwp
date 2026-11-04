@@ -80,6 +80,23 @@ class RW_Portal_Account {
 		return $missing !== get_query_var( self::ENDPOINT, $missing );
 	}
 
+	/**
+	 * Stylesheet version is the file's modification time so a CSS edit is fetched
+	 * without waiting for the plugin version to change.
+	 *
+	 * @return string
+	 */
+	public static function maintenance_style_version() {
+		$dir  = defined( 'RW_PORTAL_DIR' ) ? RW_PORTAL_DIR : dirname( __DIR__ ) . '/';
+		$path = $dir . 'assets/css/account-maintenance.css';
+		$mtime = file_exists( $path ) ? filemtime( $path ) : false;
+		if ( $mtime ) {
+			return (string) $mtime;
+		}
+
+		return defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.6';
+	}
+
 	public static function enqueue_maintenance_style() {
 		$handle = 'rw-portal-maintenance';
 		$done   = function_exists( 'wp_style_is' ) && wp_style_is( $handle, 'done' );
@@ -88,7 +105,7 @@ class RW_Portal_Account {
 				$handle,
 				RW_PORTAL_URL . 'assets/css/account-maintenance.css',
 				array(),
-				RW_PORTAL_VERSION
+				self::maintenance_style_version()
 			);
 		}
 

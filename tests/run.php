@@ -1465,7 +1465,8 @@ rw_test(
 	'maintenance endpoint enqueues the account stylesheet',
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
-		&& RW_PORTAL_VERSION === (string) $maintenance_style['ver']
+		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
+		&& '0.5.6' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -1524,6 +1525,15 @@ rw_test(
 );
 
 $maintenance_css = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+rw_test(
+	'Elementor account colours are overridden for maintenance headings and buttons',
+	false !== strpos( $maintenance_css, "Elementor's My Account widget overrides link and heading colours via CSS vars." )
+		&& false !== strpos( $maintenance_css, '--typography-section-titles-color: currentColor' )
+		&& false !== strpos( $maintenance_css, '.rw-maint .rw-maint-button { --links-normal-color:#fff; --links-hover-color:#fff; color:#fff; }' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding h2' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding .rw-maint-button' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding .rw-maint-hero .rw-maint-button-secondary' )
+);
 rw_test(
 	'plan blocks are separate cards with space between them',
 	false !== strpos( $maintenance_css, '.rw-maint-plan-block {' )

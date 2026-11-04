@@ -85,7 +85,8 @@ class RW_Portal_Maintenance_Status {
 			'premium'   => self::premium_panel( $payload ),
 			'summary'   => self::site_summary( $payload ),
 			'flags'     => self::attention_flags( $payload ),
-			'inventory' => self::inventory_panel( $payload ),
+			'inventory'      => self::inventory_panel( $payload ),
+			'backup_panel'   => self::backup_panel( $payload ),
 		);
 	}
 
@@ -442,6 +443,101 @@ class RW_Portal_Maintenance_Status {
 		}
 
 		return self::card( 'backups', 'Backups', 'Backups', $state, $label, $summary, $items );
+	}
+
+	/**
+	 * Last backup, next backup, and the last five history rows.
+	 *
+	 * @param array<string,mixed> $payload Snapshot.
+	 * @return array<string,mixed>
+	 */
+	private static function backup_panel( array $payload ) {
+		$backups  = isset( $payload['backups'] ) && is_array( $payload['backups'] ) ? $payload['backups'] : array();
+		$last     = isset( $backups['last'] ) && is_array( $backups['last'] ) ? $backups['last'] : array();
+		$status   = isset( $last['status'] ) ? (string) $last['status'] : '';
+		$last_date = self::format_when( isset( $last['time'] ) ? $last['time'] : null );
+		$next_date = self::format_when( isset( $backups['next_scheduled'] ) ? $backups['next_scheduled'] : null );
+		$schedule  = isset( $backups['next_schedule'] ) ? (string) $backups['next_schedule'] : '';
+		$mapped    = self::backup_status_view( $status );
+
+		$history = array();
+		if ( ! empty( $backups['recent'] ) && is_array( $backups['recent'] ) ) {
+			foreach ( array_slice( $backups['recent'], 0, 5 ) as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				$row_status = self::backup_status_view( isset( $row['status'] ) ? (string) $row['status'] : '' );
+				$history[]  = array(
+					'date'        => self::format_when( isset( $row['time'] ) ? $row['time'] : null ),
+					'type'        => ! empty( $row['type'] ) ? (string) $row['type'] : 'Not reported',
+					'type_known'  => ! empty( $row['type'] ),
+					'status'      => $row_status['label'],
+					'status_tone' => $row_status['tone'],
+					'size'        => ! empty( $row['size'] ) ? (string) $row['size'] : 'Not reported',
+					'size_known'  => ! empty( $row['size'] ),
+				);
+			}
+		}
+
+		$detail = 'A backup result has not been reported yet.';
+		if ( 'success' === $status && '' !== $last_date ) {
+			$detail = 'The last backup completed on ' . $last_date . '.';
+		} elseif ( 'failed' === $status && '' !== $last_date ) {
+			$detail = 'The last backup failed on ' . $last_date . '.';
+		} elseif ( 'warning' === $status && '' !== $last_date ) {
+			$detail = 'The last backup on ' . $last_date . ' completed with a warning.';
+		} elseif ( '' !== $last_date ) {
+			$detail = 'Recorded on ' . $last_date . '. The result was not reported.';
+		}
+
+		$next_detail = 'The schedule has not been reported.';
+		if ( '' !== $schedule ) {
+			$next_detail = $schedule . ' backup.';
+		}
+
+		return array(
+			'last_date'   => '' !== $last_date ? $last_date : 'Not available yet',
+			'last_status' => $mapped['label'],
+			'last_tone'   => $mapped['tone'],
+			'last_detail' => $detail,
+			'next_date'   => '' !== $next_date ? $next_date : 'Not scheduled yet',
+			'next_detail' => $next_detail,
+			'history'     => $history,
+		);
+	}
+
+	/**
+	 * @param string $status Raw backup status.
+	 * @return array{label:string,tone:string}
+	 */
+	private static function backup_status_view( $status ) {
+		switch ( $status ) {
+			case 'success':
+				return array(
+					'label' => 'Complete',
+					'tone'  => 'good',
+				);
+			case 'failed':
+				return array(
+					'label' => 'Failed',
+					'tone'  => 'attention',
+				);
+			case 'warning':
+				return array(
+					'label' => 'Warning',
+					'tone'  => 'attention',
+				);
+			case 'running':
+				return array(
+					'label' => 'Running',
+					'tone'  => 'muted',
+				);
+			default:
+				return array(
+					'label' => 'Not reported',
+					'tone'  => 'muted',
+				);
+		}
 	}
 
 	/**

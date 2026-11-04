@@ -884,7 +884,10 @@ class RW_Maint_Site_Snapshot {
 		$next_candidates = array();
 		foreach ( $points as $point ) {
 			if ( ! empty( $point['next'] ) ) {
-				$next_candidates[] = (int) $point['next'];
+				$next_candidates[] = array(
+					'time'     => (int) $point['next'],
+					'schedule' => null,
+				);
 			}
 		}
 
@@ -901,7 +904,12 @@ class RW_Maint_Site_Snapshot {
 				} elseif ( ! empty( $row['completed'] ) ) {
 					$status = 'success';
 				}
-				$points[] = array( 'time' => $time, 'status' => $status );
+				$points[] = array(
+					'time'   => $time,
+					'status' => $status,
+					'type'   => isset( $row['type'] ) ? $row['type'] : null,
+					'size'   => isset( $row['size'] ) ? $row['size'] : null,
+				);
 			}
 			$scheduled = self::next_from_schedule(
 				isset( $row['schedule'] ) ? $row['schedule'] : '',
@@ -909,7 +917,10 @@ class RW_Maint_Site_Snapshot {
 				$now
 			);
 			if ( $scheduled ) {
-				$next_candidates[] = $scheduled;
+				$next_candidates[] = array(
+					'time'     => $scheduled,
+					'schedule' => self::schedule_label( isset( $row['schedule'] ) ? $row['schedule'] : '' ),
+				);
 			}
 		}
 
@@ -918,12 +929,26 @@ class RW_Maint_Site_Snapshot {
 			if ( empty( $point['time'] ) ) {
 				continue;
 			}
-			$key = (int) $point['time'];
-			if ( ! isset( $history[ $key ] ) || ( null === $history[ $key ]['status'] && null !== $point['status'] ) ) {
+			$key  = (int) $point['time'];
+			$type = self::backup_type_label( isset( $point['type'] ) ? $point['type'] : null );
+			$size = self::backup_size_label( isset( $point['size'] ) ? $point['size'] : null );
+			if ( ! isset( $history[ $key ] ) ) {
 				$history[ $key ] = array(
 					'time'   => $key,
-					'status' => self::backup_status( $point['status'] ),
+					'status' => self::backup_status( isset( $point['status'] ) ? $point['status'] : null ),
+					'type'   => $type,
+					'size'   => $size,
 				);
+				continue;
+			}
+			if ( null === $history[ $key ]['status'] && null !== self::backup_status( isset( $point['status'] ) ? $point['status'] : null ) ) {
+				$history[ $key ]['status'] = self::backup_status( $point['status'] );
+			}
+			if ( null === $history[ $key ]['type'] && null !== $type ) {
+				$history[ $key ]['type'] = $type;
+			}
+			if ( null === $history[ $key ]['size'] && null !== $size ) {
+				$history[ $key ]['size'] = $size;
 			}
 		}
 		krsort( $history );
@@ -945,19 +970,24 @@ class RW_Maint_Site_Snapshot {
 			$recent[] = array(
 				'time'   => self::iso( $point['time'] ),
 				'status' => $point['status'],
+				'type'   => $point['type'],
+				'size'   => $point['size'],
 			);
 		}
 
-		$next_unix = null;
+		$next_unix     = null;
+		$next_schedule = null;
 		foreach ( $next_candidates as $candidate ) {
-			if ( $candidate > $now && ( null === $next_unix || $candidate < $next_unix ) ) {
-				$next_unix = $candidate;
+			if ( $candidate['time'] > $now && ( null === $next_unix || $candidate['time'] < $next_unix ) ) {
+				$next_unix     = $candidate['time'];
+				$next_schedule = $candidate['schedule'];
 			}
 		}
 
 		return array(
 			'last'           => $last,
 			'next_scheduled' => self::iso( $next_unix ),
+			'next_schedule'  => $next_schedule,
 			'next_unix'      => $next_unix,
 			'recent'         => $recent,
 		);
@@ -995,6 +1025,8 @@ class RW_Maint_Site_Snapshot {
 			$points[] = array(
 				'time'   => $time,
 				'status' => $status,
+				'type'   => self::first_scalar( $row, array( 'type', 'backup_type', 'kind' ) ),
+				'size'   => self::first_scalar( $row, array( 'size', 'filesize', 'bytes', 'archive_size' ) ),
 			);
 		}
 	}
@@ -1065,6 +1097,106 @@ class RW_Maint_Site_Snapshot {
 		}
 
 		return null;
+	}
+
+	/**
+	 * @param mixed $value Raw backup type.
+	 * @return string|null
+	 */
+	private static function backup_type_label( $value ) {
+		if ( ! is_scalar( $value ) ) {
+			return null;
+		}
+		$text = strtolower( trim( (string) $value ) );
+		if ( '' === $text ) {
+			return null;
+		}
+		if ( in_array( $text, array( 'full', 'complete', 'all' ), true ) ) {
+			return 'Full';
+		}
+		if ( in_array( $text, array( 'db', 'database' ), true ) ) {
+			return 'Database';
+		}
+		if ( in_array( $text, array( 'file', 'files' ), true ) ) {
+			return 'Files';
+		}
+		if ( strlen( $text ) > 24 ) {
+			return null;
+		}
+
+		return ucfirst( $text );
+	}
+
+	/**
+	 * @param mixed $value Raw size in bytes or a unit string.
+	 * @return string|null
+	 */
+	private static function backup_size_label( $value ) {
+		if ( is_int( $value ) || ( is_string( $value ) && preg_match( '/^\d+$/', trim( $value ) ) ) ) {
+			$bytes = (int) $value;
+			if ( $bytes <= 0 ) {
+				return null;
+			}
+			if ( $bytes >= 1099511627776 ) {
+				return self::size_unit( $bytes / 1099511627776, 'TB' );
+			}
+			if ( $bytes >= 1073741824 ) {
+				return self::size_unit( $bytes / 1073741824, 'GB' );
+			}
+			if ( $bytes >= 1048576 ) {
+				return self::size_unit( $bytes / 1048576, 'MB' );
+			}
+			if ( $bytes >= 1024 ) {
+				return self::size_unit( $bytes / 1024, 'KB' );
+			}
+
+			return $bytes . ' B';
+		}
+		if ( ! is_string( $value ) ) {
+			return null;
+		}
+		$text = trim( $value );
+		if ( preg_match( '/^\d+(?:\.\d+)?\s?(?:B|KB|MB|GB|TB)$/i', $text ) ) {
+			return preg_replace( '/\s*(B|KB|MB|GB|TB)$/i', ' $1', $text );
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param float  $amount Amount.
+	 * @param string $unit Unit.
+	 * @return string
+	 */
+	private static function size_unit( $amount, $unit ) {
+		$rounded = round( $amount, 1 );
+		if ( abs( $rounded - round( $rounded ) ) < 0.05 ) {
+			return (string) (int) round( $rounded ) . ' ' . $unit;
+		}
+
+		return number_format( $rounded, 1, '.', '' ) . ' ' . $unit;
+	}
+
+	/**
+	 * @param mixed $schedule Schedule token.
+	 * @return string|null
+	 */
+	private static function schedule_label( $schedule ) {
+		switch ( strtolower( trim( (string) $schedule ) ) ) {
+			case 'hourly':
+				return 'Hourly';
+			case 'daily':
+				return 'Daily';
+			case 'weekly':
+				return 'Weekly';
+			case 'biweekly':
+			case 'fortnightly':
+				return 'Every two weeks';
+			case 'monthly':
+				return 'Monthly';
+			default:
+				return null;
+		}
 	}
 
 	/**

@@ -2152,6 +2152,48 @@ rw_test(
 $flag_lines = RW_Portal_Maintenance_Status::attention_flags( $premium_snapshot );
 rw_test( 'an expired premium licence is an attention flag', in_array( '1 premium licence expired', $flag_lines, true ) );
 
+$backup_detail = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'updraftplus_history' => array(
+				array( 'time' => 1700000000, 'status' => 'success', 'type' => 'full', 'size' => 1288490188 ),
+				array( 'time' => 1699900000, 'status' => 'failed', 'type' => 'database', 'size' => '240 MB' ),
+				array( 'time' => 1699800000, 'status' => 'success' ),
+			),
+		),
+	),
+	1700001000
+);
+rw_test(
+	'backup history keeps type and size when they are recorded',
+	3 === count( $backup_detail['backups']['recent'] )
+		&& 'Full' === $backup_detail['backups']['recent'][0]['type']
+		&& '1.2 GB' === $backup_detail['backups']['recent'][0]['size']
+		&& 'Database' === $backup_detail['backups']['recent'][1]['type']
+		&& '240 MB' === $backup_detail['backups']['recent'][1]['size']
+		&& null === $backup_detail['backups']['recent'][2]['type']
+		&& null === $backup_detail['backups']['recent'][2]['size']
+);
+$history_view = RW_Portal_Maintenance_Status::present( $backup_detail );
+rw_test(
+	'backup history is a card with date, type, status and size',
+	'Complete' === $history_view['backup_panel']['history'][0]['status']
+		&& 'good' === $history_view['backup_panel']['history'][0]['status_tone']
+		&& '1.2 GB' === $history_view['backup_panel']['history'][0]['size']
+		&& 'Not reported' === $history_view['backup_panel']['history'][2]['type']
+		&& 'Not reported' === $history_view['backup_panel']['history'][2]['size']
+);
+$history_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/maintenance-status.php' );
+rw_test(
+	'the backup history template is its own card',
+	false !== strpos( $history_template, 'rw-maint-history-card' )
+		&& false !== strpos( $history_template, 'Date' )
+		&& false !== strpos( $history_template, 'Type' )
+		&& false !== strpos( $history_template, 'Status' )
+		&& false !== strpos( $history_template, 'Size' )
+);
+
 $index_blocks = array(
 	array(
 		'view' => array(

@@ -190,40 +190,45 @@ $next      = isset( $activity['next'] ) && is_array( $activity['next'] ) ? $acti
 		<?php endforeach; ?>
 	</div>
 
+	<?php $backup_panel = isset( $maintenance['backup_panel'] ) && is_array( $maintenance['backup_panel'] ) ? $maintenance['backup_panel'] : array(); ?>
 	<section class="rw-maint-backup" aria-labelledby="rw-maint-backup-title">
 		<h2 id="rw-maint-backup-title">Your site is backed up</h2>
 		<div class="rw-maint-row rw-maint-row-2">
 			<article class="rw-maint-panel rw-maint-panel--ink" data-status-card="backups">
 				<p class="rw-maint-kicker">Last backup</p>
-				<h3><?php echo esc_html( isset( $backups['state_label'] ) ? $backups['state_label'] : 'Not available yet' ); ?></h3>
-				<p class="rw-maint-panel-copy"><?php echo esc_html( isset( $backups['summary'] ) ? $backups['summary'] : '' ); ?></p>
+				<h3><?php echo esc_html( isset( $backup_panel['last_date'] ) ? $backup_panel['last_date'] : 'Not available yet' ); ?></h3>
+				<p class="rw-maint-pill rw-maint-pill--<?php echo esc_attr( isset( $backup_panel['last_tone'] ) ? $backup_panel['last_tone'] : 'muted' ); ?>"><?php echo esc_html( isset( $backup_panel['last_status'] ) ? $backup_panel['last_status'] : 'Not reported' ); ?></p>
+				<p class="rw-maint-panel-copy"><?php echo esc_html( isset( $backup_panel['last_detail'] ) ? $backup_panel['last_detail'] : '' ); ?></p>
 			</article>
 			<article class="rw-maint-panel rw-maint-panel--ink" data-status-card="backup-next">
 				<p class="rw-maint-kicker">Next backup</p>
-				<?php
-				$next_backup = '';
-				if ( ! empty( $backups['items'] ) ) {
-					foreach ( $backups['items'] as $item ) {
-						if ( 0 === strpos( (string) $item, 'Next scheduled backup:' ) ) {
-							$next_backup = trim( substr( (string) $item, strlen( 'Next scheduled backup:' ) ) );
-							break;
-						}
-					}
-				}
-				?>
-				<h3><?php echo esc_html( '' !== $next_backup ? $next_backup : 'Not scheduled yet' ); ?></h3>
-				<p class="rw-maint-panel-copy"><?php echo '' !== $next_backup ? 'The next backup is already scheduled.' : 'A future backup has not been reported yet.'; ?></p>
+				<h3><?php echo esc_html( isset( $backup_panel['next_date'] ) ? $backup_panel['next_date'] : 'Not scheduled yet' ); ?></h3>
+				<p class="rw-maint-panel-copy"><?php echo esc_html( isset( $backup_panel['next_detail'] ) ? $backup_panel['next_detail'] : 'The schedule has not been reported.' ); ?></p>
 			</article>
 		</div>
-		<?php if ( ! empty( $backups['items'] ) ) : ?>
-			<h3 class="rw-maint-subhead">Backup history</h3>
-			<ul class="rw-maint-history">
-				<?php foreach ( $backups['items'] as $item ) : ?>
-					<?php if ( 0 === strpos( (string) $item, 'Next scheduled backup:' ) ) { continue; } ?>
-					<li><?php echo esc_html( $item ); ?></li>
-				<?php endforeach; ?>
-			</ul>
-		<?php endif; ?>
+		<article class="rw-maint-panel rw-maint-panel--ink rw-maint-history-card" data-status-card="backup-history">
+			<h3>Backup history</h3>
+			<?php if ( empty( $backup_panel['history'] ) ) : ?>
+				<p class="rw-maint-panel-copy">No backup history has been reported yet.</p>
+			<?php else : ?>
+				<div class="rw-maint-history-head" aria-hidden="true">
+					<span>Date</span>
+					<span>Type</span>
+					<span>Status</span>
+					<span>Size</span>
+				</div>
+				<ol class="rw-maint-history-list">
+					<?php foreach ( $backup_panel['history'] as $entry ) : ?>
+						<li>
+							<span class="rw-maint-history-date"><span class="rw-maint-field-label">Date</span><?php echo esc_html( $entry['date'] ); ?></span>
+							<span class="<?php echo empty( $entry['type_known'] ) ? 'is-unknown' : ''; ?>"><span class="rw-maint-field-label">Type</span><?php echo esc_html( $entry['type'] ); ?></span>
+							<span><span class="rw-maint-field-label">Status</span><span class="rw-maint-pill rw-maint-pill--<?php echo esc_attr( $entry['status_tone'] ); ?>"><?php echo esc_html( $entry['status'] ); ?></span></span>
+							<span class="<?php echo empty( $entry['size_known'] ) ? 'is-unknown' : ''; ?>"><span class="rw-maint-field-label">Size</span><?php echo esc_html( $entry['size'] ); ?></span>
+						</li>
+					<?php endforeach; ?>
+				</ol>
+			<?php endif; ?>
+		</article>
 	</section>
 
 	<section class="rw-maint-activity" aria-labelledby="rw-maint-activity-title">
@@ -249,18 +254,20 @@ $next      = isset( $activity['next'] ) && is_array( $activity['next'] ) ? $acti
 				<?php endif; ?>
 			</article>
 		</div>
-		<?php if ( ! empty( $activity['recent'] ) ) : ?>
-			<h3 class="rw-maint-subhead">Recent runs</h3>
-			<ol class="rw-maint-runs">
-				<?php foreach ( $activity['recent'] as $run ) : ?>
-					<li>
-						<span><?php echo esc_html( isset( $run['when'] ) ? $run['when'] : '' ); ?></span>
-						<span><?php echo esc_html( isset( $run['done'] ) ? $run['done'] : '' ); ?></span>
-					</li>
-				<?php endforeach; ?>
-			</ol>
-		<?php else : ?>
-			<p class="rw-maint-panel-copy"><?php echo esc_html( isset( $activity['recent_empty'] ) ? $activity['recent_empty'] : 'No recent runs yet' ); ?></p>
-		<?php endif; ?>
+		<article class="rw-maint-panel rw-maint-panel--paper">
+			<h3>Recent runs</h3>
+			<?php if ( ! empty( $activity['recent'] ) ) : ?>
+				<ol class="rw-maint-runs">
+					<?php foreach ( $activity['recent'] as $run ) : ?>
+						<li>
+							<span><?php echo esc_html( isset( $run['when'] ) ? $run['when'] : '' ); ?></span>
+							<span><?php echo esc_html( isset( $run['done'] ) ? $run['done'] : '' ); ?></span>
+						</li>
+					<?php endforeach; ?>
+				</ol>
+			<?php else : ?>
+				<p class="rw-maint-panel-copy"><?php echo esc_html( isset( $activity['recent_empty'] ) ? $activity['recent_empty'] : 'No recent runs yet' ); ?></p>
+			<?php endif; ?>
+		</article>
 	</section>
 </section>

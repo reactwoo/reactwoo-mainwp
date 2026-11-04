@@ -1223,6 +1223,171 @@ rw_test( 'support credits are not sent to the licence server', false === strpos(
 $plans = RW_Maintenance_Plans::resolve( 'business' );
 rw_test( 'third-party premium list is empty', array() === $plans['third_party_premium_entitlements'] && array() === $plans['reactwoo_product_entitlements'] );
 
+$portal_main = file_get_contents( __DIR__ . '/../reactwoo-support-portal/reactwoo-support-portal.php' );
+$version_match = array();
+preg_match( "/define\\( 'RW_PORTAL_VERSION', '([^']+)' \\)/", $portal_main, $version_match );
+if ( ! defined( 'RW_PORTAL_VERSION' ) ) {
+	define( 'RW_PORTAL_VERSION', $version_match[1] );
+}
+if ( ! defined( 'RW_PORTAL_URL' ) ) {
+	define( 'RW_PORTAL_URL', 'https://portal.example/wp-content/plugins/reactwoo-support-portal/' );
+}
+
+if ( ! function_exists( 'is_wc_endpoint_url' ) ) {
+	function is_wc_endpoint_url( $endpoint = false ) {
+		$current = isset( $GLOBALS['rw_wc_endpoint'] ) ? $GLOBALS['rw_wc_endpoint'] : false;
+		if ( false === $endpoint ) {
+			return false !== $current && '' !== $current;
+		}
+		return (string) $current === (string) $endpoint;
+	}
+}
+if ( ! function_exists( 'is_account_page' ) ) {
+	function is_account_page() {
+		return ! empty( $GLOBALS['rw_is_account_page'] );
+	}
+}
+if ( ! function_exists( 'get_query_var' ) ) {
+	function get_query_var( $var, $default = '' ) {
+		if ( isset( $GLOBALS['rw_query_vars'] ) && is_array( $GLOBALS['rw_query_vars'] ) && array_key_exists( $var, $GLOBALS['rw_query_vars'] ) ) {
+			return $GLOBALS['rw_query_vars'][ $var ];
+		}
+		return $default;
+	}
+}
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+	function wp_enqueue_style( $handle, $src = '', $deps = array(), $ver = false, $media = 'all' ) {
+		unset( $deps, $media );
+		if ( isset( $GLOBALS['rw_enqueued_styles'][ $handle ] ) ) {
+			return;
+		}
+		$GLOBALS['rw_enqueued_styles'][ $handle ] = array(
+			'src'  => $src,
+			'ver'  => $ver,
+			'done' => false,
+		);
+	}
+}
+if ( ! function_exists( 'wp_style_is' ) ) {
+	function wp_style_is( $handle, $status = 'enqueued' ) {
+		if ( empty( $GLOBALS['rw_enqueued_styles'][ $handle ] ) || ! is_array( $GLOBALS['rw_enqueued_styles'][ $handle ] ) ) {
+			return false;
+		}
+		if ( 'done' === $status ) {
+			return ! empty( $GLOBALS['rw_enqueued_styles'][ $handle ]['done'] );
+		}
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_print_styles' ) ) {
+	function wp_print_styles( $handles = false ) {
+		foreach ( (array) $handles as $handle ) {
+			if ( isset( $GLOBALS['rw_enqueued_styles'][ $handle ] ) ) {
+				$GLOBALS['rw_enqueued_styles'][ $handle ]['done'] = true;
+				$GLOBALS['rw_printed_styles'][] = $handle;
+			}
+		}
+	}
+}
+if ( ! function_exists( 'did_action' ) ) {
+	function did_action( $hook ) {
+		return isset( $GLOBALS['rw_did_action'][ $hook ] ) ? (int) $GLOBALS['rw_did_action'][ $hook ] : 0;
+	}
+}
+if ( ! function_exists( 'get_current_user_id' ) ) {
+	function get_current_user_id() {
+		return 0;
+	}
+}
+
+$account_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php' );
+$query_vars  = RW_Portal_Account::add_query_var( array( 'orders' => 'orders' ) );
+rw_test(
+	'maintenance is a WooCommerce account query var',
+	false !== strpos( $account_src, "'woocommerce_get_query_vars'" )
+		&& isset( $query_vars['maintenance'] )
+		&& 'maintenance' === $query_vars['maintenance']
+		&& 'orders' === $query_vars['orders']
+);
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_wc_endpoint']     = 'maintenance';
+$GLOBALS['rw_is_account_page'] = false;
+$GLOBALS['rw_query_vars']      = array();
+$GLOBALS['rw_did_action']      = array();
+RW_Portal_Account::enqueue_assets();
+$maintenance_style = isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] ) ? $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] : null;
+rw_test(
+	'maintenance endpoint enqueues the account stylesheet',
+	is_array( $maintenance_style )
+		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
+		&& RW_PORTAL_VERSION === (string) $maintenance_style['ver']
+		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
+);
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_wc_endpoint']     = '';
+$GLOBALS['rw_is_account_page'] = true;
+$GLOBALS['rw_query_vars']      = array( 'maintenance' => '' );
+RW_Portal_Account::enqueue_assets();
+rw_test(
+	'an account page with the maintenance query var still enqueues the stylesheet',
+	isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] )
+);
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_is_account_page'] = true;
+$GLOBALS['rw_query_vars']      = array();
+RW_Portal_Account::enqueue_assets();
+rw_test( 'other account screens do not enqueue the maintenance stylesheet', ! isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] ) );
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_wc_endpoint']     = '';
+$GLOBALS['rw_is_account_page'] = false;
+$GLOBALS['rw_did_action']      = array( 'wp_head' => 1 );
+ob_start();
+RW_Portal_Account::render();
+$maintenance_markup = ob_get_clean();
+rw_test(
+	'rendering the maintenance endpoint enqueues the stylesheet',
+	isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] )
+		&& in_array( 'rw-portal-maintenance', (array) $GLOBALS['rw_printed_styles'], true )
+		&& false !== strpos( $maintenance_markup, 'Please log in' )
+);
+
+$ordered_blocks = RW_Portal_Account::sort_subscription_blocks(
+	array(
+		array( 'view' => array( 'state' => 'attention' ), 'id' => 'attention' ),
+		array( 'view' => array( 'state' => 'connected' ), 'id' => 'connected-first' ),
+		array( 'view' => array( 'state' => 'setup' ), 'id' => 'setup' ),
+		array( 'view' => array( 'state' => 'connected' ), 'id' => 'connected-second' ),
+	)
+);
+$ordered_ids = array();
+foreach ( $ordered_blocks as $ordered_block ) {
+	$ordered_ids[] = $ordered_block['id'];
+}
+rw_test( 'connected subscriptions are shown first', array( 'connected-first', 'connected-second', 'attention', 'setup' ) === $ordered_ids );
+
+$attention_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-attention.php' );
+rw_test(
+	'a subscription that needs attention collapses the connection steps',
+	false !== strpos( $attention_template, '<details class="rw-maint-finish">' )
+		&& false !== strpos( $attention_template, 'Finish connecting' )
+		&& false !== strpos( $attention_template, 'rw-maint-finish-steps' )
+		&& false === strpos( $attention_template, '<details class="rw-maint-finish" open' )
+);
+
+$maintenance_css = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+rw_test(
+	'plan blocks are separate cards with space between them',
+	false !== strpos( $maintenance_css, '.rw-maint-plan-block {' )
+		&& false !== strpos( $maintenance_css, 'gap: 28px' )
+		&& false !== strpos( $maintenance_css, 'border-radius: 20px' )
+);
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

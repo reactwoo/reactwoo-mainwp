@@ -13,8 +13,7 @@ $site = $rw_view['site'];
 $host = $site ? wp_parse_url( (string) $site->site_url, PHP_URL_HOST ) : '';
 $host = $host ? $host : 'your website';
 ?>
-<article class="rw-maint-plan-block">
-	<section class="rw-maint-hero" aria-labelledby="rw-maint-progress-title">
+<section class="rw-maint-hero" aria-labelledby="rw-maint-progress-title">
 		<div>
 			<p class="rw-maint-pill"><?php echo esc_html( $rw_view['status_label'] ); ?></p>
 			<h2 id="rw-maint-progress-title">Setting up <?php echo esc_html( $host ); ?></h2>
@@ -40,4 +39,3 @@ $host = $host ? $host : 'your website';
 			<?php endforeach; ?>
 		</ol>
 	</section>
-</article>

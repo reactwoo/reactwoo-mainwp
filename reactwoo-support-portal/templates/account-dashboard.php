@@ -13,8 +13,7 @@ $site = $rw_view['site'];
 $host = $site ? wp_parse_url( (string) $site->site_url, PHP_URL_HOST ) : '';
 $host = $host ? $host : 'your website';
 ?>
-<article class="rw-maint-plan-block">
-	<section class="rw-maint-hero" aria-labelledby="rw-maint-dash-title">
+<section class="rw-maint-hero" aria-labelledby="rw-maint-dash-title">
 		<div>
 			<p class="rw-maint-pill"><?php echo esc_html( $rw_view['status_label'] ); ?></p>
 			<h2 id="rw-maint-dash-title">Your website is protected</h2>
@@ -91,4 +90,3 @@ $host = $host ? $host : 'your website';
 			</div>
 		</section>
 	<?php endif; ?>
-</article>

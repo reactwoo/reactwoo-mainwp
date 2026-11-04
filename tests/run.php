@@ -2194,6 +2194,69 @@ rw_test(
 		&& false !== strpos( $history_template, 'Size' )
 );
 
+if ( ! function_exists( 'wp_timezone' ) ) {
+	function wp_timezone() {
+		$name = isset( $GLOBALS['rw_wp_timezone'] ) ? (string) $GLOBALS['rw_wp_timezone'] : 'UTC';
+		return new DateTimeZone( $name );
+	}
+}
+
+$zoned_site = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array( 'timezone_string' => 'Europe/London' ),
+		'sync'    => array( 'dtsSync' => 1700000000 ),
+	)
+);
+$offset_site = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array( 'gmt_offset' => 5.5 ),
+	)
+);
+$invalid_zone = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array( 'timezone_string' => 'Not/AZone' ),
+	)
+);
+rw_test( 'the snapshot keeps the site timezone', 'Europe/London' === $zoned_site['timezone'] );
+rw_test( 'a numeric offset becomes a fixed zone', '+05:30' === $offset_site['timezone'] );
+rw_test( 'an unrecognised zone is left unset', null === $invalid_zone['timezone'] );
+
+$london_time = RW_Portal_Maintenance_Status::format_when( '2023-11-14T22:13:20+00:00', 'Europe/London' );
+$paris_time  = RW_Portal_Maintenance_Status::format_when( '2023-11-14T22:13:20+00:00', 'Europe/Paris' );
+$ny_time     = RW_Portal_Maintenance_Status::format_when( '2023-11-14T22:13:20+00:00', 'America/New_York' );
+rw_test( 'winter London time is labelled GMT', '14 Nov 2023, 22:13 GMT' === $london_time && false === strpos( $london_time, 'UTC' ) );
+rw_test( 'a site zone is not shown as UTC', '14 Nov 2023, 23:13 CET' === $paris_time );
+rw_test( 'New York winter time is labelled EST', '14 Nov 2023, 17:13 EST' === $ny_time );
+
+$GLOBALS['rw_wp_timezone'] = 'Europe/Paris';
+$wordpress_zone = RW_Portal_Maintenance_Status::present(
+	array(
+		'last_admin_login' => array(
+			'time'     => '2023-11-14T22:13:20+00:00',
+			'username' => 'jane',
+		),
+	)
+);
+$GLOBALS['rw_wp_timezone'] = 'UTC';
+$site_zone = RW_Portal_Maintenance_Status::present(
+	array(
+		'timezone'         => 'America/New_York',
+		'last_admin_login' => array(
+			'time'     => '2023-11-14T22:13:20+00:00',
+			'username' => 'jane',
+		),
+	)
+);
+rw_test(
+	'a missing site zone uses the WordPress zone',
+	false !== strpos( $wordpress_zone['login']['when'], 'CET' )
+		&& false === strpos( $wordpress_zone['login']['when'], 'UTC' )
+);
+rw_test( 'the site zone wins over the WordPress zone', false !== strpos( $site_zone['login']['when'], 'EST' ) );
+
 $index_blocks = array(
 	array(
 		'view' => array(

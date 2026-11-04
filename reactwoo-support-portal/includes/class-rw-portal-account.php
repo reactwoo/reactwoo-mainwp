@@ -443,12 +443,19 @@ class RW_Portal_Account {
 		if ( '' === $raw ) {
 			$raw = (string) $subscription->get_date( 'end' );
 		}
-		$time = strtotime( $raw );
-		if ( ! $time ) {
+		try {
+			$moment = new DateTimeImmutable( $raw );
+		} catch ( Exception $e ) {
 			return '';
 		}
+		if ( function_exists( 'wp_timezone' ) ) {
+			$zone = wp_timezone();
+			if ( $zone instanceof DateTimeZone ) {
+				$moment = $moment->setTimezone( $zone );
+			}
+		}
 
-		return gmdate( 'j M Y', $time );
+		return $moment->format( 'j M Y' );
 	}
 
 	private static function subscription_host( $rw_view ) {

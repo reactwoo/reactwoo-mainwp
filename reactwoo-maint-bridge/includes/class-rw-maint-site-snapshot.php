@@ -94,10 +94,12 @@ class RW_Maint_Site_Snapshot {
 			'security'        => array(
 				'issues_count' => self::security_count( self::value_of( $website, $options, 'securityIssues' ), self::has_key( $website, 'securityIssues' ) || self::has_key( $options, 'securityIssues' ) ),
 			),
+			'timezone'        => self::reported_timezone( $website, $sync, $options ),
 			'last_sync_at'    => self::iso( self::unix_of( isset( $sync['dtsSync'] ) ? $sync['dtsSync'] : null ) ),
 			'backups'         => array(
 				'last'           => $backups['last'],
 				'next_scheduled' => $backups['next_scheduled'],
+				'next_schedule'  => isset( $backups['next_schedule'] ) ? $backups['next_schedule'] : null,
 				'recent'         => $backups['recent'],
 			),
 			'uptime'          => self::uptime( $website, $monitors ),
@@ -1891,6 +1893,69 @@ class RW_Maint_Site_Snapshot {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Named zone from the synced site, or a fixed offset when only gmt_offset is stored.
+	 *
+	 * @param array<string,mixed> $website Website row.
+	 * @param array<string,mixed> $sync Sync row.
+	 * @param array<string,mixed> $options Option map.
+	 * @return string|null
+	 */
+	private static function reported_timezone( array $website, array $sync, array $options ) {
+		foreach ( array( $options, $sync, $website ) as $bag ) {
+			foreach ( array( 'timezone_string', 'timezone', 'site_timezone' ) as $key ) {
+				if ( empty( $bag[ $key ] ) || ! is_string( $bag[ $key ] ) ) {
+					continue;
+				}
+				if ( self::is_timezone( $bag[ $key ] ) ) {
+					return $bag[ $key ];
+				}
+			}
+		}
+		foreach ( array( $options, $sync, $website ) as $bag ) {
+			if ( ! isset( $bag['gmt_offset'] ) || ! is_numeric( $bag['gmt_offset'] ) ) {
+				continue;
+			}
+			$offset = self::offset_timezone( $bag['gmt_offset'] );
+			if ( self::is_timezone( $offset ) ) {
+				return $offset;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param string $name Timezone identifier.
+	 * @return bool
+	 */
+	private static function is_timezone( $name ) {
+		try {
+			new DateTimeZone( $name );
+			return true;
+		} catch ( Exception $e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * @param mixed $offset Hours east of GMT. May include a half hour.
+	 * @return string
+	 */
+	private static function offset_timezone( $offset ) {
+		$offset = (float) $offset;
+		$sign   = $offset >= 0 ? '+' : '-';
+		$abs    = abs( $offset );
+		$hours  = (int) floor( $abs );
+		$mins   = (int) round( ( $abs - $hours ) * 60 );
+		if ( $mins >= 60 ) {
+			$hours++;
+			$mins = 0;
+		}
+
+		return sprintf( '%s%02d:%02d', $sign, $hours, $mins );
 	}
 
 	/**

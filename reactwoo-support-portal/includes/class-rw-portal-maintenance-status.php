@@ -14,6 +14,13 @@ class RW_Portal_Maintenance_Status {
 	const CACHE_TTL = 900;
 
 	/**
+	 * Zone used while a snapshot is being turned into customer text.
+	 *
+	 * @var string|null
+	 */
+	private static $display_timezone = null;
+
+	/**
 	 * @param object        $site Portal site.
 	 * @param callable|null $fetcher Optional replacement for the bridge call.
 	 * @return array<string,mixed>
@@ -63,6 +70,20 @@ class RW_Portal_Maintenance_Status {
 	 * @return array<string,mixed>
 	 */
 	public static function present( array $payload ) {
+		$previous                 = self::$display_timezone;
+		self::$display_timezone   = isset( $payload['timezone'] ) ? $payload['timezone'] : null;
+		try {
+			return self::present_in_zone( $payload );
+		} finally {
+			self::$display_timezone = $previous;
+		}
+	}
+
+	/**
+	 * @param array<string,mixed> $payload Bridge snapshot.
+	 * @return array<string,mixed>
+	 */
+	private static function present_in_zone( array $payload ) {
 		$cards = array(
 			self::card_core( $payload ),
 			self::card_updates( $payload ),
@@ -816,15 +837,73 @@ class RW_Portal_Maintenance_Status {
 	 * @param mixed $value ISO time.
 	 * @return string
 	 */
-	public static function format_when( $value ) {
+	public static function format_when( $value, $timezone = null ) {
 		if ( ! is_string( $value ) || '' === trim( $value ) ) {
 			return '';
 		}
-		$time = strtotime( $value );
-		if ( ! $time ) {
-			return '';
+		try {
+			$moment = new DateTimeImmutable( $value );
+		} catch ( Exception $e ) {
+			$time = strtotime( $value );
+			if ( ! $time ) {
+				return '';
+			}
+			$moment = new DateTimeImmutable( '@' . $time );
 		}
 
-		return gmdate( 'j M Y, H:i', $time ) . ' UTC';
+		$moment = $moment->setTimezone( self::resolve_timezone( null !== $timezone ? $timezone : self::$display_timezone ) );
+
+		return $moment->format( 'j M Y, H:i' ) . ' ' . self::zone_label( $moment );
+	}
+
+	/**
+	 * Site-reported zone first, then the WordPress zone for this account.
+	 *
+	 * @param mixed $reported Timezone identifier from the synced site.
+	 * @return DateTimeZone
+	 */
+	public static function resolve_timezone( $reported ) {
+		if ( is_string( $reported ) && '' !== $reported ) {
+			try {
+				return new DateTimeZone( $reported );
+			} catch ( Exception $e ) {
+				unset( $e );
+			}
+		}
+		if ( function_exists( 'wp_timezone' ) ) {
+			$zone = wp_timezone();
+			if ( $zone instanceof DateTimeZone ) {
+				return $zone;
+			}
+		}
+
+		return new DateTimeZone( 'UTC' );
+	}
+
+	/**
+	 * Short customer-facing zone name. UTC is shown as GMT.
+	 *
+	 * @param DateTimeInterface $moment Local moment.
+	 * @return string
+	 */
+	public static function zone_label( DateTimeInterface $moment ) {
+		$abbr = $moment->format( 'T' );
+		if ( in_array( $abbr, array( 'UTC', 'GMT', 'Z' ), true ) ) {
+			return 'GMT';
+		}
+		if ( preg_match( '/^[+-]\d+$/', $abbr ) ) {
+			$offset = $moment->getOffset();
+			$sign   = $offset >= 0 ? '+' : '-';
+			$abs    = abs( $offset );
+			$hours  = (int) ( $abs / 3600 );
+			$mins   = (int) ( ( $abs % 3600 ) / 60 );
+			if ( $mins > 0 ) {
+				return sprintf( 'GMT%s%d:%02d', $sign, $hours, $mins );
+			}
+
+			return 'GMT' . $sign . $hours;
+		}
+
+		return $abbr;
 	}
 }

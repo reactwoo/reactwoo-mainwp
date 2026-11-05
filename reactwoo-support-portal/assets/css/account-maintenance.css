@@ -2646,9 +2646,21 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
+	min-width: 0;
+	max-width: 100%;
 }
+.rw-maint-action-card__titles {
+	display: grid;
+	gap: 6px;
+	min-width: 0;
+}
+.rw-maint-action-card__head h3,
 .rw-maint-action-card__head h4 {
 	margin: 0;
+	min-width: 0;
+	overflow-wrap: break-word;
+}
+.rw-maint-action-card__head h4 {
 	font-size: 15px;
 	font-weight: 600;
 	line-height: 1.35;
@@ -2662,6 +2674,15 @@
 	height: 36px;
 	border-radius: 10px;
 	flex: 0 0 36px;
+	overflow: visible;
+}
+.rw-maint-action-card__icon svg {
+	display: block;
+	width: 20px;
+	height: 20px;
+	max-width: none;
+	flex: 0 0 20px;
+	overflow: visible;
 }
 .rw-maint-action-card .rw-maint-panel-copy {
 	margin: 0;
@@ -2729,6 +2750,16 @@
 }
 .rw-maint-action-cat--pause .rw-maint-action-card {
 	border-color: var(--rw-cat-pause-border);
+}
+
+/* Tools + report preferences sit outside the category bands */
+.rw-maint-connector-card .rw-maint-action-card__icon {
+	color: var(--rw-brand-strong);
+	background: var(--rw-pill);
+}
+.rw-maint-recipients-card .rw-maint-action-card__icon {
+	color: var(--rw-cat-reports-fg);
+	background: var(--rw-cat-reports-icon);
 }
 
 /* Status bar / live status pills — never clip label text */
@@ -3024,6 +3055,14 @@
 .rw-maint[data-theme="dark"] .rw-maint-action-card {
 	background: var(--rw-card);
 	color: var(--rw-ink);
+}
+.rw-maint[data-theme="dark"] .rw-maint-action-card__head h4 {
+	color: var(--rw-ink);
+}
+.rw-maint[data-theme="dark"] .rw-maint-action-card .rw-maint-panel-copy,
+.rw-maint[data-theme="dark"] .rw-maint-connector-card .rw-maint-panel-copy,
+.rw-maint[data-theme="dark"] .rw-maint-recipients-card .rw-maint-panel-copy {
+	color: var(--rw-muted);
 }
 .rw-maint[data-theme="dark"] .rw-maint-panel--ink,
 .rw-maint[data-theme="dark"] .rw-maint-attention,

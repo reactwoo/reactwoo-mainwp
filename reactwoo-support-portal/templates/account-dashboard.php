@@ -25,6 +25,9 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 		include RW_PORTAL_DIR . 'templates/partials/site-switcher.php';
 	}
 	?>
+	<div class="rw-maint-dash-toolbar">
+		<?php include RW_PORTAL_DIR . 'templates/partials/theme-toggle.php'; ?>
+	</div>
 	<section class="rw-maint-hero<?php echo $needs_attention ? ' rw-maint-hero--attention' : ''; ?>" aria-labelledby="rw-maint-dash-title">
 		<div>
 			<p class="rw-maint-hero-host"><?php echo esc_html( $host ); ?></p>
@@ -82,6 +85,7 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 
 	<?php
 	if ( $site ) {
+		include RW_PORTAL_DIR . 'templates/partials/status-strip.php';
 		include RW_PORTAL_DIR . 'templates/partials/customer-actions.php';
 	}
 	?>

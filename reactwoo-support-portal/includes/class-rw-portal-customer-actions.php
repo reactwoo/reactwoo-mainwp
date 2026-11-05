@@ -73,13 +73,23 @@ class RW_Portal_Customer_Actions {
 		}
 
 		if ( in_array( $action, self::CONFIRM_ACTIONS, true ) && empty( $_POST['rw_confirm_action'] ) ) {
-			self::notice( 'Please confirm this action before continuing.', 'error' );
+			self::set_status_notice(
+				$user_id,
+				'warning',
+				'Confirm required',
+				'Tick the confirmation checkbox before this action can run.'
+			);
 			return true;
 		}
 
 		$rate = self::check_rate_limit( $user_id, (int) $site->id, $action );
 		if ( is_wp_error( $rate ) ) {
-			self::notice( $rate->get_error_message(), 'error' );
+			self::set_card_notice(
+				$user_id,
+				$action,
+				'rate_limited',
+				'You can run this action up to ' . (int) self::RATE_MAX . ' times every ' . (int) ( self::RATE_WINDOW / 60 ) . ' minutes for this site. Try again shortly.'
+			);
 			return true;
 		}
 
@@ -103,7 +113,12 @@ class RW_Portal_Customer_Actions {
 					'error_code'      => $code,
 				)
 			);
-			self::notice( self::friendly_error( $result ), 'error' );
+			self::set_status_notice(
+				$user_id,
+				'critical',
+				'Action failed',
+				self::friendly_error( $result )
+			);
 			return true;
 		}
 
@@ -129,7 +144,12 @@ class RW_Portal_Customer_Actions {
 			)
 		);
 
-		self::notice( self::success_message( $action ), 'success' );
+		self::set_status_notice(
+			$user_id,
+			'success',
+			'Done',
+			self::success_message( $action )
+		);
 		return true;
 	}
 
@@ -489,6 +509,7 @@ class RW_Portal_Customer_Actions {
 	 * @return void
 	 */
 	public static function render_action_form( $site, $action, $label, $confirm_label, $button_class = 'rw-maint-button-secondary' ) {
+		$card_notice = self::consume_card_notice_for_action( get_current_user_id(), $action );
 		echo '<form class="rw-maint-action-form" method="post">';
 		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
 		echo '<input type="hidden" name="rw_portal_action" value="' . esc_attr( $action ) . '" />';
@@ -496,5 +517,107 @@ class RW_Portal_Customer_Actions {
 		echo '<label class="rw-maint-confirm"><input type="checkbox" name="rw_confirm_action" value="1" required /> ' . esc_html( $confirm_label ) . '</label>';
 		echo '<button type="submit" class="' . esc_attr( $button_class ) . '">' . esc_html( $label ) . '</button>';
 		echo '</form>';
+		if ( $card_notice ) {
+			echo '<p class="rw-maint-card-notice rw-maint-card-notice--' . esc_attr( $card_notice['tone'] ) . '" role="status">';
+			echo '<span class="rw-maint-pill">' . esc_html( $card_notice['label'] ) . '</span> ';
+			echo '<span class="rw-maint-card-notice__text">' . esc_html( $card_notice['message'] ) . '</span>';
+			echo '</p>';
+		}
+	}
+
+	/**
+	 * Persist a short-lived page status notice (light severity strip).
+	 *
+	 * @param int    $user_id
+	 * @param string $tone    info|warning|critical
+	 * @param string $label
+	 * @param string $message
+	 * @return void
+	 */
+	public static function set_status_notice( $user_id, $tone, $label, $message ) {
+		set_transient(
+			self::status_notice_key( $user_id ),
+			array(
+				'tone'    => sanitize_key( $tone ),
+				'label'   => (string) $label,
+				'message' => (string) $message,
+			),
+			120
+		);
+	}
+
+	/**
+	 * @param int $user_id
+	 * @return array{tone:string,label:string,message:string}|null
+	 */
+	public static function consume_status_notice( $user_id ) {
+		$key = self::status_notice_key( $user_id );
+		$val = get_transient( $key );
+		delete_transient( $key );
+		if ( ! is_array( $val ) || empty( $val['message'] ) ) {
+			return null;
+		}
+		return array(
+			'tone'    => isset( $val['tone'] ) ? sanitize_key( $val['tone'] ) : 'info',
+			'label'   => isset( $val['label'] ) ? (string) $val['label'] : '',
+			'message' => (string) $val['message'],
+		);
+	}
+
+	/**
+	 * Rate-limit (and similar) messages belong on the action card, not a page banner.
+	 *
+	 * @param int    $user_id
+	 * @param string $action
+	 * @param string $tone
+	 * @param string $message
+	 * @return void
+	 */
+	public static function set_card_notice( $user_id, $action, $tone, $message ) {
+		set_transient(
+			self::card_notice_key( $user_id ),
+			array(
+				'action'  => sanitize_key( $action ),
+				'tone'    => sanitize_key( $tone ),
+				'label'   => 'rate_limited' === $tone ? 'Rate limited' : 'Notice',
+				'message' => (string) $message,
+			),
+			120
+		);
+	}
+
+	/**
+	 * @param int    $user_id
+	 * @param string $action
+	 * @return array{tone:string,label:string,message:string}|null
+	 */
+	public static function consume_card_notice_for_action( $user_id, $action ) {
+		$key = self::card_notice_key( $user_id );
+		$val = get_transient( $key );
+		if ( ! is_array( $val ) || empty( $val['action'] ) || sanitize_key( $action ) !== sanitize_key( $val['action'] ) ) {
+			return null;
+		}
+		delete_transient( $key );
+		return array(
+			'tone'    => isset( $val['tone'] ) ? sanitize_key( $val['tone'] ) : 'warning',
+			'label'   => isset( $val['label'] ) ? (string) $val['label'] : 'Notice',
+			'message' => isset( $val['message'] ) ? (string) $val['message'] : '',
+		);
+	}
+
+	/**
+	 * @param int $user_id
+	 * @return string
+	 */
+	private static function status_notice_key( $user_id ) {
+		return 'rw_ca_status_' . (int) $user_id;
+	}
+
+	/**
+	 * @param int $user_id
+	 * @return string
+	 */
+	private static function card_notice_key( $user_id ) {
+		return 'rw_ca_card_' . (int) $user_id;
 	}
 }

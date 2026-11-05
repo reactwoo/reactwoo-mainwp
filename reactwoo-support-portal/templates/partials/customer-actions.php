@@ -51,7 +51,7 @@ $paused = ( 'suspended' === $status );
 		<section class="rw-maint-action-cat rw-maint-action-cat--maintain" aria-labelledby="rw-maint-cat-maintain">
 			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-maintain">Maintain</h3>
 			<div class="rw-maint-action-cat__cards">
-				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
+				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary" id="rw-maint-run-updates">
 					<div class="rw-maint-action-card__head">
 						<span class="rw-maint-action-card__icon" aria-hidden="true">
 							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>

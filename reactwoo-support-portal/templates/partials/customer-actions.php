@@ -22,8 +22,8 @@ $paused = ( 'suspended' === $status );
 	<p class="rw-maint-panel-copy">Request a check, sync, backup or update for this website. Each action needs confirmation and is rate-limited.</p>
 
 	<div class="rw-maint-action-categories">
-		<section class="rw-maint-action-cat rw-maint-action-cat--backups" aria-labelledby="rw-maint-cat-backups">
-			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-backups">Backups</h3>
+		<section class="rw-maint-action-cat rw-maint-action-cat--protect" aria-labelledby="rw-maint-cat-protect">
+			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-protect">Protect</h3>
 			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
@@ -35,12 +35,6 @@ $paused = ( 'suspended' === $status );
 					<p class="rw-maint-panel-copy">Queue a full site backup.</p>
 					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'request_backup', 'Request backup', 'I confirm I want a backup of this site.', 'rw-maint-button' ); ?>
 				</article>
-			</div>
-		</section>
-
-		<section class="rw-maint-action-cat rw-maint-action-cat--security" aria-labelledby="rw-maint-cat-security">
-			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-security">Security</h3>
-			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
 						<span class="rw-maint-action-card__icon" aria-hidden="true">
@@ -54,8 +48,8 @@ $paused = ( 'suspended' === $status );
 			</div>
 		</section>
 
-		<section class="rw-maint-action-cat rw-maint-action-cat--updates" aria-labelledby="rw-maint-cat-updates">
-			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-updates">Updates</h3>
+		<section class="rw-maint-action-cat rw-maint-action-cat--maintain" aria-labelledby="rw-maint-cat-maintain">
+			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-maintain">Maintain</h3>
 			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
@@ -67,12 +61,6 @@ $paused = ( 'suspended' === $status );
 					<p class="rw-maint-panel-copy">Approve and run WordPress, plugin and theme updates that are waiting.</p>
 					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'run_updates', 'Run pending updates', 'I understand updates will be applied to this site now.', 'rw-maint-button' ); ?>
 				</article>
-			</div>
-		</section>
-
-		<section class="rw-maint-action-cat rw-maint-action-cat--health" aria-labelledby="rw-maint-cat-health">
-			<h3 class="rw-maint-action-cat__label" id="rw-maint-cat-health">Health &amp; Sync</h3>
-			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card">
 					<div class="rw-maint-action-card__head">
 						<span class="rw-maint-action-card__icon" aria-hidden="true">

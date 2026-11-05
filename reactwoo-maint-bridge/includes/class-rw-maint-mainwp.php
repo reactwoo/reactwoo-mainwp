@@ -14,6 +14,9 @@ class RW_Maint_MainWP {
 		add_action( 'rw_maint_site_synced', array( __CLASS__, 'handle_sync' ), 10, 2 );
 		add_action( 'rw_maint_site_reconnected', array( __CLASS__, 'handle_reconnect' ), 10, 2 );
 		add_action( 'rw_maint_before_purge', array( __CLASS__, 'handle_purge' ), 10, 1 );
+		add_action( 'rw_maint_site_backup_requested', array( __CLASS__, 'handle_backup' ), 10, 2 );
+		add_action( 'rw_maint_site_run_updates_requested', array( __CLASS__, 'handle_run_updates' ), 10, 2 );
+		add_action( 'rw_maint_site_security_scan_requested', array( __CLASS__, 'handle_security_scan' ), 10, 2 );
 	}
 
 	public static function handle_enroll( $maint_site_id, $payload = array() ) {
@@ -482,4 +485,35 @@ class RW_Maint_MainWP {
 
 		return apply_filters( 'rw_maint_mainwp_groups', $groups, $site, $payload );
 	}
+
+	public static function handle_backup( $portal_site_id, $site = null ) {
+		if ( ! $site ) {
+			$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		}
+		if ( ! $site ) {
+			return;
+		}
+		do_action( 'rw_maint_mainwp_backup_site', $site );
+	}
+
+	public static function handle_run_updates( $portal_site_id, $site = null ) {
+		if ( ! $site ) {
+			$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		}
+		if ( ! $site ) {
+			return;
+		}
+		do_action( 'rw_maint_mainwp_run_updates', $site );
+	}
+
+	public static function handle_security_scan( $portal_site_id, $site = null ) {
+		if ( ! $site ) {
+			$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		}
+		if ( ! $site ) {
+			return;
+		}
+		do_action( 'rw_maint_mainwp_security_scan', $site );
+	}
+
 }

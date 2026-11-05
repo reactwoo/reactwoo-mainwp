@@ -1436,6 +1436,45 @@ if ( ! function_exists( 'wp_print_styles' ) ) {
 		}
 	}
 }
+
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	function wp_enqueue_script( $handle, $src = '', $deps = array(), $ver = false, $in_footer = false ) {
+		$GLOBALS['rw_enqueued_scripts'][ $handle ] = array(
+			'src'       => $src,
+			'deps'      => $deps,
+			'ver'       => $ver,
+			'in_footer' => $in_footer,
+		);
+	}
+}
+if ( ! function_exists( 'wp_script_is' ) ) {
+	function wp_script_is( $handle, $status = 'enqueued' ) {
+		if ( 'enqueued' === $status ) {
+			return isset( $GLOBALS['rw_enqueued_scripts'][ $handle ] );
+		}
+		if ( 'done' === $status ) {
+			return ! empty( $GLOBALS['rw_printed_scripts'][ $handle ] );
+		}
+		return false;
+	}
+}
+if ( ! function_exists( 'wp_print_scripts' ) ) {
+	function wp_print_scripts( $handles = false ) {
+		if ( is_string( $handles ) ) {
+			$GLOBALS['rw_printed_scripts'][ $handles ] = true;
+		}
+	}
+}
+if ( ! function_exists( 'wp_localize_script' ) ) {
+	function wp_localize_script( $handle, $name, $data ) {
+		$GLOBALS['rw_localized_scripts'][ $handle ] = array( 'name' => $name, 'data' => $data );
+	}
+}
+if ( ! function_exists( 'wp_create_nonce' ) ) {
+	function wp_create_nonce( $action ) {
+		return 'nonce-' . $action;
+	}
+}
 if ( ! function_exists( 'did_action' ) ) {
 	function did_action( $hook ) {
 		return isset( $GLOBALS['rw_did_action'][ $hook ] ) ? (int) $GLOBALS['rw_did_action'][ $hook ] : 0;
@@ -1459,6 +1498,9 @@ rw_test(
 
 $GLOBALS['rw_enqueued_styles'] = array();
 $GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_enqueued_scripts'] = array();
+$GLOBALS['rw_printed_scripts']  = array();
+$GLOBALS['rw_localized_scripts'] = array();
 $GLOBALS['rw_wc_endpoint']     = 'maintenance';
 $GLOBALS['rw_is_account_page'] = false;
 $GLOBALS['rw_query_vars']      = array();
@@ -1473,6 +1515,14 @@ rw_test(
 		&& '0.5.7' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
+
+$maintenance_theme = isset( $GLOBALS['rw_enqueued_scripts']['rw-portal-maintenance-theme'] ) ? $GLOBALS['rw_enqueued_scripts']['rw-portal-maintenance-theme'] : null;
+rw_test(
+	'maintenance endpoint enqueues the theme toggle script',
+	is_array( $maintenance_theme )
+		&& false !== strpos( (string) $maintenance_theme['src'], 'assets/js/account-maintenance-theme.js' )
+);
+
 
 $GLOBALS['rw_enqueued_styles'] = array();
 $GLOBALS['rw_wc_endpoint']     = '';

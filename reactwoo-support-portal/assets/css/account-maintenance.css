@@ -2291,3 +2291,43 @@
 		width: 100%;
 	}
 }
+
+/* Elementor's My Account widget overrides link and heading colours via CSS vars. */
+.rw-maint { --typography-section-titles-color: currentColor; }
+.rw-maint .rw-maint-button { --links-normal-color:#fff; --links-hover-color:#fff; color:#fff; }
+.rw-maint .rw-maint-button-secondary { --links-normal-color:var(--rw-ink); --links-hover-color:var(--rw-ink); }
+.rw-maint .rw-maint-hero .rw-maint-button-secondary, .rw-maint .rw-maint-final .rw-maint-button-secondary { --links-normal-color:#fff; --links-hover-color:#fff; }
+.rw-maint .rw-maint-dash .rw-maint-hero .rw-maint-button-secondary { --links-normal-color:var(--rw-ink); --links-hover-color:var(--rw-ink); }
+.rw-maint-onboarding h2,
+.rw-maint-onboarding h3,
+.rw-maint-onboarding h4 {
+	--typography-section-titles-color: currentColor;
+	color: currentColor;
+}
+.rw-maint-onboarding .rw-maint-hero h2,
+.rw-maint-onboarding .rw-maint-hero h3,
+.rw-maint-onboarding .rw-maint-final h2,
+.rw-maint-onboarding .rw-maint-final h3 {
+	--typography-section-titles-color: #fff;
+	color: #fff;
+}
+.rw-maint-onboarding .rw-maint-button {
+	--links-normal-color: #fff;
+	--links-hover-color: #fff;
+	color: #fff;
+}
+.rw-maint-onboarding .rw-maint-button-secondary {
+	--links-normal-color: var(--rw-ink);
+	--links-hover-color: var(--rw-ink);
+}
+.rw-maint-onboarding .rw-maint-hero .rw-maint-button-secondary,
+.rw-maint-onboarding .rw-maint-final .rw-maint-button-secondary {
+	--links-normal-color: #fff;
+	--links-hover-color: #fff;
+	color: #fff;
+}
+
+/* Elementor's ".woocommerce strong" uses --general-text-color (default #000); keep it white on dark panels. */
+.rw-maint .rw-maint-panel--ink {
+	--general-text-color: #fff;
+}

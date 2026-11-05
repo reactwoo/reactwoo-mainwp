@@ -25,6 +25,7 @@ class RW_Maint_MainWP {
 		if ( ! empty( $site->mainwp_site_id ) && self::current_mainwp_target( $site ) ) {
 			self::apply_hide_child_branding( $site );
 			do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload );
+			self::link_subscriber( $site, $payload );
 			return;
 		}
 
@@ -66,6 +67,88 @@ class RW_Maint_MainWP {
 			self::apply_hide_child_branding( $site );
 			do_action( 'rw_maint_mainwp_sync_reporting', $site, $payload, $groups );
 		}
+
+		self::link_subscriber( $site, $payload );
+	}
+
+	/**
+	 * Create or update the MainWP client and assign only the site may_operate_on accepts.
+	 * A failure does not undo enrolment. Already-enrolled sites are linked on the next
+	 * re-enrol or check.
+	 *
+	 * @param object              $site Bridge site row.
+	 * @param array<string,mixed> $payload Enrol or stored subscriber fields.
+	 */
+	private static function link_subscriber( $site, $payload ) {
+		if ( ! $site || ! class_exists( 'RW_Maint_MainWP_Clients' ) ) {
+			return;
+		}
+
+		try {
+			$subscriber = RW_Maint_MainWP_Clients::subscriber_from_payload( (array) $payload );
+			RW_Maint_MainWP_Clients::sync(
+				$subscriber,
+				self::approved_client_site( $site ),
+				array(
+					'portal_site_id'  => isset( $site->portal_site_id ) ? (int) $site->portal_site_id : 0,
+					'subscription_id' => isset( $site->subscription_id ) ? (int) $site->subscription_id : 0,
+					'user_id'         => isset( $site->user_id ) ? (int) $site->user_id : 0,
+					'site_url'        => isset( $site->site_url ) ? (string) $site->site_url : '',
+				)
+			);
+		} catch ( Throwable $e ) {
+			if ( class_exists( 'RW_Maint_Audit' ) ) {
+				RW_Maint_Audit::log(
+					'mainwp_client_failed',
+					array(
+						'portal_site_id' => isset( $site->portal_site_id ) ? (int) $site->portal_site_id : 0,
+						'error'          => 'client_link_failed',
+					)
+				);
+			}
+		}
+	}
+
+	/**
+	 * @param object $site Bridge site row.
+	 * @return int MainWP site id, or 0 when this enrolment must not touch it.
+	 */
+	private static function approved_client_site( $site ) {
+		if ( ! $site || empty( $site->mainwp_site_id ) ) {
+			return 0;
+		}
+
+		$id  = (int) $site->mainwp_site_id;
+		$url = isset( $site->site_url ) ? (string) $site->site_url : '';
+		if ( class_exists( 'RW_Maint_MainWP_Clients' ) && RW_Maint_MainWP_Clients::is_protected_site( $id, $url ) ) {
+			return 0;
+		}
+		if ( ! self::current_mainwp_target( $site ) ) {
+			return 0;
+		}
+
+		return $id;
+	}
+
+	/**
+	 * Subscriber details already stored for an enrolled site.
+	 *
+	 * @param object $site Bridge site row.
+	 * @return array<string,mixed>
+	 */
+	private static function payload_from_site( $site ) {
+		$user_id = ( $site && isset( $site->user_id ) ) ? (int) $site->user_id : 0;
+
+		return array(
+			'user_id'  => $user_id,
+			'site_url' => ( $site && isset( $site->site_url ) ) ? (string) $site->site_url : '',
+			'client'   => array(
+				'client_name'    => ( $site && isset( $site->client_name ) ) ? (string) $site->client_name : '',
+				'client_company' => ( $site && isset( $site->client_company ) ) ? (string) $site->client_company : '',
+				'client_email'   => ( $site && isset( $site->client_email ) ) ? (string) $site->client_email : '',
+				'customer_id'    => $user_id,
+			),
+		);
 	}
 
 	/**
@@ -354,6 +437,7 @@ class RW_Maint_MainWP {
 		}
 
 		do_action( 'rw_maint_mainwp_check_site', $site );
+		self::link_subscriber( $site, self::payload_from_site( $site ) );
 	}
 
 	public static function handle_sync( $portal_site_id, $site = null ) {

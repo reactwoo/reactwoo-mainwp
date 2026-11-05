@@ -224,6 +224,10 @@ class RW_Test_Subscription {
 	}
 	public function save() {
 	}
+	public $status = '';
+	public function get_status() {
+		return $this->status;
+	}
 	public function get_items() {
 		return $this->items;
 	}
@@ -1439,7 +1443,7 @@ if ( ! function_exists( 'did_action' ) ) {
 }
 if ( ! function_exists( 'get_current_user_id' ) ) {
 	function get_current_user_id() {
-		return 0;
+		return isset( $GLOBALS['rw_current_user_id'] ) ? (int) $GLOBALS['rw_current_user_id'] : 0;
 	}
 }
 
@@ -1465,7 +1469,8 @@ rw_test(
 	'maintenance endpoint enqueues the account stylesheet',
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
-		&& RW_PORTAL_VERSION === (string) $maintenance_style['ver']
+		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
+		&& '0.5.6' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -1524,6 +1529,16 @@ rw_test(
 );
 
 $maintenance_css = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+rw_test(
+	'Elementor account colours are overridden for maintenance headings and buttons',
+	false !== strpos( $maintenance_css, "Elementor's My Account widget overrides link and heading colours via CSS vars." )
+		&& false !== strpos( $maintenance_css, '--typography-section-titles-color: currentColor' )
+		&& false !== strpos( $maintenance_css, '.rw-maint .rw-maint-button { --links-normal-color:#fff; --links-hover-color:#fff; color:#fff; }' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding h2' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding .rw-maint-button' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding .rw-maint-hero .rw-maint-button-secondary' )
+		&& false !== strpos( $maintenance_css, '--general-text-color: #fff' )
+);
 rw_test(
 	'plan blocks are separate cards with space between them',
 	false !== strpos( $maintenance_css, '.rw-maint-plan-block {' )
@@ -2807,6 +2822,512 @@ rw_test(
 		&& false !== strpos( $offer_template, 'Continue to checkout' )
 		&& false !== strpos( $offer_template, 'rw-maint-pill--good' )
 );
+
+if ( ! function_exists( 'wcs_get_users_subscriptions' ) ) {
+	function wcs_get_users_subscriptions( $user_id ) {
+		$all = isset( $GLOBALS['rw_user_subscriptions'] ) && is_array( $GLOBALS['rw_user_subscriptions'] ) ? $GLOBALS['rw_user_subscriptions'] : array();
+		$user_id = (int) $user_id;
+		return isset( $all[ $user_id ] ) ? $all[ $user_id ] : array();
+	}
+}
+
+function rw_menu_subscription( $status, $product_id ) {
+	$item              = new RW_Test_Item();
+	$item->product_id  = (int) $product_id;
+	$subscription         = new RW_Test_Subscription();
+	$subscription->status = $status;
+	$subscription->items  = array( $item );
+	return $subscription;
+}
+
+$menu_items = array(
+	'dashboard' => 'Dashboard',
+	'orders'    => 'Orders',
+);
+rw_test( 'a logged-out customer does not see the maintenance menu', false === RW_Portal_Account::user_has_maintenance_for_menu( 0 ) && ! isset( RW_Portal_Account::add_menu_item( $menu_items )['maintenance'] ) );
+$GLOBALS['rw_user_subscriptions'][8] = array( rw_menu_subscription( 'active', 999 ) );
+rw_test( 'a subscription without a maintenance product does not show the menu', false === RW_Portal_Account::user_has_maintenance_for_menu( 8 ) );
+$GLOBALS['rw_user_subscriptions'][8] = array( rw_menu_subscription( 'cancelled', 3654 ) );
+rw_test( 'a cancelled maintenance subscription does not show the menu', false === RW_Portal_Account::user_has_maintenance_for_menu( 8 ) );
+$GLOBALS['rw_user_subscriptions'][8] = array( rw_menu_subscription( 'on-hold', 3660 ) );
+$GLOBALS['rw_current_user_id'] = 8;
+$shown_menu = RW_Portal_Account::add_menu_item( $menu_items );
+rw_test(
+	'an on-hold maintenance subscription adds the menu after Dashboard',
+	true === RW_Portal_Account::user_has_maintenance_for_menu( 8 )
+		&& array( 'dashboard', 'maintenance', 'orders' ) === array_keys( $shown_menu )
+		&& 'Maintenance' === $shown_menu['maintenance']
+);
+$GLOBALS['rw_user_subscriptions'][9] = array( rw_menu_subscription( 'pending-cancel', 3657 ) );
+rw_test( 'pending-cancel still counts as maintenance for the menu', true === RW_Portal_Account::user_has_maintenance_for_menu( 9 ) );
+$kept_menu = RW_Portal_Account::add_menu_item( array( 'maintenance' => 'Already there', 'dashboard' => 'Dashboard' ) );
+rw_test( 'an existing maintenance menu item is left unchanged', 'Already there' === $kept_menu['maintenance'] && 2 === count( $kept_menu ) );
+$GLOBALS['rw_current_user_id'] = 0;
+unset( $GLOBALS['rw_user_subscriptions'] );
+
+if ( ! function_exists( 'get_locale' ) ) {
+	function get_locale() {
+		return 'en_GB';
+	}
+}
+if ( ! function_exists( 'get_user_by' ) ) {
+	function get_user_by( $field, $value ) {
+		unset( $field );
+		return (object) array(
+			'ID'           => (int) $value,
+			'display_name' => 'Ada Lovelace',
+			'user_email'   => 'ada@example.com',
+		);
+	}
+}
+if ( ! function_exists( 'wp_remote_post' ) ) {
+	function wp_remote_post( $url, $args = array() ) {
+		global $rw_requests;
+		$rw_requests[] = array( 'url' => $url, 'args' => $args );
+		return array(
+			'response' => array( 'code' => 200 ),
+			'body'     => '{"mainwp_client_id":5,"matched_by":"email"}',
+		);
+	}
+}
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-identity.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maint-client.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-identity-sync.php';
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp-clients.php';
+
+if ( ! class_exists( 'RW_Sites' ) ) {
+	class RW_Sites {
+		public static $sites = array();
+
+		public static function get_sites_by_user( $user_id ) {
+			$found = array();
+			foreach ( self::$sites as $site ) {
+				if ( (int) $site->user_id === (int) $user_id ) {
+					$found[] = $site;
+				}
+			}
+			return $found;
+		}
+
+		public static function update_identity( $site_id, array $identity ) {
+			foreach ( self::$sites as $site ) {
+				if ( (int) $site->id === (int) $site_id ) {
+					foreach ( $identity as $key => $value ) {
+						$site->$key = $value;
+					}
+				}
+			}
+			return true;
+		}
+
+		public static function get_site( $site_id ) {
+			foreach ( self::$sites as $site ) {
+				if ( (int) $site->id === (int) $site_id ) {
+					return $site;
+				}
+			}
+			return null;
+		}
+	}
+}
+
+function rw_mainwp_directory() {
+	return array(
+		'clients' => array(
+			array(
+				'client_id'      => 5,
+				'name'           => 'Ada Lovelace',
+				'client_email'   => 'ada@example.com',
+				'client_phone'   => '02070000000',
+				'company'        => 'Analytical Engines',
+				'rw_customer_id' => '42',
+			),
+			array(
+				'client_id'      => 8,
+				'name'           => 'Other Person',
+				'client_email'   => 'other@example.com',
+				'client_phone'   => '02071111111',
+				'company'        => 'Other Co',
+				'rw_customer_id' => '77',
+			),
+		),
+		'sites'   => array(
+			12 => array(
+				'id'              => 12,
+				'url'             => 'https://aplenty.co.uk',
+				'client_id'       => 3,
+				'tags'            => array( 'live', 'subscription-1' ),
+				'subscription_id' => 1,
+			),
+			21 => array(
+				'id'              => 21,
+				'url'             => 'https://ada.example',
+				'client_id'       => 5,
+				'tags'            => array( 'subscription-9', 'client-42' ),
+				'subscription_id' => 9,
+			),
+			30 => array(
+				'id'              => 30,
+				'url'             => 'https://new.example',
+				'client_id'       => 0,
+				'tags'            => array( 'subscription-15', 'client-100' ),
+				'subscription_id' => 15,
+			),
+			40 => array(
+				'id'              => 40,
+				'url'             => 'https://other.example',
+				'client_id'       => 8,
+				'tags'            => array( 'subscription-77' ),
+				'subscription_id' => 77,
+			),
+		),
+	);
+}
+
+function rw_client_row( array $directory, $client_id ) {
+	foreach ( $directory['clients'] as $client ) {
+		if ( (int) $client['client_id'] === (int) $client_id ) {
+			return $client;
+		}
+	}
+	return null;
+}
+
+function rw_sync_client( array $directory, array $subscriber, $site_id, $enrolled_url = '' ) {
+	RW_Maint_Audit::$events = array();
+	RW_Maint_MainWP_Clients::use_directory( $directory );
+	$context = array( 'user_id' => (int) $subscriber['customer_id'] );
+	if ( '' !== (string) $enrolled_url ) {
+		$context['site_url'] = (string) $enrolled_url;
+	}
+	$result = RW_Maint_MainWP_Clients::sync( $subscriber, $site_id, $context );
+	return array( $result, RW_Maint_MainWP_Clients::directory(), RW_Maint_Audit::$events );
+}
+
+$enrol_site = (object) array(
+	'id'              => 7,
+	'subscription_id' => 9,
+	'user_id'         => 42,
+	'site_url'        => 'https://ada.example',
+	'site_name'       => 'ada.example',
+	'client_name'     => 'Ada Lovelace',
+	'client_email'    => 'ada@example.com',
+	'client_company'  => 'Analytical Engines',
+	'client_phone'    => '',
+	'client_locale'   => 'en_GB',
+	'report_email'    => 'ada@example.com',
+	'report_enabled'  => 1,
+);
+$enrol_payload = RW_Maint_Client::enrol_payload( $enrol_site );
+rw_test(
+	'enrol payload includes name, company, email, and the customer id',
+	42 === $enrol_payload['client']['customer_id']
+		&& 'Ada Lovelace' === $enrol_payload['client']['client_name']
+		&& 'Analytical Engines' === $enrol_payload['client']['client_company']
+		&& 'ada@example.com' === $enrol_payload['client']['client_email']
+		&& ! array_key_exists( 'client_phone', $enrol_payload['client'] )
+);
+$enrol_site->client_phone = '02070000000';
+$enrol_with_phone         = RW_Maint_Client::enrol_payload( $enrol_site );
+rw_test( 'enrol payload adds the billing phone when it is present', '02070000000' === $enrol_with_phone['client']['client_phone'] );
+
+$GLOBALS['rw_options']['rw_portal_maint_url']    = 'https://maint.example';
+$GLOBALS['rw_options']['rw_portal_maint_secret'] = 'test-secret';
+$GLOBALS['rw_user_meta'][42]                     = array(
+	'billing_first_name' => 'Ada',
+	'billing_last_name'  => 'Lovelace',
+	'billing_email'      => 'ada@example.com',
+	'billing_company'    => 'Analytical Engines',
+	'billing_phone'      => '',
+	'locale'             => 'en_GB',
+);
+RW_Sites::$sites = array(
+	(object) array(
+		'id'              => 7,
+		'user_id'         => 42,
+		'subscription_id' => 9,
+		'client_email'    => 'old@example.com',
+		'report_email'    => 'old@example.com',
+		'report_enabled'  => 1,
+	),
+);
+$requests_before = count( $rw_requests );
+RW_Portal_Identity_Sync::handle_profile_update( 42 );
+$profile_call = $rw_requests[ count( $rw_requests ) - 1 ];
+$profile_body = json_decode( $profile_call['args']['body'], true );
+rw_test(
+	'profile update sends one signed client-update',
+	1 === ( count( $rw_requests ) - $requests_before )
+		&& false !== strpos( $profile_call['url'], 'client-update' )
+		&& false === strpos( $profile_call['url'], 'enroll' )
+		&& isset( $profile_call['args']['headers']['X-RW-Signature'] )
+		&& '/reactwoo-maint/v1/client-update' === $profile_call['args']['headers']['X-RW-Path']
+		&& 42 === $profile_body['client']['customer_id']
+		&& ! array_key_exists( 'client_phone', $profile_body['client'] )
+);
+RW_Portal_Identity_Sync::register();
+$registered_hooks = array();
+foreach ( $GLOBALS['rw_actions'] as $action ) {
+	$registered_hooks[] = $action['hook'];
+}
+rw_test(
+	'profile update and WooCommerce customer save are both hooked',
+	in_array( 'profile_update', $registered_hooks, true ) && in_array( 'woocommerce_update_customer', $registered_hooks, true )
+);
+
+$site_assignment = RW_Maint_MainWP_Clients::assignment_update( 9, 30, 'https://new.example' );
+rw_test(
+	'site assignment writes only client_id on an approved site',
+	is_array( $site_assignment )
+		&& array( 'client_id' => 9 ) === $site_assignment['data']
+		&& array( 'id' => 30 ) === $site_assignment['where']
+);
+rw_test(
+	'assignment refuses site 12, aplenty.co.uk, and a URL mismatch',
+	null === RW_Maint_MainWP_Clients::assignment_update( 9, 12, 'https://aplenty.co.uk' )
+		&& null === RW_Maint_MainWP_Clients::assignment_update( 9, 12, 'https://customer.example', 'https://customer.example' )
+		&& null === RW_Maint_MainWP_Clients::assignment_update( 9, 50, 'https://www.aplenty.co.uk' )
+		&& null === RW_Maint_MainWP_Clients::assignment_update( 9, 30, 'https://new.example', 'https://customer.example' )
+		&& ! RW_Maint_MainWP::may_operate_on( 30, 'https://customer.example', 'https://new.example' )
+);
+
+$fresh = rw_mainwp_directory();
+unset( $fresh['clients'][0] );
+$fresh['clients'] = array_values( $fresh['clients'] );
+list( $created, $created_dir, $created_audit ) = rw_sync_client(
+	$fresh,
+	array(
+		'customer_id' => 100,
+		'name'        => 'New Person',
+		'company'     => 'New Co',
+		'email'       => 'new@example.com',
+	),
+	30,
+	'https://new.example'
+);
+$created_client = rw_client_row( $created_dir, $created['mainwp_client_id'] );
+rw_test(
+	'a new client is created and the enrolled site is assigned',
+	! is_wp_error( $created )
+		&& 'created' === $created['matched_by']
+		&& 2 === count( $created_dir['clients'] )
+		&& 30 === $created['mainwp_site_id']
+		&& is_array( $created_client )
+		&& '100' === $created_client['rw_customer_id']
+		&& (int) $created_client['client_id'] === (int) $created_dir['sites'][30]['client_id']
+		&& array( 'subscription-15', 'client-100' ) === $created_dir['sites'][30]['tags']
+		&& 3 === $created_dir['sites'][12]['client_id']
+		&& 'mainwp_client_linked' === $created_audit[0]['event']
+);
+
+list( $by_customer, $customer_dir, ) = rw_sync_client(
+	rw_mainwp_directory(),
+	array(
+		'customer_id' => 42,
+		'name'        => 'Ada Updated',
+		'company'     => 'Ada Ltd',
+		'email'       => 'ada@new.example',
+	),
+	21,
+	'https://ada.example'
+);
+rw_test(
+	'an existing client is matched by customer id',
+	! is_wp_error( $by_customer )
+		&& 'customer_id' === $by_customer['matched_by']
+		&& 5 === $by_customer['mainwp_client_id']
+		&& 2 === count( $customer_dir['clients'] )
+		&& 'ada@new.example' === rw_client_row( $customer_dir, 5 )['client_email']
+		&& 'other@example.com' === rw_client_row( $customer_dir, 8 )['client_email']
+		&& 5 === $customer_dir['sites'][21]['client_id']
+		&& array( 'subscription-9', 'client-42' ) === $customer_dir['sites'][21]['tags']
+		&& 3 === $customer_dir['sites'][12]['client_id']
+);
+
+$email_directory = rw_mainwp_directory();
+$email_directory['clients'][0]['rw_customer_id'] = '';
+$email_directory['sites'][21]['client_id']       = 0;
+list( $by_email, $email_dir, ) = rw_sync_client(
+	$email_directory,
+	array(
+		'customer_id' => 42,
+		'name'        => 'Ada Claimed',
+		'company'     => 'Claimed Co',
+		'email'       => 'ada@example.com',
+	),
+	21,
+	'https://ada.example'
+);
+rw_test(
+	'an existing client is matched by email before a duplicate is created',
+	! is_wp_error( $by_email )
+		&& 'email' === $by_email['matched_by']
+		&& 5 === $by_email['mainwp_client_id']
+		&& 2 === count( $email_dir['clients'] )
+		&& '42' === rw_client_row( $email_dir, 5 )['rw_customer_id']
+		&& 5 === $email_dir['sites'][21]['client_id']
+		&& array( 'subscription-9', 'client-42' ) === $email_dir['sites'][21]['tags']
+		&& 9 === $email_dir['sites'][21]['subscription_id']
+		&& 3 === $email_dir['sites'][12]['client_id']
+		&& 8 === $email_dir['sites'][40]['client_id']
+);
+
+$backfill = rw_mainwp_directory();
+$backfill['clients'][0]['rw_customer_id'] = '';
+$backfill['sites'][21]['client_id']       = 0;
+list( $filled, $filled_dir, ) = rw_sync_client(
+	$backfill,
+	array(
+		'customer_id' => 42,
+		'name'        => 'Ada Lovelace',
+		'company'     => 'Analytical Engines',
+		'email'       => 'Ada@Example.com',
+	),
+	21,
+	'https://www.ada.example/'
+);
+rw_test(
+	'a later check backfill links the approved site to the existing email client',
+	! is_wp_error( $filled )
+		&& 'email' === $filled['matched_by']
+		&& 5 === $filled['mainwp_client_id']
+		&& 2 === count( $filled_dir['clients'] )
+		&& 5 === $filled_dir['sites'][21]['client_id']
+		&& 0 === $filled_dir['sites'][30]['client_id']
+		&& 3 === $filled_dir['sites'][12]['client_id']
+);
+
+$conflict_before = rw_mainwp_directory();
+$conflict_before['clients'][0]['rw_customer_id'] = '';
+list( $conflict, $conflict_dir, ) = rw_sync_client(
+	$conflict_before,
+	array(
+		'customer_id' => 42,
+		'name'        => 'Should Not Write',
+		'company'     => 'Nope',
+		'email'       => 'other@example.com',
+	),
+	30,
+	'https://new.example'
+);
+rw_test(
+	'an email owned by another customer is not reused or duplicated',
+	is_wp_error( $conflict )
+		&& 'rw_mainwp_client_conflict' === $conflict->get_error_code()
+		&& 2 === count( $conflict_dir['clients'] )
+		&& '77' === rw_client_row( $conflict_dir, 8 )['rw_customer_id']
+		&& 0 === $conflict_dir['sites'][30]['client_id']
+);
+
+list( $details, $details_dir, ) = rw_sync_client(
+	rw_mainwp_directory(),
+	array(
+		'customer_id' => 42,
+		'name'        => 'Augusta Ada',
+		'company'     => 'Difference Engine',
+		'email'       => 'ada@updated.example',
+	),
+	0
+);
+rw_test(
+	'a details update changes name, company, and email without moving sites',
+	! is_wp_error( $details )
+		&& 0 === $details['mainwp_site_id']
+		&& 'Augusta Ada' === rw_client_row( $details_dir, 5 )['name']
+		&& 'Difference Engine' === rw_client_row( $details_dir, 5 )['company']
+		&& 'ada@updated.example' === rw_client_row( $details_dir, 5 )['client_email']
+		&& '02070000000' === rw_client_row( $details_dir, 5 )['client_phone']
+		&& $details_dir['sites'] === rw_mainwp_directory()['sites']
+);
+
+$second = rw_mainwp_directory();
+$second['sites'][22] = array(
+	'id'              => 22,
+	'url'             => 'https://ada-two.example',
+	'client_id'       => 0,
+	'tags'            => array( 'subscription-9', 'client-42' ),
+	'subscription_id' => 9,
+);
+list( $second_result, $second_dir, ) = rw_sync_client(
+	$second,
+	array(
+		'customer_id' => 42,
+		'name'        => 'Ada Lovelace',
+		'company'     => 'Analytical Engines',
+		'email'       => 'ada@example.com',
+	),
+	22,
+	'https://ada-two.example'
+);
+rw_test(
+	'a second site for the same client does not create another client',
+	! is_wp_error( $second_result )
+		&& 5 === $second_result['mainwp_client_id']
+		&& 2 === count( $second_dir['clients'] )
+		&& 5 === $second_dir['sites'][22]['client_id']
+		&& array( 'subscription-9', 'client-42' ) === $second_dir['sites'][22]['tags']
+		&& 5 === $second_dir['sites'][21]['client_id']
+		&& 3 === $second_dir['sites'][12]['client_id']
+		&& array( 'live', 'subscription-1' ) === $second_dir['sites'][12]['tags']
+);
+
+list( $rejected, $rejected_dir, ) = rw_sync_client(
+	rw_mainwp_directory(),
+	array(
+		'customer_id' => 42,
+		'name'        => 'Ada Lovelace',
+		'company'     => 'Analytical Engines',
+		'email'       => 'ada@example.com',
+	),
+	30,
+	'https://customer.example'
+);
+rw_test(
+	'client sync does not touch a site may_operate_on rejects',
+	! is_wp_error( $rejected )
+		&& 0 === $rejected['mainwp_site_id']
+		&& 0 === $rejected_dir['sites'][30]['client_id']
+		&& array( 'subscription-15', 'client-100' ) === $rejected_dir['sites'][30]['tags']
+		&& 5 === $rejected_dir['sites'][21]['client_id']
+		&& 3 === $rejected_dir['sites'][12]['client_id']
+);
+
+list( $protected, $protected_dir, $protected_audit ) = rw_sync_client(
+	rw_mainwp_directory(),
+	array(
+		'customer_id' => 42,
+		'name'        => 'Ada Lovelace',
+		'company'     => 'Analytical Engines',
+		'email'       => 'ada@example.com',
+	),
+	12,
+	'https://aplenty.co.uk'
+);
+rw_test(
+	'linking never changes MainWP site 12',
+	! is_wp_error( $protected )
+		&& 0 === $protected['mainwp_site_id']
+		&& ! empty( $protected['site_protected'] )
+		&& 3 === $protected_dir['sites'][12]['client_id']
+		&& array( 'live', 'subscription-1' ) === $protected_dir['sites'][12]['tags']
+		&& 12 === $protected_audit[0]['data']['protected_site']
+);
+RW_Maint_MainWP_Clients::use_directory( null );
+
+$bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
+rw_test(
+	'bridge version is 0.3.6',
+	false !== strpos( $bridge_php, 'Version: 0.3.6' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.6' )" )
+);
+$hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
+$hardening_output = array();
+$hardening_status = 0;
+exec( $hardening_cmd, $hardening_output, $hardening_status );
+foreach ( $hardening_output as $hardening_line ) {
+	echo $hardening_line . "\n";
+}
+rw_test( 'audit log failures and a missing table are reported without SHOW TABLES on every request', 0 === $hardening_status );
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

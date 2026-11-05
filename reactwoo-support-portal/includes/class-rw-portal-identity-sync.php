@@ -8,6 +8,7 @@ class RW_Portal_Identity_Sync {
 	public static function register() {
 		add_action( 'profile_update', array( __CLASS__, 'handle_profile_update' ), 10, 2 );
 		add_action( 'woocommerce_customer_save_address', array( __CLASS__, 'handle_address_update' ), 10, 2 );
+		add_action( 'woocommerce_update_customer', array( __CLASS__, 'handle_customer_save' ), 10, 2 );
 		add_action( 'woocommerce_checkout_update_user_meta', array( __CLASS__, 'handle_checkout_update' ), 10, 2 );
 		add_action( 'woocommerce_subscription_owner_changed', array( __CLASS__, 'handle_subscription_owner_change' ), 10, 3 );
 		add_action( 'woocommerce_subscription_ownership_changed', array( __CLASS__, 'handle_subscription_owner_change' ), 10, 3 );
@@ -15,6 +16,19 @@ class RW_Portal_Identity_Sync {
 
 	public static function handle_profile_update( $user_id ) {
 		self::sync_user_sites( $user_id, 'profile_update' );
+	}
+
+	/**
+	 * WooCommerce customer save. The first argument is the user id.
+	 *
+	 * @param int|object $user_id Customer id, or a customer object.
+	 */
+	public static function handle_customer_save( $user_id ) {
+		if ( is_object( $user_id ) && method_exists( $user_id, 'get_id' ) ) {
+			$user_id = $user_id->get_id();
+		}
+
+		self::sync_user_sites( $user_id, 'woocommerce_update_customer' );
 	}
 
 	public static function handle_address_update( $user_id, $load_address ) {
@@ -83,6 +97,7 @@ class RW_Portal_Identity_Sync {
 		$identity     = RW_Identity::from_user( $user_id );
 		$updated      = 0;
 		$maint_failed = 0;
+		$relink       = ( 'subscription_owner_change' === $trigger );
 
 		foreach ( $sites as $site ) {
 			$report_email = self::resolve_report_email( $site, $identity );
@@ -102,6 +117,10 @@ class RW_Portal_Identity_Sync {
 
 			$updated++;
 
+			if ( ! $relink ) {
+				continue;
+			}
+
 			$refreshed = RW_Sites::get_site( (int) $site->id );
 			if ( $refreshed ) {
 				$maint_result = RW_Maint_Client::enroll_site( $refreshed );
@@ -117,6 +136,21 @@ class RW_Portal_Identity_Sync {
 						)
 					);
 				}
+			}
+		}
+
+		if ( ! $relink ) {
+			$maint_result = RW_Maint_Client::update_client( $user_id, $identity );
+			if ( is_wp_error( $maint_result ) ) {
+				$maint_failed++;
+				RW_Audit::log(
+					'maint_sync_failed',
+					array(
+						'user_id'         => $user_id,
+						'subscription_id' => $subscription_id ? (int) $subscription_id : null,
+						'error'           => $maint_result->get_error_message(),
+					)
+				);
 			}
 		}
 

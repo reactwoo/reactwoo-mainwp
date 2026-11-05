@@ -7,6 +7,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class RW_Maint_DB {
 	const DB_VERSION = '1.1';
 
+	/**
+	 * True once this request knows the audit table is present.
+	 *
+	 * @var bool
+	 */
+	private static $audit_log_known = false;
+
 	public static function table( $suffix ) {
 		global $wpdb;
 
@@ -15,9 +22,40 @@ class RW_Maint_DB {
 
 	public static function maybe_upgrade() {
 		$installed = get_option( 'rw_maint_db_version' );
-		if ( self::DB_VERSION !== $installed ) {
+		if ( self::DB_VERSION !== $installed || ! self::audit_log_ready() ) {
 			self::create_tables();
+			self::mark_audit_log_ready();
 		}
+	}
+
+	/**
+	 * Whether the audit table is known to exist without a SHOW TABLES on later requests.
+	 *
+	 * @return bool
+	 */
+	private static function audit_log_ready() {
+		if ( self::$audit_log_known ) {
+			return true;
+		}
+
+		$cached = get_transient( 'rw_maint_audit_log_ready' );
+		if ( $cached ) {
+			self::$audit_log_known = true;
+			return true;
+		}
+
+		if ( self::table_exists( self::table( 'audit_log' ) ) ) {
+			self::mark_audit_log_ready();
+			return true;
+		}
+
+		return false;
+	}
+
+	private static function mark_audit_log_ready() {
+		self::$audit_log_known = true;
+		$ttl                   = defined( 'DAY_IN_SECONDS' ) ? DAY_IN_SECONDS : 86400;
+		set_transient( 'rw_maint_audit_log_ready', 1, $ttl );
 	}
 
 	public static function create_tables() {

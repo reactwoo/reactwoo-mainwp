@@ -9,7 +9,8 @@ class RW_Maint_Audit {
 		global $wpdb;
 
 		$table = RW_Maint_DB::table( 'audit_log' );
-		if ( ! RW_Maint_DB::table_exists( $table ) ) {
+		if ( ! is_object( $wpdb ) || ! RW_Maint_DB::table_exists( $table ) ) {
+			self::report_write_failure( $event_type );
 			return;
 		}
 
@@ -21,7 +22,7 @@ class RW_Maint_Audit {
 
 		$message = ! empty( $context ) ? wp_json_encode( $context ) : null;
 
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			$table,
 			array(
 				'event_type'      => sanitize_text_field( $event_type ),
@@ -33,6 +34,27 @@ class RW_Maint_Audit {
 			),
 			array( '%s', '%d', '%d', '%d', '%s', '%s' )
 		);
+		if ( false === $inserted ) {
+			self::report_write_failure( $event_type );
+		}
+	}
+
+	/**
+	 * One log line: event type and the database error. No event payload.
+	 *
+	 * @param string $event_type Audit event name.
+	 */
+	private static function report_write_failure( $event_type ) {
+		global $wpdb;
+
+		$event = sanitize_text_field( (string) $event_type );
+		$event = str_replace( array( "\r", "\n" ), ' ', $event );
+		$error = '';
+		if ( is_object( $wpdb ) && isset( $wpdb->last_error ) ) {
+			$error = str_replace( array( "\r", "\n" ), ' ', (string) $wpdb->last_error );
+		}
+
+		error_log( 'rw_maint_audit_failed ' . $event . ' ' . $error );
 	}
 
 	public static function get_recent( $limit = 10 ) {

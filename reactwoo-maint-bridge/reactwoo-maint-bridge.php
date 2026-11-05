@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ReactWoo Maintenance Bridge
  * Description: MainWP automation and site lifecycle enforcement for ReactWoo.
- * Version: 0.3.4
+ * Version: 0.3.6
  * Author: ReactWoo
  * License: GPL-2.0-or-later
  */
@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RW_MAINT_VERSION', '0.3.4' );
+define( 'RW_MAINT_VERSION', '0.3.6' );
 define( 'RW_MAINT_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RW_MAINT_URL', plugin_dir_url( __FILE__ ) );
 /** Short name for admin menu (sellable product). Use "MainWP Bridge" or "Woo–MainWP Bridge". */

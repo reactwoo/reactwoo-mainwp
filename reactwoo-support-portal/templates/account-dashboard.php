@@ -100,8 +100,11 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 	<section class="rw-maint-reports-band" id="rw-maint-reports" aria-labelledby="rw-maint-reports-title">
 		<h2 id="rw-maint-reports-title">Reports and support</h2>
 		<div class="rw-maint-row rw-maint-row-2">
-			<article class="rw-maint-panel rw-maint-panel--paper">
-				<h3>Report preferences</h3>
+			<article class="rw-maint-panel rw-maint-panel--paper rw-maint-recipients-card">
+				<div class="rw-maint-action-card__head">
+					<?php RW_Portal_Customer_Actions::render_icon( 'recipients' ); ?>
+					<h3>Report preferences</h3>
+				</div>
 				<p class="rw-maint-panel-copy">Choose where maintenance summaries are sent.</p>
 				<?php if ( $site ) : ?>
 					<?php RW_Portal_Account::render_report_preferences( $site ); ?>

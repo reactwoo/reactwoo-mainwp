@@ -364,6 +364,11 @@ class RW_Rest_Controller {
 			$update['php_version'] = sanitize_text_field( $params['php_version'] );
 		}
 
+		$timezone = self::heartbeat_timezone( $params );
+		if ( '' !== $timezone ) {
+			$update['timezone_string'] = $timezone;
+		}
+
 		RW_Sites::update_site( $site_id, $update );
 
 		RW_Audit::log(
@@ -378,6 +383,33 @@ class RW_Rest_Controller {
 				'received' => true,
 			)
 		);
+	}
+
+	/**
+	 * Prefer the named zone. An offset is stored as ±HH:MM when that is all the connector has.
+	 *
+	 * @param array<string,mixed> $params Heartbeat body.
+	 * @return string
+	 */
+	private static function heartbeat_timezone( array $params ) {
+		$named = isset( $params['timezone_string'] ) ? sanitize_text_field( (string) $params['timezone_string'] ) : '';
+		if ( '' !== $named && strlen( $named ) <= 64 ) {
+			return $named;
+		}
+		if ( ! isset( $params['gmt_offset'] ) || ! is_numeric( $params['gmt_offset'] ) ) {
+			return '';
+		}
+		$offset = (float) $params['gmt_offset'];
+		$sign   = $offset >= 0 ? '+' : '-';
+		$abs    = abs( $offset );
+		$hours  = (int) floor( $abs );
+		$mins   = (int) round( ( $abs - $hours ) * 60 );
+		if ( $mins >= 60 ) {
+			$hours++;
+			$mins = 0;
+		}
+
+		return sprintf( '%s%02d:%02d', $sign, $hours, $mins );
 	}
 
 	public static function client_sync( WP_REST_Request $request ) {

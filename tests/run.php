@@ -341,8 +341,8 @@ function get_transient( $key ) {
 	return isset( $GLOBALS['rw_transients'][ $key ] ) ? $GLOBALS['rw_transients'][ $key ] : false;
 }
 function set_transient( $key, $value, $ttl = 0 ) {
-	unset( $ttl );
 	$GLOBALS['rw_transients'][ $key ] = $value;
+	$GLOBALS['rw_transient_ttl'][ $key ] = (int) $ttl;
 	return true;
 }
 function delete_transient( $key ) {
@@ -1365,6 +1365,1448 @@ $portal_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes
 rw_test( 'support credits are not sent to the licence server', false === strpos( $portal_src, '/v1/licenses/provision' ) && false === strpos( $portal_src, 'GBP' ) && false === strpos( $portal_src, '£' ) );
 $plans = RW_Maintenance_Plans::resolve( 'business' );
 rw_test( 'third-party premium list is empty', array() === $plans['third_party_premium_entitlements'] && array() === $plans['reactwoo_product_entitlements'] );
+
+$portal_main = file_get_contents( __DIR__ . '/../reactwoo-support-portal/reactwoo-support-portal.php' );
+$version_match = array();
+preg_match( "/define\\( 'RW_PORTAL_VERSION', '([^']+)' \\)/", $portal_main, $version_match );
+if ( ! defined( 'RW_PORTAL_VERSION' ) ) {
+	define( 'RW_PORTAL_VERSION', $version_match[1] );
+}
+if ( ! defined( 'RW_PORTAL_URL' ) ) {
+	define( 'RW_PORTAL_URL', 'https://portal.example/wp-content/plugins/reactwoo-support-portal/' );
+}
+
+if ( ! function_exists( 'is_wc_endpoint_url' ) ) {
+	function is_wc_endpoint_url( $endpoint = false ) {
+		$current = isset( $GLOBALS['rw_wc_endpoint'] ) ? $GLOBALS['rw_wc_endpoint'] : false;
+		if ( false === $endpoint ) {
+			return false !== $current && '' !== $current;
+		}
+		return (string) $current === (string) $endpoint;
+	}
+}
+if ( ! function_exists( 'is_account_page' ) ) {
+	function is_account_page() {
+		return ! empty( $GLOBALS['rw_is_account_page'] );
+	}
+}
+if ( ! function_exists( 'get_query_var' ) ) {
+	function get_query_var( $var, $default = '' ) {
+		if ( isset( $GLOBALS['rw_query_vars'] ) && is_array( $GLOBALS['rw_query_vars'] ) && array_key_exists( $var, $GLOBALS['rw_query_vars'] ) ) {
+			return $GLOBALS['rw_query_vars'][ $var ];
+		}
+		return $default;
+	}
+}
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+	function wp_enqueue_style( $handle, $src = '', $deps = array(), $ver = false, $media = 'all' ) {
+		unset( $deps, $media );
+		if ( isset( $GLOBALS['rw_enqueued_styles'][ $handle ] ) ) {
+			return;
+		}
+		$GLOBALS['rw_enqueued_styles'][ $handle ] = array(
+			'src'  => $src,
+			'ver'  => $ver,
+			'done' => false,
+		);
+	}
+}
+if ( ! function_exists( 'wp_style_is' ) ) {
+	function wp_style_is( $handle, $status = 'enqueued' ) {
+		if ( empty( $GLOBALS['rw_enqueued_styles'][ $handle ] ) || ! is_array( $GLOBALS['rw_enqueued_styles'][ $handle ] ) ) {
+			return false;
+		}
+		if ( 'done' === $status ) {
+			return ! empty( $GLOBALS['rw_enqueued_styles'][ $handle ]['done'] );
+		}
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_print_styles' ) ) {
+	function wp_print_styles( $handles = false ) {
+		foreach ( (array) $handles as $handle ) {
+			if ( isset( $GLOBALS['rw_enqueued_styles'][ $handle ] ) ) {
+				$GLOBALS['rw_enqueued_styles'][ $handle ]['done'] = true;
+				$GLOBALS['rw_printed_styles'][] = $handle;
+			}
+		}
+	}
+}
+if ( ! function_exists( 'did_action' ) ) {
+	function did_action( $hook ) {
+		return isset( $GLOBALS['rw_did_action'][ $hook ] ) ? (int) $GLOBALS['rw_did_action'][ $hook ] : 0;
+	}
+}
+if ( ! function_exists( 'get_current_user_id' ) ) {
+	function get_current_user_id() {
+		return 0;
+	}
+}
+
+$account_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php' );
+$query_vars  = RW_Portal_Account::add_query_var( array( 'orders' => 'orders' ) );
+rw_test(
+	'maintenance is a WooCommerce account query var',
+	false !== strpos( $account_src, "'woocommerce_get_query_vars'" )
+		&& isset( $query_vars['maintenance'] )
+		&& 'maintenance' === $query_vars['maintenance']
+		&& 'orders' === $query_vars['orders']
+);
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_wc_endpoint']     = 'maintenance';
+$GLOBALS['rw_is_account_page'] = false;
+$GLOBALS['rw_query_vars']      = array();
+$GLOBALS['rw_did_action']      = array();
+RW_Portal_Account::enqueue_assets();
+$maintenance_style = isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] ) ? $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] : null;
+rw_test(
+	'maintenance endpoint enqueues the account stylesheet',
+	is_array( $maintenance_style )
+		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
+		&& RW_PORTAL_VERSION === (string) $maintenance_style['ver']
+		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
+);
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_wc_endpoint']     = '';
+$GLOBALS['rw_is_account_page'] = true;
+$GLOBALS['rw_query_vars']      = array( 'maintenance' => '' );
+RW_Portal_Account::enqueue_assets();
+rw_test(
+	'an account page with the maintenance query var still enqueues the stylesheet',
+	isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] )
+);
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_is_account_page'] = true;
+$GLOBALS['rw_query_vars']      = array();
+RW_Portal_Account::enqueue_assets();
+rw_test( 'other account screens do not enqueue the maintenance stylesheet', ! isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] ) );
+
+$GLOBALS['rw_enqueued_styles'] = array();
+$GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_wc_endpoint']     = '';
+$GLOBALS['rw_is_account_page'] = false;
+$GLOBALS['rw_did_action']      = array( 'wp_head' => 1 );
+ob_start();
+RW_Portal_Account::render();
+$maintenance_markup = ob_get_clean();
+rw_test(
+	'rendering the maintenance endpoint enqueues the stylesheet',
+	isset( $GLOBALS['rw_enqueued_styles']['rw-portal-maintenance'] )
+		&& in_array( 'rw-portal-maintenance', (array) $GLOBALS['rw_printed_styles'], true )
+		&& false !== strpos( $maintenance_markup, 'Please log in' )
+);
+
+$ordered_blocks = RW_Portal_Account::sort_subscription_blocks(
+	array(
+		array( 'view' => array( 'state' => 'attention' ), 'id' => 'attention' ),
+		array( 'view' => array( 'state' => 'connected' ), 'id' => 'connected-first' ),
+		array( 'view' => array( 'state' => 'setup' ), 'id' => 'setup' ),
+		array( 'view' => array( 'state' => 'connected' ), 'id' => 'connected-second' ),
+	)
+);
+$ordered_ids = array();
+foreach ( $ordered_blocks as $ordered_block ) {
+	$ordered_ids[] = $ordered_block['id'];
+}
+rw_test( 'connected subscriptions are shown first', array( 'connected-first', 'connected-second', 'attention', 'setup' ) === $ordered_ids );
+
+$attention_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-attention.php' );
+rw_test(
+	'a subscription that needs attention collapses the connection steps',
+	false !== strpos( $attention_template, '<details class="rw-maint-finish">' )
+		&& false !== strpos( $attention_template, 'Finish connecting' )
+		&& false !== strpos( $attention_template, 'rw-maint-finish-steps' )
+		&& false === strpos( $attention_template, '<details class="rw-maint-finish" open' )
+);
+
+$maintenance_css = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+rw_test(
+	'plan blocks are separate cards with space between them',
+	false !== strpos( $maintenance_css, '.rw-maint-plan-block {' )
+		&& false !== strpos( $maintenance_css, 'gap: 28px' )
+		&& false !== strpos( $maintenance_css, 'border-radius: 20px' )
+);
+
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-site-snapshot.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-maintenance-status.php';
+
+$scoped_site = (object) array(
+	'portal_site_id'  => 7,
+	'subscription_id' => 3,
+	'site_url'        => 'https://shop.example',
+	'mainwp_site_id'  => 12,
+);
+$other_site = (object) array(
+	'portal_site_id'  => 9,
+	'subscription_id' => 4,
+	'site_url'        => 'https://other.example',
+	'mainwp_site_id'  => 99,
+);
+
+rw_test( 'a site belongs only to its own subscription', RW_Maint_Site_Snapshot::site_is_in_scope( $scoped_site, 3 ) && ! RW_Maint_Site_Snapshot::site_is_in_scope( $scoped_site, 4 ) && ! RW_Maint_Site_Snapshot::site_is_in_scope( $scoped_site, 0 ) && ! RW_Maint_Site_Snapshot::site_is_in_scope( null, 3 ) );
+
+$denied = RW_Maint_Site_Snapshot::guard(
+	$other_site,
+	3,
+	array(
+		'website' => array(
+			'url'     => 'https://other.example',
+			'privkey' => 'SECRETKEY',
+		),
+	)
+);
+$denied_json = wp_json_encode( $denied );
+rw_test(
+	'another subscription cannot read the site',
+	is_wp_error( $denied )
+		&& 'rw_maint_not_found' === $denied->get_error_code()
+		&& 404 === (int) $denied->get_error_data()['status']
+		&& false === stripos( (string) $denied_json, 'other.example' )
+		&& false === strpos( (string) $denied_json, 'SECRETKEY' )
+);
+
+rw_test( 'backup tasks must name this site', RW_Maint_Site_Snapshot::backup_task_includes_site( serialize( array( 12, 13 ) ), 12 ) );
+rw_test( 'backup tasks for another site stay out', ! RW_Maint_Site_Snapshot::backup_task_includes_site( serialize( array( 99 ) ), 12 ) && ! RW_Maint_Site_Snapshot::backup_task_includes_site( 'all', 12 ) );
+
+$snapshot_now = 1700604900;
+$history      = array();
+for ( $backup_index = 1; $backup_index <= 7; $backup_index++ ) {
+	$history[] = array(
+		'time'   => 1700000000 + ( $backup_index * 86400 ),
+		'status' => ( 0 === $backup_index % 2 ) ? 'failed' : 'success',
+	);
+}
+$activity_base = 1700000000;
+$activity_logs = array(
+	array( 'created' => $activity_base, 'action' => 'plugin updated', 'context' => 'plugins', 'item' => wp_json_encode( array( 'name' => 'WooCommerce', 'from' => '9.0.0', 'to' => '9.1.2' ) ) ),
+	array( 'created' => $activity_base + 20000, 'action' => 'backup completed', 'context' => 'backups', 'item' => 'Daily backup' ),
+	array( 'created' => $activity_base + 40000, 'action' => 'security scan finished', 'context' => 'security', 'item' => 'Scan' ),
+	array( 'created' => $activity_base + 60000, 'action' => 'database optimised', 'context' => 'maintenance', 'item' => 'Database tidy' ),
+	array( 'created' => $activity_base + 80000, 'action' => 'theme upgraded', 'context' => 'themes', 'item' => 'Storefront' ),
+	array( 'created' => $activity_base + 100000, 'action' => 'plugin updated', 'context' => 'plugins', 'item' => 'Akismet' ),
+	array( 'created' => $activity_base + 100500, 'action' => 'backup completed', 'context' => 'backups', 'item' => 'Nightly backup' ),
+	array( 'created' => $activity_base + 100200, 'action' => 'plugin updated', 'context' => 'plugins', 'item' => 'MainWP Child' ),
+);
+$full = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'website' => array(
+			'url'              => 'https://other.example',
+			'privkey'          => 'SECRETKEY',
+			'http_pass'        => 'password',
+			'plugin_upgrades'  => array(
+				'woocommerce/woocommerce.php' => array(
+					'Name'    => 'WooCommerce',
+					'Version' => '9.0.0',
+					'update'  => array( 'new_version' => '9.1.2' ),
+				),
+				'mainwp-child/mainwp-child.php' => array(
+					'Name'        => 'MainWP Child',
+					'Version'     => '6.4',
+					'new_version' => '6.5',
+				),
+				'mainwp-child-reports/mainwp-child-reports.php' => array(
+					'Name'        => 'MainWP Child Reports',
+					'Version'     => '2.3.1',
+					'new_version' => '2.4.0',
+				),
+				'branded/branded.php' => array(
+					'Name'        => 'ReactWoo Maintenance',
+					'Version'     => '1.0.0',
+					'new_version' => '1.1.0',
+				),
+			),
+			'theme_upgrades' => array(
+				'storefront' => array(
+					'Name'        => 'Storefront',
+					'Version'     => '4.5.0',
+					'new_version' => '4.6.0',
+				),
+			),
+			'securityIssues' => array(
+				'php_outdated' => 'PHP is old',
+				'ssl'          => 'SSL',
+			),
+			'pages'          => array(
+				array( 'title' => 'Home', 'status' => 'publish', 'dts' => 1710000000 ),
+				array( 'title' => 'Draft page', 'status' => 'draft', 'dts' => 1720000000 ),
+			),
+			'users'          => array(
+				array( 'login' => 'shopper', 'roles' => 'customer', 'last_login' => 1700001000 ),
+				array( 'login' => 'ghost', 'last_login' => 1900000000 ),
+				array( 'login' => 'older', 'role' => 'administrator', 'last_login' => 1700000000 ),
+				array( 'login' => 'jane', 'roles' => array( 'administrator' ), 'last_login' => 1700002000 ),
+			),
+		),
+		'sync'    => array(
+			'version'      => '5.4.0.1',
+			'wpversion'    => '6.7.1',
+			'dtsSync'      => 1700500000,
+			'health_value' => 100,
+			'phpversion'   => '8.2.12',
+			'last_post_gmt' => 1600000000,
+		),
+		'options' => array(
+			'wp_upgrades'          => array( 'current' => '6.7.1', 'new' => '6.7.2' ),
+			'updraftplus_history'  => $history,
+			'child_reports_login'  => array(
+				'user_login' => 'sam',
+				'time'       => 1800000000,
+				'role'       => 'administrator',
+			),
+			'woocommerce'          => array(
+				'products' => array(
+					'published'    => 12,
+					'draft'        => 2,
+					'out_of_stock' => 1,
+				),
+			),
+			'published_posts'      => 4,
+			'recent_posts'         => array(
+				array( 'title' => 'Older', 'status' => 'publish', 'dts' => 1700000000 ),
+				array( 'title' => 'Newer', 'status' => 'publish', 'dts' => 1700005000 ),
+				array( 'title' => 'Draft', 'status' => 'draft', 'dts' => 1700009000 ),
+			),
+			'next_maintenance'     => $snapshot_now + 86400,
+		),
+		'monitors' => array(
+			array( 'last_status' => 1, 'lasttime_check' => 1700600000, 'active' => 1, 'issub' => 0 ),
+		),
+		'logs'     => $activity_logs,
+		'audit'    => array(
+			array(
+				'event_type' => 'maintenance_run',
+				'message'    => wp_json_encode(
+					array(
+						'updates_applied' => false,
+						'backup'          => true,
+						'security_scan'   => true,
+						'optimisation'    => false,
+					)
+				),
+				'created_at' => gmdate( 'Y-m-d H:i:s', $activity_base + 120000 ),
+			),
+		),
+		'backup_tasks' => array(
+			array(
+				'schedule'   => 'daily',
+				'last_run'   => 1700000000 + ( 7 * 86400 ),
+				'last'       => 1700000000 + ( 7 * 86400 ),
+				'completed'  => 1,
+			),
+		),
+	),
+	$snapshot_now
+);
+$full_json = wp_json_encode( $full );
+rw_test(
+	'the snapshot is scoped to the enrolled site',
+	7 === $full['portal_site_id']
+		&& 3 === $full['subscription_id']
+		&& 'https://shop.example' === $full['site_url']
+		&& false === stripos( $full_json, 'other.example' )
+		&& false === strpos( $full_json, 'SECRETKEY' )
+		&& false === strpos( $full_json, 'password' )
+		&& false === stripos( $full_json, 'mainwp' )
+		&& false === strpos( $full_json, 'ReactWoo Maintenance' )
+);
+$pending_names = array();
+foreach ( $full['plugins']['pending'] as $pending_plugin ) {
+	$pending_names[] = $pending_plugin['name'];
+}
+rw_test(
+	'maintenance plugins are hidden and customer plugins remain',
+	1 === $full['plugins']['pending_count']
+		&& array( 'WooCommerce' ) === $pending_names
+		&& '9.0.0' === $full['plugins']['pending'][0]['current_version']
+		&& '9.1.2' === $full['plugins']['pending'][0]['new_version']
+		&& 1 === $full['themes']['pending_count']
+		&& 'Storefront' === $full['themes']['pending'][0]['name']
+);
+rw_test(
+	'core, php, health, security, sync and uptime come from the synced site',
+	'6.7.1' === $full['core']['wordpress_version']
+		&& true === $full['core']['update_available']
+		&& '6.7.2' === $full['core']['new_version']
+		&& '8.2.12' === $full['php_version']
+		&& 'good' === $full['health']['status']
+		&& 2 === $full['security']['issues_count']
+		&& null !== $full['last_sync_at']
+		&& true === $full['uptime']['monitored']
+		&& 'up' === $full['uptime']['status']
+);
+$update_names = array();
+foreach ( $full['recent_updates'] as $recent_update ) {
+	$update_names[] = $recent_update['name'];
+}
+rw_test(
+	'recent updates keep customer plugins and record versions',
+	in_array( 'WooCommerce', $update_names, true )
+		&& in_array( 'Akismet', $update_names, true )
+		&& ! in_array( 'MainWP Child', $update_names, true )
+);
+$woo_update = null;
+foreach ( $full['recent_updates'] as $recent_update ) {
+	if ( 'WooCommerce' === $recent_update['name'] ) {
+		$woo_update = $recent_update;
+	}
+}
+rw_test( 'an applied plugin update keeps both versions', is_array( $woo_update ) && '9.0.0' === $woo_update['from_version'] && '9.1.2' === $woo_update['to_version'] && 'plugin' === $woo_update['type'] );
+
+$real_micro = 1700000000000000;
+$real_mainwp = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'website' => array(
+			'plugins' => array(
+				'woocommerce/woocommerce.php' => array( 'Name' => 'WooCommerce', 'Version' => '9.1.2' ),
+				'reactwoo-geo-core/reactwoo-geo-core.php' => array( 'Name' => 'ReactWoo Geo Core', 'Version' => '1.4.0' ),
+			),
+			'themes' => array(
+				'storefront' => array( 'Name' => 'Storefront', 'Version' => '4.6.0' ),
+			),
+			'plugin_upgrades' => array(
+				'woocommerce/woocommerce.php' => array(
+					'Name'    => 'WooCommerce',
+					'Version' => '9.1.2',
+					'update'  => array( 'new_version' => '9.2.0' ),
+				),
+			),
+			'theme_upgrades' => array(
+				'storefront' => array(
+					'Name'        => 'Storefront',
+					'Version'     => '4.6.0',
+					'new_version' => '4.6.1',
+				),
+			),
+			'premium_upgrades' => array(),
+			'securityIssues' => array(
+				'php_outdated' => 'PHP is old',
+			),
+			'wp_upgrades' => array( 'current' => '7.1.4', 'new' => '7.1.5' ),
+			'users' => array(
+				array( 'login' => 'jane', 'role' => 'administrator' ),
+			),
+		),
+		'sync' => array(
+			'version'   => '5.4.0.6',
+			'dtsSync'   => $real_micro,
+			'health_value' => 72,
+		),
+		'options' => array(
+			'plugins'          => '[]',
+			'themes'           => '[]',
+			'plugin_upgrades'  => '[]',
+			'theme_upgrades'   => '[]',
+			'premium_upgrades' => '[]',
+			'securityIssues'   => '[]',
+			'wp_upgrades'      => '[]',
+			'site_info'        => wp_json_encode(
+				array(
+					'wpversion'       => '7.1.4',
+					'child_version'   => '5.4.0.6',
+					'format_datetime' => array(
+						'timezone_string' => 'Europe/Paris',
+						'gmt_offset'      => 1,
+					),
+				)
+			),
+			'primary_lasttime_backup' => (string) $real_micro,
+			'recent_posts' => array(
+				array( 'title' => 'Hello', 'status' => 'publish', 'dts' => 1700000000 ),
+			),
+			'health_site_status' => array(
+				'good'        => 12,
+				'recommended' => 1,
+				'critical'    => 2,
+			),
+		),
+		'logs' => array(
+			array(
+				'created' => $real_micro,
+				'action'  => 'updated',
+				'context' => 'plugins',
+				'item'    => wp_json_encode( array( 'name' => 'ReactWoo Geo Core', 'from' => '1.3.0', 'to' => '1.4.0' ) ),
+			),
+		),
+	),
+	1700604900
+);
+$real_names = array();
+foreach ( $real_mainwp['plugins']['pending'] as $real_pending ) {
+	$real_names[] = $real_pending['name'];
+}
+$geo = null;
+foreach ( $real_mainwp['recent_updates'] as $real_update ) {
+	if ( 'ReactWoo Geo Core' === $real_update['name'] ) {
+		$geo = $real_update;
+	}
+}
+$explicit_critical = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'health_site_status' => array(
+				'status'   => 'critical',
+				'critical' => 4,
+			),
+		),
+	)
+);
+rw_test(
+	'a real MainWP row uses the site WordPress version, lists, and microsecond times',
+	'7.1.4' === $real_mainwp['core']['wordpress_version']
+		&& true === $real_mainwp['core']['update_available']
+		&& '7.1.5' === $real_mainwp['core']['new_version']
+		&& array( 'WooCommerce' ) === $real_names
+		&& 1 === $real_mainwp['themes']['pending_count']
+		&& 'Storefront' === $real_mainwp['themes']['pending'][0]['name']
+		&& 2 === $real_mainwp['inventory']['plugins']
+		&& 1 === $real_mainwp['inventory']['themes']
+		&& 1 === $real_mainwp['security']['issues_count']
+		&& 'Europe/Paris' === $real_mainwp['timezone']
+		&& gmdate( 'c', 1700000000 ) === $real_mainwp['last_sync_at']
+		&& gmdate( 'c', 1700000000 ) === $real_mainwp['backups']['last']['time']
+		&& is_array( $geo )
+		&& 'plugin' === $geo['type']
+		&& gmdate( 'c', 1700000000 ) === $geo['applied_at']
+		&& 'needs_attention' === $real_mainwp['health']['status']
+		&& 'critical' === $explicit_critical['health']['status']
+		&& null === $real_mainwp['last_admin_login']['time']
+		&& null === $real_mainwp['content']['posts']['published']
+		&& gmdate( 'c', 1700000000 ) === $real_mainwp['content']['posts']['last_published_at']
+		&& null === $real_mainwp['content']['products']['published']
+);
+$health_view = RW_Portal_Maintenance_Status::present( $real_mainwp );
+$health_card = null;
+foreach ( $health_view['cards'] as $health_row ) {
+	if ( 'health' === $health_row['id'] ) {
+		$health_card = $health_row;
+	}
+}
+rw_test( 'a few critical checks are needs attention, not critical', is_array( $health_card ) && 'Needs attention' === $health_card['state_label'] );
+
+$indexed_run = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'logs' => array(
+			array(
+				'created' => '17000000004521',
+				'action'  => 'backup completed',
+				'context' => 'backups',
+				'item'    => 'Nightly',
+			),
+		),
+	)
+);
+$absurd_when = RW_Portal_Maintenance_Status::format_when( '4378-05-06T15:06:40+00:00' );
+$indexed_when = RW_Portal_Maintenance_Status::format_when( '17000000004521' );
+$micro_when = RW_Portal_Maintenance_Status::format_when( '1700000000000000' );
+rw_test(
+	'maintenance run times ignore millisecond, microsecond and indexed stamps',
+	is_array( $indexed_run['activity']['last_run'] )
+		&& gmdate( 'c', 1700000000 ) === $indexed_run['activity']['last_run']['date']
+		&& '' === $absurd_when
+		&& false !== strpos( $indexed_when, '2023' )
+		&& false !== strpos( $micro_when, '2023' )
+		&& false === strpos( $indexed_when, '4377' )
+		&& false === strpos( $micro_when, '5292' )
+);
+rw_test(
+	'the header is needs attention when a status card is',
+	RW_Portal_Maintenance_Status::needs_attention( array( 'flags' => array(), 'cards' => array( array( 'state' => 'good' ) ) ) ) === false
+		&& RW_Portal_Maintenance_Status::needs_attention( array( 'flags' => array( 'Site health needs attention' ), 'cards' => array() ) )
+		&& RW_Portal_Maintenance_Status::needs_attention( $health_view )
+);
+
+rw_test(
+	'backup history keeps the newest five and the next daily run',
+	5 === count( $full['backups']['recent'] )
+		&& gmdate( 'c', 1700000000 + ( 7 * 86400 ) ) === $full['backups']['last']['time']
+		&& 'success' === $full['backups']['last']['status']
+		&& gmdate( 'c', 1700000000 + ( 7 * 86400 ) ) === $full['backups']['recent'][0]['time']
+		&& gmdate( 'c', 1700000000 + ( 3 * 86400 ) ) === $full['backups']['recent'][4]['time']
+		&& gmdate( 'c', 1700000000 + ( 8 * 86400 ) ) === $full['backups']['next_scheduled']
+);
+rw_test(
+	'the latest administrator login is returned',
+	'sam' === $full['last_admin_login']['username']
+		&& gmdate( 'c', 1800000000 ) === $full['last_admin_login']['time']
+		&& false === strpos( $full_json, 'shopper' )
+		&& false === strpos( $full_json, 'ghost' )
+);
+rw_test(
+	'catalogue counts and last published dates are kept apart from recent lists',
+	12 === $full['content']['products']['published']
+		&& 2 === $full['content']['products']['draft']
+		&& 1 === $full['content']['products']['out_of_stock']
+		&& 4 === $full['content']['posts']['published']
+		&& gmdate( 'c', 1700005000 ) === $full['content']['posts']['last_published_at']
+		&& 1 === $full['content']['pages']['published']
+		&& gmdate( 'c', 1710000000 ) === $full['content']['pages']['last_published_at']
+);
+rw_test(
+	'the last five maintenance runs keep what was done',
+	5 === count( $full['activity']['recent'] )
+		&& gmdate( 'c', $activity_base + 120000 ) === $full['activity']['last_run']['date']
+		&& false === $full['activity']['last_run']['updates_applied']
+		&& true === $full['activity']['last_run']['backup']
+		&& true === $full['activity']['last_run']['security_scan']
+		&& false === $full['activity']['last_run']['optimisation']
+		&& gmdate( 'c', $snapshot_now + 86400 ) === $full['activity']['next_scheduled']
+);
+
+$missing = RW_Maint_Site_Snapshot::build( $scoped_site, array() );
+rw_test(
+	'missing synced fields stay empty instead of invented values',
+	null === $missing['core']['wordpress_version']
+		&& null === $missing['core']['update_available']
+		&& null === $missing['plugins']['pending_count']
+		&& null === $missing['themes']['pending_count']
+		&& array() === $missing['recent_updates']
+		&& null === $missing['php_version']
+		&& null === $missing['health']['status']
+		&& null === $missing['security']['issues_count']
+		&& null === $missing['last_sync_at']
+		&& null === $missing['backups']['last']['time']
+		&& null === $missing['backups']['last']['status']
+		&& null === $missing['backups']['next_scheduled']
+		&& array() === $missing['backups']['recent']
+		&& false === $missing['uptime']['monitored']
+		&& null === $missing['uptime']['status']
+		&& null === $missing['last_admin_login']['time']
+		&& null === $missing['last_admin_login']['username']
+		&& null === $missing['content']['products']['published']
+		&& null === $missing['content']['products']['draft']
+		&& null === $missing['content']['products']['out_of_stock']
+		&& null === $missing['content']['posts']['published']
+		&& null === $missing['content']['posts']['last_published_at']
+		&& null === $missing['content']['pages']['published']
+		&& null === $missing['content']['pages']['last_published_at']
+		&& null === $missing['activity']['last_run']
+		&& null === $missing['activity']['next_scheduled']
+		&& array() === $missing['activity']['recent']
+);
+
+$recent_only = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'recent_posts' => array(
+				array( 'title' => 'One', 'status' => 'publish', 'date' => '2026-01-02 00:00:00' ),
+				array( 'title' => 'Two', 'status' => 'publish', 'date' => '2026-03-04 00:00:00' ),
+			),
+			'recent_pages' => array(
+				array( 'title' => 'About', 'status' => 'publish', 'dts' => 1711000000 ),
+			),
+		),
+	)
+);
+rw_test(
+	'recent posts do not become a published count',
+	null === $recent_only['content']['posts']['published']
+		&& null === $recent_only['content']['pages']['published']
+		&& gmdate( 'c', strtotime( '2026-03-04 00:00:00' ) ) === $recent_only['content']['posts']['last_published_at']
+		&& gmdate( 'c', 1711000000 ) === $recent_only['content']['pages']['last_published_at']
+);
+
+$zeros = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'content' => array(
+				'products' => array(
+					'published'    => 0,
+					'draft'        => 0,
+					'out_of_stock' => 0,
+				),
+				'posts'    => array( 'published' => 0 ),
+				'pages'    => array( 'published' => 0 ),
+			),
+			'securityIssues' => array(),
+			'wp_upgrades'    => array(),
+		),
+		'sync' => array( 'version' => '6.7.1' ),
+	)
+);
+rw_test(
+	'a reported zero stays zero',
+	0 === $zeros['content']['products']['published']
+		&& 0 === $zeros['content']['products']['draft']
+		&& 0 === $zeros['content']['products']['out_of_stock']
+		&& 0 === $zeros['content']['posts']['published']
+		&& 0 === $zeros['security']['issues_count']
+		&& false === $zeros['core']['update_available']
+);
+
+$down = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'monitors' => array(
+			array( 'last_status' => 0, 'active' => 1, 'issub' => 0, 'lasttime_check' => 1700000000 ),
+		),
+		'options'  => array(
+			'primary_lasttime_backup' => 1690000000,
+		),
+	)
+);
+rw_test( 'a monitor can report the site offline', true === $down['uptime']['monitored'] && 'down' === $down['uptime']['status'] );
+rw_test( 'a backup time without a result is not marked successful', gmdate( 'c', 1690000000 ) === $down['backups']['last']['time'] && null === $down['backups']['last']['status'] );
+
+$unknown_monitor = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'monitors' => array(
+			array( 'last_status' => 99, 'active' => 1, 'issub' => 0 ),
+		),
+	)
+);
+rw_test( 'an unchecked monitor does not invent uptime', true === $unknown_monitor['uptime']['monitored'] && null === $unknown_monitor['uptime']['status'] );
+
+$blank_view = RW_Portal_Maintenance_Status::present( array() );
+$blank_states = array();
+foreach ( $blank_view['cards'] as $blank_card ) {
+	$blank_states[] = $blank_card['state'];
+}
+rw_test(
+	'missing data renders unknown status cards',
+	array( 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown' ) === $blank_states
+		&& ! $blank_view['login']['available']
+		&& 'Not available yet' === $blank_view['content']['groups'][0]['rows'][0]['value']
+		&& 'Not available yet' === $blank_view['content']['groups'][1]['rows'][1]['value']
+		&& ! $blank_view['activity']['last']['available']
+		&& ! $blank_view['activity']['next']['available']
+		&& array() === $blank_view['activity']['recent']
+);
+$live_view = RW_Portal_Maintenance_Status::present( $full );
+$live_ids  = array();
+foreach ( $live_view['cards'] as $live_card ) {
+	$live_ids[] = $live_card['id'];
+}
+rw_test(
+	'status cards cover the customer maintenance areas',
+	array( 'core', 'updates', 'security', 'health', 'backups', 'uptime' ) === $live_ids
+		&& 'attention' === $live_view['cards'][0]['state']
+		&& 'good' === $live_view['cards'][3]['state']
+		&& 'good' === $live_view['cards'][5]['state']
+		&& 'sam' === $live_view['login']['username']
+		&& '12' === $live_view['content']['groups'][0]['rows'][0]['value']
+		&& true === $live_view['activity']['last']['available']
+		&& in_array( 'Backup', $live_view['activity']['last']['done'], true )
+		&& in_array( 'Security scan', $live_view['activity']['last']['done'], true )
+);
+
+$cache_calls = 0;
+$cache_site  = (object) array(
+	'id'              => 7,
+	'subscription_id' => 3,
+);
+$cache_fetch = function ( $site ) use ( &$cache_calls ) {
+	$cache_calls++;
+	return array(
+		'portal_site_id'  => (int) $site->id,
+		'subscription_id' => (int) $site->subscription_id,
+		'core'            => array( 'wordpress_version' => '6.7.1' ),
+	);
+};
+$GLOBALS['rw_transients']    = array();
+$GLOBALS['rw_transient_ttl'] = array();
+$cached_first  = RW_Portal_Maintenance_Status::for_site( $cache_site, $cache_fetch );
+$cached_second = RW_Portal_Maintenance_Status::for_site( $cache_site, $cache_fetch );
+$cache_key     = RW_Portal_Maintenance_Status::cache_key( $cache_site );
+rw_test(
+	'a successful snapshot is cached',
+	1 === $cache_calls
+		&& $cached_first === $cached_second
+		&& 7 === $cached_second['portal_site_id']
+		&& isset( $GLOBALS['rw_transient_ttl'][ $cache_key ] )
+		&& $GLOBALS['rw_transient_ttl'][ $cache_key ] >= 600
+		&& $GLOBALS['rw_transient_ttl'][ $cache_key ] <= 900
+);
+$other_cache = (object) array(
+	'id'              => 8,
+	'subscription_id' => 3,
+);
+$cached_other = RW_Portal_Maintenance_Status::for_site( $other_cache, $cache_fetch );
+$moved_cache  = (object) array(
+	'id'              => 7,
+	'subscription_id' => 9,
+);
+$cached_moved = RW_Portal_Maintenance_Status::for_site( $moved_cache, $cache_fetch );
+rw_test(
+	'the cache is separate for each site and subscription',
+	2 === $cache_calls || 3 === $cache_calls
+);
+rw_test( 'another site is fetched on its own', 8 === $cached_other['portal_site_id'] && 9 === $cached_moved['subscription_id'] && 3 === $cache_calls );
+
+$failed_calls = 0;
+$failed_site  = (object) array(
+	'id'              => 11,
+	'subscription_id' => 3,
+);
+$failed_fetch = function () use ( &$failed_calls ) {
+	$failed_calls++;
+	return new WP_Error( 'rw_maint_bad_response', 'Maintenance hub responded with an error.' );
+};
+RW_Portal_Maintenance_Status::for_site( $failed_site, $failed_fetch );
+RW_Portal_Maintenance_Status::for_site( $failed_site, $failed_fetch );
+rw_test( 'a failed status fetch is not cached', 2 === $failed_calls && ! get_transient( RW_Portal_Maintenance_Status::cache_key( $failed_site ) ) );
+
+$status_controller = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/includes/rest/class-rw-maint-rest-controller.php' );
+$status_pos        = strpos( $status_controller, 'function site_status' );
+$scope_pos         = strpos( $status_controller, 'site_is_in_scope', $status_pos );
+$collect_pos       = strpos( $status_controller, 'RW_Maint_MainWP_Status::collect', $status_pos );
+rw_test(
+	'the status endpoint is signed and checks the subscription before reading',
+	false !== strpos( $status_controller, "'/status'" )
+		&& false !== $status_pos
+		&& false !== $scope_pos
+		&& false !== $collect_pos
+		&& $scope_pos < $collect_pos
+);
+$portal_client = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maint-client.php' );
+$fetch_pos     = strpos( $portal_client, 'function fetch_site_status' );
+rw_test(
+	'the portal requests status for the site subscription',
+	false !== $fetch_pos
+		&& false !== strpos( substr( $portal_client, $fetch_pos, 500 ), "'status'" )
+		&& false !== strpos( substr( $portal_client, $fetch_pos, 500 ), 'subscription_id' )
+);
+rw_test(
+	'status cards stack on small screens and use the account tokens',
+	false !== strpos( $maintenance_css, '.rw-maint-status-grid' )
+		&& false !== strpos( $maintenance_css, 'var(--rw-ink)' )
+		&& false !== strpos( $maintenance_css, 'var(--rw-card)' )
+		&& false !== strpos( $maintenance_css, '.rw-maint-status-grid,' )
+		&& false !== strpos( $maintenance_css, 'grid-template-columns: 1fr' )
+);
+
+$premium_snapshot = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'website' => array(
+			'plugins' => array(
+				'seo-plugin/seo-plugin.php' => array(
+					'Name'      => 'SEO Plugin',
+					'slug'      => 'seo-plugin',
+					'Version'   => '1.2.0',
+					'UpdateURI' => 'https://updates.example.com/seo',
+				),
+				'akismet/akismet.php' => array(
+					'Name'    => 'Akismet',
+					'slug'    => 'akismet',
+					'Version' => '5.0',
+				),
+			),
+			'themes' => array(
+				'storefront' => array(
+					'Name'    => 'Storefront',
+					'Version' => '4.5.0',
+				),
+			),
+			'plugin_upgrades' => array(
+				'akismet/akismet.php' => array(
+					'Name'    => 'Akismet',
+					'slug'    => 'akismet',
+					'Version' => '5.0',
+					'update'  => array(
+						'new_version' => '5.1',
+						'package'     => 'https://downloads.wordpress.org/plugin/akismet.5.1.zip',
+					),
+				),
+				'elementor-pro/elementor-pro.php' => array(
+					'Name'    => 'Elementor Pro',
+					'slug'    => 'elementor-pro',
+					'Version' => '3.20.0',
+					'update'  => array(
+						'new_version' => '3.21.0',
+						'package'     => 'https://my.elementor.com/download/elementor-pro.zip',
+					),
+				),
+			),
+			'premium_upgrades' => array(
+				'gravityforms/gravityforms.php' => array(
+					'Name'        => 'Gravity Forms',
+					'slug'        => 'gravityforms',
+					'Version'     => '2.8.0',
+					'new_version' => '2.8.1',
+				),
+				'mainwp-child/mainwp-child.php' => array(
+					'Name'        => 'MainWP Child',
+					'Version'     => '6.4',
+					'new_version' => '6.5',
+				),
+			),
+		),
+		'options' => array(
+			'elementor_pro_license_data' => array(
+				'license' => 'valid',
+				'expires' => '2027-01-01 00:00:00',
+				'timeout' => 1700000000,
+			),
+			'_transient_gravityforms_license_status' => 'expired',
+			'gravityforms_license_expires' => '2025-06-01 00:00:00',
+			'seo_plugin_license_status' => 'invalid',
+			'unrelated_plugin_license_status' => 'active',
+			'akismet_license_status' => 'valid',
+		),
+	)
+);
+$premium_by_name = array();
+foreach ( (array) $premium_snapshot['plugins']['premium'] as $premium_item ) {
+	$premium_by_name[ $premium_item['name'] ] = $premium_item;
+}
+$akismet_pending = null;
+foreach ( $premium_snapshot['plugins']['pending'] as $pending_plugin ) {
+	if ( 'Akismet' === $pending_plugin['name'] ) {
+		$akismet_pending = $pending_plugin;
+	}
+}
+rw_test(
+	'wordpress.org updates are not treated as premium',
+	! isset( $premium_by_name['Akismet'] )
+		&& is_array( $akismet_pending )
+		&& 'wordpress.org' === $akismet_pending['update_source']
+		&& true === $akismet_pending['update_available']
+		&& ! isset( $premium_by_name['MainWP Child'] )
+);
+rw_test(
+	'external update sources keep licence status and expiry',
+	isset( $premium_by_name['Elementor Pro'] )
+		&& 'my.elementor.com' === $premium_by_name['Elementor Pro']['update_source']
+		&& true === $premium_by_name['Elementor Pro']['update_available']
+		&& '3.21.0' === $premium_by_name['Elementor Pro']['new_version']
+		&& 'active' === $premium_by_name['Elementor Pro']['licence_status']
+		&& gmdate( 'c', strtotime( '2027-01-01 00:00:00' ) ) === $premium_by_name['Elementor Pro']['licence_expires_at']
+		&& isset( $premium_by_name['Gravity Forms'] )
+		&& 'external' === $premium_by_name['Gravity Forms']['update_source']
+		&& true === $premium_by_name['Gravity Forms']['update_available']
+		&& 'expired' === $premium_by_name['Gravity Forms']['licence_status']
+		&& gmdate( 'c', strtotime( '2025-06-01 00:00:00' ) ) === $premium_by_name['Gravity Forms']['licence_expires_at']
+		&& isset( $premium_by_name['SEO Plugin'] )
+		&& 'updates.example.com' === $premium_by_name['SEO Plugin']['update_source']
+		&& false === $premium_by_name['SEO Plugin']['update_available']
+		&& 'unknown' === $premium_by_name['SEO Plugin']['licence_status']
+		&& null === $premium_by_name['SEO Plugin']['licence_expires_at']
+);
+rw_test(
+	'installed plugin and theme counts ignore the maintenance plugins',
+	2 === $premium_snapshot['inventory']['plugins']
+		&& 1 === $premium_snapshot['inventory']['themes']
+);
+$premium_view = RW_Portal_Maintenance_Status::present( $premium_snapshot );
+$premium_names = array();
+foreach ( $premium_view['premium']['items'] as $premium_row ) {
+	$premium_names[] = $premium_row['name'];
+}
+rw_test(
+	'premium licences render without guessing an unmatched plugin',
+	in_array( 'Elementor Pro', $premium_names, true )
+		&& in_array( 'Gravity Forms', $premium_names, true )
+		&& ! in_array( 'Akismet', $premium_names, true )
+		&& 'ink' === $premium_view['premium']['tone']
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'backups', 'good' )
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'health', 'good' )
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'updates', 'attention' )
+		&& 'ink' === RW_Portal_Maintenance_Status::card_tone( 'security', 'attention' )
+		&& 'paper' === RW_Portal_Maintenance_Status::card_tone( 'security', 'good' )
+		&& 'paper' === RW_Portal_Maintenance_Status::card_tone( 'core', 'good' )
+);
+$licence_by_name = array();
+foreach ( $premium_view['premium']['items'] as $licence_row ) {
+	$licence_by_name[ $licence_row['name'] ] = $licence_row;
+}
+rw_test(
+	'licence pills use a date and no clock time',
+	'Active · 1 Jan 2027' === $licence_by_name['Elementor Pro']['licence']
+		&& 'good' === $licence_by_name['Elementor Pro']['licence_tone']
+		&& 'Update 3.21.0' === $licence_by_name['Elementor Pro']['update']
+		&& 'warn' === $licence_by_name['Elementor Pro']['update_tone']
+		&& 'Expired · 1 Jun 2025' === $licence_by_name['Gravity Forms']['licence']
+		&& 'bad' === $licence_by_name['Gravity Forms']['licence_tone']
+		&& 'Unknown' === $licence_by_name['SEO Plugin']['licence']
+		&& false === strpos( $licence_by_name['Elementor Pro']['licence'], ':' )
+);
+$flag_lines = RW_Portal_Maintenance_Status::attention_flags( $premium_snapshot );
+rw_test( 'an expired premium licence is an attention flag', in_array( '1 premium licence expired', $flag_lines, true ) );
+
+$backup_detail = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array(
+			'updraftplus_history' => array(
+				array( 'time' => 1700000000, 'status' => 'success', 'type' => 'full', 'size' => 1288490188 ),
+				array( 'time' => 1699900000, 'status' => 'failed', 'type' => 'database', 'size' => '240 MB' ),
+				array( 'time' => 1699800000, 'status' => 'success' ),
+			),
+		),
+	),
+	1700001000
+);
+rw_test(
+	'backup history keeps type and size when they are recorded',
+	3 === count( $backup_detail['backups']['recent'] )
+		&& 'Full' === $backup_detail['backups']['recent'][0]['type']
+		&& '1.2 GB' === $backup_detail['backups']['recent'][0]['size']
+		&& 'Database' === $backup_detail['backups']['recent'][1]['type']
+		&& '240 MB' === $backup_detail['backups']['recent'][1]['size']
+		&& null === $backup_detail['backups']['recent'][2]['type']
+		&& null === $backup_detail['backups']['recent'][2]['size']
+);
+$history_view = RW_Portal_Maintenance_Status::present( $backup_detail );
+rw_test(
+	'backup history is a card with date, type, status and size',
+	'Complete' === $history_view['backup_panel']['history'][0]['status']
+		&& 'good' === $history_view['backup_panel']['history'][0]['status_tone']
+		&& '1.2 GB' === $history_view['backup_panel']['history'][0]['size']
+		&& 'Not reported' === $history_view['backup_panel']['history'][2]['type']
+		&& 'Not reported' === $history_view['backup_panel']['history'][2]['size']
+);
+$history_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/maintenance-status.php' );
+rw_test(
+	'the backup history template is its own card',
+	false !== strpos( $history_template, 'rw-maint-history-card' )
+		&& false !== strpos( $history_template, 'Date' )
+		&& false !== strpos( $history_template, 'Type' )
+		&& false !== strpos( $history_template, 'Status' )
+		&& false !== strpos( $history_template, 'Size' )
+);
+
+if ( ! function_exists( 'wp_timezone' ) ) {
+	function wp_timezone() {
+		$name = isset( $GLOBALS['rw_wp_timezone'] ) ? (string) $GLOBALS['rw_wp_timezone'] : 'UTC';
+		return new DateTimeZone( $name );
+	}
+}
+
+$zoned_site = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array( 'timezone_string' => 'Europe/London' ),
+		'sync'    => array( 'dtsSync' => 1700000000 ),
+	)
+);
+$offset_site = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array( 'gmt_offset' => 5.5 ),
+	)
+);
+$invalid_zone = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'options' => array( 'timezone_string' => 'Not/AZone' ),
+	)
+);
+rw_test( 'the snapshot keeps the site timezone', 'Europe/London' === $zoned_site['timezone'] );
+rw_test( 'a numeric offset becomes a fixed zone', '+05:30' === $offset_site['timezone'] );
+rw_test( 'an unrecognised zone is left unset', null === $invalid_zone['timezone'] );
+
+$london_time = RW_Portal_Maintenance_Status::format_when( '2023-11-14T22:13:20+00:00', 'Europe/London' );
+$paris_time  = RW_Portal_Maintenance_Status::format_when( '2023-11-14T22:13:20+00:00', 'Europe/Paris' );
+$ny_time     = RW_Portal_Maintenance_Status::format_when( '2023-11-14T22:13:20+00:00', 'America/New_York' );
+rw_test( 'winter London time is labelled GMT', '14 Nov 2023, 22:13 GMT' === $london_time && false === strpos( $london_time, 'UTC' ) );
+rw_test( 'a site zone is not shown as UTC', '14 Nov 2023, 23:13 CET' === $paris_time );
+rw_test( 'New York winter time is labelled EST', '14 Nov 2023, 17:13 EST' === $ny_time );
+
+$GLOBALS['rw_wp_timezone'] = 'Europe/Paris';
+$wordpress_zone = RW_Portal_Maintenance_Status::present(
+	array(
+		'last_admin_login' => array(
+			'time'     => '2023-11-14T22:13:20+00:00',
+			'username' => 'jane',
+		),
+	)
+);
+$GLOBALS['rw_wp_timezone'] = 'UTC';
+$site_zone = RW_Portal_Maintenance_Status::present(
+	array(
+		'timezone'         => 'America/New_York',
+		'last_admin_login' => array(
+			'time'     => '2023-11-14T22:13:20+00:00',
+			'username' => 'jane',
+		),
+	)
+);
+rw_test(
+	'a missing site zone uses the WordPress zone',
+	false !== strpos( $wordpress_zone['login']['when'], 'CET' )
+		&& false === strpos( $wordpress_zone['login']['when'], 'UTC' )
+);
+rw_test( 'the site zone wins over the WordPress zone', false !== strpos( $site_zone['login']['when'], 'EST' ) );
+
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp-status.php';
+
+class RW_Status_Url_Wpdb {
+	public $prefix = 'wp_';
+	public $last_error = '';
+	public $queries = array();
+	public $sites = array();
+
+	public function prepare( $query, ...$args ) {
+		$index = 0;
+		return preg_replace_callback(
+			'/%[sd]/',
+			function ( $match ) use ( &$index, $args ) {
+				$value = $args[ $index ];
+				$index++;
+				if ( '%d' === $match[0] ) {
+					return (string) (int) $value;
+				}
+				return "'" . str_replace( "'", "''", (string) $value ) . "'";
+			},
+			$query
+		);
+	}
+
+	public function get_row( $sql ) {
+		$this->queries[] = $sql;
+		if ( preg_match( '/FROM wp_mainwp_wp WHERE id = (\d+)/', $sql, $match ) ) {
+			$id = (int) $match[1];
+			return isset( $this->sites[ $id ] ) ? $this->sites[ $id ] : null;
+		}
+		return null;
+	}
+
+	public function get_var( $sql ) {
+		$this->queries[] = $sql;
+		return null;
+	}
+
+	public function get_results( $sql ) {
+		$this->queries[] = $sql;
+		return array();
+	}
+}
+
+$saved_wpdb = isset( $GLOBALS['wpdb'] ) ? $GLOBALS['wpdb'] : null;
+$url_wpdb   = new RW_Status_Url_Wpdb();
+$url_wpdb->sites[12] = (object) array(
+	'id'  => 12,
+	'url' => 'https://other.example',
+);
+$GLOBALS['wpdb'] = $url_wpdb;
+$guard_site = (object) array(
+	'portal_site_id' => 7,
+	'mainwp_site_id' => 12,
+	'site_url'       => 'https://shop.example',
+);
+$blocked_sources = RW_Maint_MainWP_Status::collect( $guard_site );
+$blocked_sql = implode( "\n", $url_wpdb->queries );
+$url_wpdb->queries = array();
+$url_wpdb->sites[12]->url = 'https://shop.example/';
+$allowed_sources = RW_Maint_MainWP_Status::collect( $guard_site );
+$allowed_sql = implode( "\n", $url_wpdb->queries );
+$GLOBALS['wpdb'] = $saved_wpdb;
+rw_test(
+	'status does not read a MainWP site whose URL does not match',
+	array() === $blocked_sources['website']
+		&& array() === $blocked_sources['options']
+		&& array() === $blocked_sources['logs']
+		&& false === strpos( $blocked_sql, 'SELECT *' )
+		&& false === strpos( $blocked_sql, 'mainwp_wp_options' )
+		&& false !== strpos( $allowed_sql, 'SHOW TABLES' )
+);
+
+$index_blocks = array(
+	array(
+		'view' => array(
+			'subscription_id' => 11,
+			'plan_name'       => 'Standard Maintenance',
+			'status_label'    => 'Connected',
+			'state'           => 'connected',
+			'renews_on'       => '1 Dec 2026',
+			'site'            => (object) array( 'site_url' => 'https://example-site.com' ),
+			'maintenance'     => $premium_view,
+		),
+	),
+	array(
+		'view' => array(
+			'subscription_id' => 12,
+			'plan_name'       => 'Essential Maintenance',
+			'status_label'    => 'Finish connecting',
+			'state'           => 'setup',
+			'renews_on'       => '',
+			'site'            => (object) array( 'site_url' => 'https://second-example.com' ),
+		),
+	),
+);
+rw_test( 'several plans open the site chooser until one is selected', RW_Portal_Account::show_site_index( 2, 0 ) && ! RW_Portal_Account::show_site_index( 2, 11 ) && ! RW_Portal_Account::show_site_index( 1, 0 ) );
+rw_test( 'an unknown selection falls back to the chooser', 'index' === RW_Portal_Account::blocks_for_request( $index_blocks, 99 )['mode'] && 'dashboard' === RW_Portal_Account::blocks_for_request( $index_blocks, 11 )['mode'] );
+$switcher = RW_Portal_Account::switcher_model( $index_blocks, 11 );
+$index_cards = RW_Portal_Account::site_index_cards( $index_blocks );
+rw_test(
+	'the switcher lists every plan and marks the open site',
+	2 === $switcher['count']
+		&& true === $switcher['sites'][0]['current']
+		&& false === $switcher['sites'][1]['current']
+		&& 'example-site.com' === $switcher['current']['host']
+		&& false !== strpos( $switcher['sites'][1]['url'], '/12/' )
+		&& 'Not checked yet' === $index_cards[1]['updates']
+		&& 'Not available yet' === $index_cards[1]['backup']
+		&& array( 'Connect the plugin to start checks' ) === $index_cards[1]['flags']
+);
+$dash_css = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+$sites_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-sites.php' );
+$switcher_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/site-switcher.php' );
+rw_test(
+	'attention panels use the ink colour and rows stretch',
+	false !== strpos( $dash_css, '#171c34' )
+		&& false !== strpos( $dash_css, 'align-items: stretch' )
+		&& false !== strpos( $dash_css, 'height: 100%' )
+		&& false !== strpos( $dash_css, 'overflow-wrap: anywhere' )
+		&& false === strpos( $dash_css, 'line-clamp' )
+		&& false !== strpos( $sites_template, 'Your sites' )
+		&& false !== strpos( $switcher_template, 'Viewing site' )
+		&& false !== strpos( $switcher_template, 'All sites' )
+);
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-offers.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-purchase.php';
+
+class RW_Offer_Product {
+	public $slug;
+	public $id;
+	public function __construct( $slug, $id ) {
+		$this->slug = $slug;
+		$this->id   = $id;
+	}
+	public function get_slug() {
+		return $this->slug;
+	}
+	public function get_id() {
+		return $this->id;
+	}
+}
+
+class RW_Offer_Order {
+	public $meta = array();
+	public $status = 'pending';
+	public $id;
+	public function __construct( $id ) {
+		$this->id = $id;
+	}
+	public function get_id() {
+		return $this->id;
+	}
+	public function update_meta_data( $key, $value ) {
+		$this->meta[ $key ] = $value;
+	}
+	public function set_payment_method( $gateway ) {
+		unset( $gateway );
+	}
+	public function save() {
+	}
+	public function get_status() {
+		return $this->status;
+	}
+	public function update_status( $status, $note = '' ) {
+		unset( $note );
+		$this->status = $status;
+	}
+}
+
+class RW_Offer_Gateway {
+	public $id = 'revolut_cc';
+	public $calls = array();
+	public $result = array( 'result' => 'success' );
+	public function supports( $feature ) {
+		return 'tokenization' === $feature;
+	}
+	public function process_payment( $wc_order_id, $revolut_public_id = '', $is_express_checkout = false, $revolut_payment_error = '', $reload_checkout = false, $is_captured = false, $is_using_saved_payment_method = false, $save_payment_method_requested = false, $wc_payment_token_id = '' ) {
+		$this->calls[] = func_get_args();
+		return $this->result;
+	}
+}
+
+$offer_catalogue = RW_Support_Offers::catalogue();
+$offer_prices = false;
+foreach ( $offer_catalogue as $offer_row ) {
+	if ( isset( $offer_row['price'] ) || isset( $offer_row['amount'] ) ) {
+		$offer_prices = true;
+	}
+}
+rw_test(
+	'support packs are matched by slug and do not store a price',
+	3663 === $offer_catalogue['additional-support-1h']['id']
+		&& 3666 === $offer_catalogue['technical-support-5h']['id']
+		&& ! $offer_prices
+		&& 'additional' === RW_Support_Offers::kind_of( 'additional-support-5h', 0 )
+		&& 'technical' === RW_Support_Offers::kind_of( 'renamed', 3665 )
+);
+rw_test(
+	'additional support needs an active maintenance product',
+	RW_Support_Offers::subscription_grants_additional( 'active', array( 3657 ) )
+		&& RW_Support_Offers::subscription_grants_additional( 'pending-cancel', array( 3660 ) )
+		&& ! RW_Support_Offers::subscription_grants_additional( 'on-hold', array( 3654 ) )
+		&& ! RW_Support_Offers::subscription_grants_additional( 'active', array( 999 ) )
+);
+rw_test(
+	'the purchasable guard blocks additional support without a plan',
+	! RW_Support_Offers::allows_purchase( true, 'additional', false )
+		&& RW_Support_Offers::allows_purchase( true, 'additional', true )
+		&& RW_Support_Offers::allows_purchase( true, 'technical', false )
+		&& ! RW_Support_Offers::allows_purchase( false, 'technical', true )
+		&& ! rw_additional_support_guard_purchasable( true, new RW_Offer_Product( 'additional-support-1h', 3663 ) )
+		&& rw_additional_support_guard_purchasable( true, new RW_Offer_Product( 'technical-support-1h', 3665 ) )
+);
+$offer_card = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support, 1 hour', 'price_html' => '<span class="woocommerce-Price-amount">£40.00</span>' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'Technical support, 5 hours', 'price_html' => wc_price_missing() ),
+	),
+	false,
+	array( 'token_id' => 9, 'gateway_id' => 'revolut_cc', 'last4' => '1234' ),
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+function wc_price_missing() {
+	return '<span class="woocommerce-Price-amount">£120.00</span>';
+}
+rw_test(
+	'without a maintenance plan only technical support is offered at the live price',
+	1 === count( $offer_card['options'] )
+		&& 'technical-support-5h' === $offer_card['options'][0]['slug']
+		&& '£120.00' === $offer_card['options'][0]['price_text']
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'add-to-cart=3666' )
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_subscription_id=11' )
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_site_id=7' )
+		&& 'Buy now with card ending ••••1234' === $offer_card['card']['label']
+);
+$offer_with_plan = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support, 1 hour', 'price_html' => '£40.00' ),
+		array( 'slug' => 'plugin', 'id' => 1, 'name' => 'Other', 'price_html' => '£9.00' ),
+	),
+	true,
+	null,
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+rw_test(
+	'an active plan shows additional support and drops unknown products',
+	1 === count( $offer_with_plan['options'] )
+		&& 'additional-support-1h' === $offer_with_plan['options'][0]['slug']
+		&& null === $offer_with_plan['card']
+);
+
+$offer_args = RW_Support_Purchase::payment_arguments(
+	array( 'wc_order_id', 'revolut_public_id', 'is_express_checkout', 'revolut_payment_error', 'reload_checkout', 'is_captured', 'is_using_saved_payment_method', 'save_payment_method_requested', 'wc_payment_token_id' ),
+	440,
+	9
+);
+rw_test(
+	'revolut process_payment receives the order and the saved token',
+	440 === $offer_args[0]
+		&& '' === $offer_args[1]
+		&& false === $offer_args[2]
+		&& true === $offer_args[6]
+		&& false === $offer_args[7]
+		&& '9' === $offer_args[8]
+);
+
+$offer_orders = 0;
+$offer_order = new RW_Offer_Order( 440 );
+RW_Support_Purchase::$order_factory = function () use ( &$offer_orders, $offer_order ) {
+	$offer_orders++;
+	return $offer_order;
+};
+$offer_gateway = new RW_Offer_Gateway();
+$offer_request = array(
+	'user_id'             => 4,
+	'can_act'             => true,
+	'nonce_ok'            => true,
+	'slug'                => 'technical-support-1h',
+	'subscription_id'     => 11,
+	'subscription_owned'  => true,
+	'subscription_status' => 'active',
+	'product_ids'         => array( 3654 ),
+	'site_id'             => 7,
+	'idempotency_key'     => 'click-once-key-1234',
+	'product'             => array(
+		'id'          => 3665,
+		'slug'        => 'technical-support-1h',
+		'purchasable' => true,
+	),
+	'token'               => array(
+		'id'         => 9,
+		'user_id'    => 4,
+		'gateway_id' => 'revolut_cc',
+		'last4'      => '1234',
+	),
+	'gateway'             => $offer_gateway,
+);
+$offer_first = RW_Support_Purchase::attempt( $offer_request );
+$offer_second = RW_Support_Purchase::attempt( $offer_request );
+rw_test(
+	'a saved card charge is idempotent and stores the plan and site',
+	'success' === $offer_first['result']
+		&& 440 === $offer_first['order_id']
+		&& $offer_first === $offer_second
+		&& 1 === $offer_orders
+		&& 1 === count( $offer_gateway->calls )
+		&& 11 === $offer_order->meta['_rw_maintenance_subscription_id']
+		&& 7 === $offer_order->meta['_rw_managed_site_id']
+		&& '9' === $_POST['wc-revolut_cc-payment-token']
+);
+$offer_request['idempotency_key'] = 'someone-elses-card1';
+$offer_request['token']['user_id'] = 8;
+$offer_rejected = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'another customer token is not charged', 'failure' === $offer_rejected['result'] && 1 === $offer_orders );
+$offer_request['token']['user_id'] = 4;
+$offer_request['can_act'] = false;
+$offer_request['idempotency_key'] = 'missing-capability';
+$offer_forbidden = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'a purchase without the account capability is refused', 'failure' === $offer_forbidden['result'] && 1 === $offer_orders );
+$offer_request['can_act'] = true;
+$offer_request['nonce_ok'] = false;
+$offer_request['idempotency_key'] = 'expired-nonce-key';
+$offer_nonce = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'a purchase with a bad nonce is refused', 'failure' === $offer_nonce['result'] && 1 === $offer_orders );
+$offer_request['nonce_ok'] = true;
+$offer_request['product']['slug'] = 'additional-support-1h';
+$offer_request['product']['id'] = 3663;
+$offer_request['subscription_status'] = 'cancelled';
+$offer_request['idempotency_key'] = 'no-active-plan-key';
+$offer_blocked = RW_Support_Purchase::attempt( $offer_request );
+rw_test( 'additional support is refused server-side without an active plan', 'failure' === $offer_blocked['result'] && 1 === $offer_orders );
+$offer_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/support-offer.php' );
+$duplicate_packs = RW_Support_Offers::present(
+	array(
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'technical-support-1h', 'id' => 3665, 'name' => 'ReactWoo Technical Support 1h', 'price_html' => '£55.00' ),
+		array( 'slug' => 'technical-support-5h', 'id' => 3666, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+		array( 'slug' => 'additional-support-1h', 'id' => 3663, 'name' => 'Additional support 1h', 'price_html' => '£40.00' ),
+		array( 'slug' => 'not-a-pack', 'id' => 9999, 'name' => 'ReactWoo Technical Support 5h', 'price_html' => '£220.00' ),
+	),
+	false,
+	null,
+	'https://reactwoo.com/checkout/',
+	11,
+	7
+);
+$pack_names = array();
+foreach ( $duplicate_packs['options'] as $pack_option ) {
+	$pack_names[] = $pack_option['name'];
+}
+rw_test(
+	'support packs are the four product ids, without duplicates or non-member additional support',
+	array( 'ReactWoo Technical Support 5h', 'ReactWoo Technical Support 1h' ) === $pack_names
+);
+rw_test(
+	'the support card has a pack menu, saved-card purchase, and checkout fallback',
+	false !== strpos( $offer_template, 'Buy extra support' )
+		&& false !== strpos( $offer_template, 'data-offer-open' )
+		&& false !== strpos( $offer_template, 'Continue to checkout' )
+		&& false !== strpos( $offer_template, 'rw-maint-pill--good' )
+);
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

@@ -57,6 +57,26 @@ class RW_Maint_Client {
 	 *
 	 * @return true|WP_Error True on success, WP_Error on failure.
 	 */
+	/**
+	 * Read the synced maintenance snapshot for one enrolled site.
+	 *
+	 * @param object $site Portal managed site.
+	 * @return array|WP_Error
+	 */
+	public static function fetch_site_status( $site ) {
+		if ( ! $site ) {
+			return new WP_Error( 'rw_maint_missing_site', 'Managed site is required.' );
+		}
+
+		return self::post(
+			'status',
+			array(
+				'portal_site_id'  => (int) $site->id,
+				'subscription_id' => (int) $site->subscription_id,
+			)
+		);
+	}
+
 	public static function test_connection() {
 		$result = self::post( 'test', array() );
 		if ( is_wp_error( $result ) ) {

@@ -18,6 +18,8 @@ final class RW_Portal {
 		RW_Subscriptions::register();
 		RW_Support_Allowance::register();
 		RW_Support_Credits::register();
+		RW_Support_Offers::register();
+		RW_Support_Purchase::register();
 		RW_Portal_Admin_Menu::register();
 		RW_Portal_Settings::register();
 		RW_Portal_Account::register();
@@ -45,6 +47,8 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-ledger.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-allowance.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-credits.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-offers.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-purchase.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscription-policy.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-redact.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-rest-url.php';
@@ -63,6 +67,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-audit.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscriptions.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maint-client.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-maintenance-status.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-admin-menu.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-settings.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-account.php';

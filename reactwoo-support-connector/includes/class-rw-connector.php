@@ -152,11 +152,14 @@ class RW_Connector {
 		}
 
 		$endpoint = trailingslashit( $portal_url ) . 'wp-json/reactwoo/v1/sites/heartbeat';
+		$timezone = function_exists( 'wp_timezone_string' ) ? (string) wp_timezone_string() : (string) get_option( 'timezone_string' );
 		$body     = wp_json_encode(
 			array(
 				'connector_version' => RW_CONNECTOR_VERSION,
 				'wp_version'        => get_bloginfo( 'version' ),
 				'php_version'       => PHP_VERSION,
+				'timezone_string'   => $timezone,
+				'gmt_offset'        => (float) get_option( 'gmt_offset' ),
 			)
 		);
 

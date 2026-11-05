@@ -11,23 +11,91 @@ class RW_Portal_Account {
 
 	public static function register() {
 		add_action( 'init', array( __CLASS__, 'register_endpoint' ) );
+		add_filter( 'woocommerce_get_query_vars', array( __CLASS__, 'add_query_var' ) );
 		add_filter( 'woocommerce_account_menu_items', array( __CLASS__, 'add_menu_item' ) );
 		add_action( 'woocommerce_account_' . self::ENDPOINT . '_endpoint', array( __CLASS__, 'render' ) );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_download_site_plugin' ) );
 	}
 
+	/**
+	 * WooCommerce only treats a rewrite endpoint as an account endpoint after
+	 * it is present in this list. Without it, is_wc_endpoint_url() is false
+	 * and the maintenance stylesheet never loads.
+	 *
+	 * @param array<string,string> $vars Query vars.
+	 * @return array<string,string>
+	 */
+	public static function add_query_var( $vars ) {
+		if ( ! is_array( $vars ) ) {
+			$vars = array();
+		}
+		$vars[ self::ENDPOINT ] = self::ENDPOINT;
+		return $vars;
+	}
+
 	public static function enqueue_assets() {
-		if ( ! function_exists( 'is_wc_endpoint_url' ) || ! is_wc_endpoint_url( self::ENDPOINT ) ) {
+		if ( ! self::is_maintenance_request() ) {
 			return;
 		}
 
-		wp_enqueue_style(
-			'rw-portal-maintenance',
-			RW_PORTAL_URL . 'assets/css/account-maintenance.css',
+		self::enqueue_maintenance_style();
+		self::enqueue_support_offer_script();
+	}
+
+	public static function enqueue_support_offer_script() {
+		if ( ! function_exists( 'wp_enqueue_script' ) ) {
+			return;
+		}
+		wp_enqueue_script(
+			'rw-portal-support-offer',
+			RW_PORTAL_URL . 'assets/js/account-support-offer.js',
 			array(),
-			RW_PORTAL_VERSION
+			RW_PORTAL_VERSION,
+			true
 		);
+	}
+
+	/**
+	 * True on the maintenance account screen.
+	 *
+	 * is_wc_endpoint_url() needs the query var above. The account-page check
+	 * still matches when that helper is unavailable and the query var is set,
+	 * including the empty value WooCommerce uses for an endpoint with no extra path.
+	 *
+	 * @return bool
+	 */
+	public static function is_maintenance_request() {
+		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url( self::ENDPOINT ) ) {
+			return true;
+		}
+		if ( ! function_exists( 'is_account_page' ) || ! is_account_page() ) {
+			return false;
+		}
+		if ( ! function_exists( 'get_query_var' ) ) {
+			return false;
+		}
+
+		$missing = '__rw_query_var_missing__';
+		return $missing !== get_query_var( self::ENDPOINT, $missing );
+	}
+
+	public static function enqueue_maintenance_style() {
+		$handle = 'rw-portal-maintenance';
+		$done   = function_exists( 'wp_style_is' ) && wp_style_is( $handle, 'done' );
+		if ( ! $done && ( ! function_exists( 'wp_style_is' ) || ! wp_style_is( $handle, 'enqueued' ) ) ) {
+			wp_enqueue_style(
+				$handle,
+				RW_PORTAL_URL . 'assets/css/account-maintenance.css',
+				array(),
+				RW_PORTAL_VERSION
+			);
+		}
+
+		$late = function_exists( 'did_action' ) && ( did_action( 'wp_head' ) || did_action( 'wp_footer' ) );
+		if ( $late && function_exists( 'wp_print_styles' ) && ( ! function_exists( 'wp_style_is' ) || ! wp_style_is( $handle, 'done' ) ) ) {
+			wp_print_styles( $handle );
+		}
 	}
 
 	public static function activate() {
@@ -62,6 +130,7 @@ class RW_Portal_Account {
 	}
 
 	public static function render() {
+		self::enqueue_maintenance_style();
 		self::handle_actions();
 
 		$user_id = get_current_user_id();
@@ -93,15 +162,257 @@ class RW_Portal_Account {
 			return;
 		}
 
-		echo '<div class="rw-maint">';
+		$blocks = array();
 		foreach ( $subscriptions as $subscription ) {
-			self::render_subscription( $subscription, $user_id );
+			$blocks[] = array(
+				'subscription' => $subscription,
+				'view'         => self::view_model( $subscription, $user_id ),
+			);
+		}
+
+		$blocks   = self::sort_subscription_blocks( $blocks );
+		$decision = self::blocks_for_request( $blocks, self::selected_subscription_id() );
+
+		echo '<div class="rw-maint">';
+		if ( 'index' === $decision['mode'] ) {
+			$rw_sites = self::site_index_cards( $decision['blocks'] );
+			include RW_PORTAL_DIR . 'templates/account-sites.php';
+		} else {
+			foreach ( $decision['blocks'] as $block ) {
+				$view = $block['view'];
+				if ( count( $blocks ) > 1 ) {
+					$view['switcher'] = self::switcher_model( $blocks, $view['subscription_id'] );
+					$view['others']   = self::other_subscriptions( $blocks, $view['subscription_id'] );
+				}
+				self::render_subscription( $block['subscription'], $user_id, $view );
+			}
 		}
 		echo '</div>';
 	}
 
-	private static function render_subscription( $subscription, $user_id ) {
-		$rw_view  = self::view_model( $subscription, $user_id );
+	/**
+	 * More than one plan, and no plan selected, opens the site chooser.
+	 *
+	 * @param int $count Number of maintenance subscriptions.
+	 * @param int $selected_id Selected subscription id, or 0.
+	 * @return bool
+	 */
+	public static function show_site_index( $count, $selected_id ) {
+		return (int) $count > 1 && (int) $selected_id < 1;
+	}
+
+	/**
+	 * @return int
+	 */
+	public static function selected_subscription_id() {
+		return absint( get_query_var( self::ENDPOINT ) );
+	}
+
+	/**
+	 * @param int $subscription_id Subscription id, or 0 for the chooser.
+	 * @return string
+	 */
+	public static function maintenance_url( $subscription_id = 0 ) {
+		$base = function_exists( 'wc_get_account_endpoint_url' ) ? wc_get_account_endpoint_url( self::ENDPOINT ) : home_url( '/my-account/maintenance/' );
+		$base = trailingslashit( $base );
+		$subscription_id = absint( $subscription_id );
+		if ( $subscription_id > 0 ) {
+			return $base . $subscription_id . '/';
+		}
+
+		return $base;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @param int                            $selected_id Selected subscription.
+	 * @return array{mode:string,blocks:array<int,array<string,mixed>>}
+	 */
+	public static function blocks_for_request( array $blocks, $selected_id ) {
+		$selected_id = (int) $selected_id;
+		if ( self::show_site_index( count( $blocks ), $selected_id ) ) {
+			return array(
+				'mode'   => 'index',
+				'blocks' => $blocks,
+			);
+		}
+		if ( $selected_id > 0 ) {
+			$matched = array();
+			foreach ( $blocks as $block ) {
+				$view_id = isset( $block['view']['subscription_id'] ) ? (int) $block['view']['subscription_id'] : 0;
+				if ( $view_id === $selected_id ) {
+					$matched[] = $block;
+				}
+			}
+			if ( ! empty( $matched ) ) {
+				return array(
+					'mode'   => 'dashboard',
+					'blocks' => $matched,
+				);
+			}
+			if ( count( $blocks ) > 1 ) {
+				return array(
+					'mode'   => 'index',
+					'blocks' => $blocks,
+				);
+			}
+		}
+
+		return array(
+			'mode'   => 'dashboard',
+			'blocks' => $blocks,
+		);
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @param int                            $current_id Current subscription.
+	 * @return array<string,mixed>
+	 */
+	public static function switcher_model( array $blocks, $current_id ) {
+		$current_id = (int) $current_id;
+		$sites      = array();
+		$current    = null;
+		foreach ( $blocks as $block ) {
+			$view = isset( $block['view'] ) && is_array( $block['view'] ) ? $block['view'] : array();
+			$id   = isset( $view['subscription_id'] ) ? (int) $view['subscription_id'] : 0;
+			$site = array(
+				'id'        => $id,
+				'host'      => self::subscription_host( $view ),
+				'plan'      => isset( $view['plan_name'] ) ? (string) $view['plan_name'] : '',
+				'status'    => isset( $view['status_label'] ) ? (string) $view['status_label'] : '',
+				'state'     => isset( $view['state'] ) ? (string) $view['state'] : '',
+				'attention' => self::attention_count( $view ),
+				'url'       => self::maintenance_url( $id ),
+				'current'   => $id === $current_id,
+			);
+			if ( $site['current'] ) {
+				$current = $site;
+			}
+			$sites[] = $site;
+		}
+
+		return array(
+			'count'     => count( $sites ),
+			'index_url' => self::maintenance_url( 0 ),
+			'current'   => $current,
+			'sites'     => $sites,
+		);
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function site_index_cards( array $blocks ) {
+		$cards = array();
+		foreach ( $blocks as $block ) {
+			$view      = isset( $block['view'] ) && is_array( $block['view'] ) ? $block['view'] : array();
+			$state     = isset( $view['state'] ) ? (string) $view['state'] : '';
+			$connected = 'connected' === $state;
+			$summary   = ( $connected && isset( $view['maintenance']['summary'] ) && is_array( $view['maintenance']['summary'] ) ) ? $view['maintenance']['summary'] : array();
+			$flags     = ( $connected && isset( $summary['flags'] ) && is_array( $summary['flags'] ) ) ? $summary['flags'] : array();
+			if ( ! $connected && in_array( $state, array( 'setup', 'attention', 'connecting' ), true ) ) {
+				$flags = array( 'Connect the plugin to start checks' );
+			}
+			$cards[] = array(
+				'host'              => self::subscription_host( $view ),
+				'plan'              => isset( $view['plan_name'] ) ? (string) $view['plan_name'] : '',
+				'renews'            => isset( $view['renews_on'] ) ? (string) $view['renews_on'] : '',
+				'status'            => isset( $view['status_label'] ) ? (string) $view['status_label'] : '',
+				'state'             => $state,
+				'updates'           => $connected && isset( $summary['updates_label'] ) ? (string) $summary['updates_label'] : 'Not checked yet',
+				'updates_attention' => $connected && ! empty( $summary['updates_attention'] ),
+				'backup'            => $connected && isset( $summary['backup_label'] ) ? (string) $summary['backup_label'] : 'Not available yet',
+				'flags'             => $flags,
+				'url'               => self::maintenance_url( isset( $view['subscription_id'] ) ? $view['subscription_id'] : 0 ),
+				'connected'         => $connected,
+			);
+		}
+
+		return $cards;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks.
+	 * @param int                            $current_id Current subscription.
+	 * @return array<int,array<string,string>>
+	 */
+	private static function other_subscriptions( array $blocks, $current_id ) {
+		$current_id = (int) $current_id;
+		$others     = array();
+		foreach ( $blocks as $block ) {
+			$view = isset( $block['view'] ) && is_array( $block['view'] ) ? $block['view'] : array();
+			$id   = isset( $view['subscription_id'] ) ? (int) $view['subscription_id'] : 0;
+			if ( $id === $current_id ) {
+				continue;
+			}
+			$others[] = array(
+				'host'   => self::subscription_host( $view ),
+				'plan'   => isset( $view['plan_name'] ) ? (string) $view['plan_name'] : '',
+				'status' => isset( $view['status_label'] ) ? (string) $view['status_label'] : '',
+				'url'    => self::maintenance_url( $id ),
+			);
+		}
+
+		return $others;
+	}
+
+	/**
+	 * @param array<string,mixed> $view Subscription view.
+	 * @return int
+	 */
+	private static function attention_count( array $view ) {
+		if ( isset( $view['maintenance']['flags'] ) && is_array( $view['maintenance']['flags'] ) ) {
+			return count( $view['maintenance']['flags'] );
+		}
+		if ( isset( $view['state'] ) && 'connected' !== $view['state'] ) {
+			return 1;
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Connected plans stay expanded at the top. Later states keep their relative order.
+	 *
+	 * @param array<int,array<string,mixed>> $blocks Subscription blocks with a view.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function sort_subscription_blocks( array $blocks ) {
+		$ranked = array();
+		foreach ( array_values( $blocks ) as $index => $block ) {
+			$state    = ( isset( $block['view']['state'] ) ) ? (string) $block['view']['state'] : '';
+			$ranked[] = array(
+				'block' => $block,
+				'index' => $index,
+				'rank'  => 'connected' === $state ? 0 : 1,
+			);
+		}
+
+		usort( $ranked, array( __CLASS__, 'compare_subscription_blocks' ) );
+
+		$ordered = array();
+		foreach ( $ranked as $row ) {
+			$ordered[] = $row['block'];
+		}
+		return $ordered;
+	}
+
+	private static function compare_subscription_blocks( $a, $b ) {
+		if ( $a['rank'] === $b['rank'] ) {
+			if ( $a['index'] === $b['index'] ) {
+				return 0;
+			}
+			return $a['index'] < $b['index'] ? -1 : 1;
+		}
+		return $a['rank'] < $b['rank'] ? -1 : 1;
+	}
+
+	private static function render_subscription( $subscription, $user_id, $rw_view = null ) {
+		if ( null === $rw_view ) {
+			$rw_view = self::view_model( $subscription, $user_id );
+		}
 		$partials = array(
 			'connecting'   => 'account-connecting.php',
 			'attention'    => 'account-attention.php',
@@ -109,8 +420,62 @@ class RW_Portal_Account {
 			'paused'       => 'account-paused.php',
 			'disconnected' => 'account-paused.php',
 		);
-		$file = isset( $partials[ $rw_view['state'] ] ) ? $partials[ $rw_view['state'] ] : 'account-onboarding.php';
+		$file    = isset( $partials[ $rw_view['state'] ] ) ? $partials[ $rw_view['state'] ] : 'account-onboarding.php';
+		$host    = self::subscription_host( $rw_view );
+		$classes = array( 'rw-maint-plan-block' );
+		if ( 'setup' === $rw_view['state'] ) {
+			$classes[] = 'rw-maint-plan-block--onboarding';
+		}
+		if ( 'attention' === $rw_view['state'] ) {
+			$classes[] = 'rw-maint-plan-block--attention';
+		}
+
+		if ( 'connected' === $rw_view['state'] ) {
+			$classes[] = 'rw-maint-plan-block--dashboard';
+		}
+
+		echo '<article class="' . esc_attr( implode( ' ', $classes ) ) . '">';
+		if ( 'attention' !== $rw_view['state'] && 'connected' !== $rw_view['state'] ) {
+			echo '<header class="rw-maint-plan-block-heading">';
+			echo '<h2>' . esc_html( $host ) . '</h2>';
+			echo '<p>' . esc_html( $rw_view['plan_name'] ) . '</p>';
+			echo '</header>';
+		}
 		include RW_PORTAL_DIR . 'templates/' . $file;
+		echo '</article>';
+	}
+
+	/**
+	 * @param object $subscription WooCommerce subscription.
+	 * @return string
+	 */
+	private static function renews_label( $subscription ) {
+		if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'get_date' ) ) {
+			return '';
+		}
+		$raw = (string) $subscription->get_date( 'next_payment' );
+		if ( '' === $raw ) {
+			$raw = (string) $subscription->get_date( 'end' );
+		}
+		try {
+			$moment = new DateTimeImmutable( $raw );
+		} catch ( Exception $e ) {
+			return '';
+		}
+		if ( function_exists( 'wp_timezone' ) ) {
+			$zone = wp_timezone();
+			if ( $zone instanceof DateTimeZone ) {
+				$moment = $moment->setTimezone( $zone );
+			}
+		}
+
+		return $moment->format( 'j M Y' );
+	}
+
+	private static function subscription_host( $rw_view ) {
+		$site = ( isset( $rw_view['site'] ) && is_object( $rw_view['site'] ) ) ? $rw_view['site'] : null;
+		$host = ( $site && ! empty( $site->site_url ) ) ? wp_parse_url( (string) $site->site_url, PHP_URL_HOST ) : '';
+		return $host ? $host : 'your website';
 	}
 
 	public static function download_url() {
@@ -520,16 +885,14 @@ class RW_Portal_Account {
 			'last_seen'       => ( $site && ! empty( $site->last_seen ) ) ? self::format_datetime( $site->last_seen ) : '',
 			'support_mailto'  => $support ? 'mailto:' . $support . '?subject=' . rawurlencode( 'Maintenance support' ) : '',
 			'progress'        => self::progress_steps( $site ),
-			'plan_points'     => array(
-				array( 'title' => 'Managed WordPress updates', 'text' => 'Core, themes and supported plugins' ),
-				array( 'title' => 'Cloud backups', 'text' => 'Recovery points stored off-site' ),
-				array( 'title' => 'Monitoring and reporting', 'text' => 'Uptime, security and changes' ),
-				array( 'title' => $show_included ? $included_granted . ' minutes of technical support' : 'Technical support packs', 'text' => $show_included ? 'Each service month of your plan' : 'Included minutes are not part of this plan' ),
-			),
+			'plan_points'     => self::plan_points( $plan_name, $show_included, $included_granted ),
 			'benefits'        => self::benefit_cards( $reports_on, $speed_on ),
 			'reports'         => self::report_cards( $reports_on, $speed_on ),
 			'manual_pending'  => $site && class_exists( 'RW_Temporary_Access' ) && RW_Temporary_Access::is_pending( $site ),
 			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
+			'maintenance'     => ( 'connected' === $state && $site && class_exists( 'RW_Portal_Maintenance_Status' ) ) ? RW_Portal_Maintenance_Status::view_for_site( $site ) : null,
+			'renews_on'       => self::renews_label( $subscription ),
+			'support_offer'   => ( 'connected' === $state && class_exists( 'RW_Support_Offers' ) ) ? RW_Support_Offers::card_for_subscription( $subscription, $user_id, $site ) : null,
 		);
 	}
 
@@ -635,25 +998,108 @@ class RW_Portal_Account {
 		return $steps;
 	}
 
-	private static function benefit_cards( $reports_on, $speed_on ) {
-		$cards = array(
-			array( 'kicker' => 'Updates', 'title' => 'Managed updates', 'text' => 'Routine WordPress, theme and supported plugin updates are handled and recorded.' ),
-			array( 'kicker' => 'Licences', 'title' => 'Premium licences', 'text' => 'Eligible premium plugins are covered by the plan, reducing separate renewals.' ),
-			array( 'kicker' => 'Backups', 'title' => 'Cloud backups', 'text' => 'Scheduled off-site backups make recovery possible if an update causes trouble.' ),
-			array( 'kicker' => 'Monitoring', 'title' => 'Site monitoring', 'text' => 'Availability, SSL and domain health, plus a scheduled database tidy.' ),
-			array( 'kicker' => 'Security', 'title' => 'Security checks', 'text' => 'Vulnerability and security signals inform maintenance priorities.' ),
+	private static function plan_points( $plan_name, $show_included, $included_granted ) {
+		$support_title  = 'Technical support packs';
+		$support_mobile = 'Technical support';
+		$support_text   = 'Included minutes are not part of this plan';
+		if ( $show_included ) {
+			if ( 60 === (int) $included_granted ) {
+				$support_title  = '1 hour of technical support';
+				$support_mobile = '1 hour technical support';
+			} else {
+				$support_title  = (int) $included_granted . ' minutes of technical support';
+				$support_mobile = $support_title;
+			}
+			$short_plan   = trim( (string) preg_replace( '/\s+maintenance$/i', '', (string) $plan_name ) );
+			$support_text = '' !== $short_plan ? 'On ' . $short_plan . ', each billing period' : 'Each billing period';
+		}
+
+		return array(
+			array( 'title' => 'Managed WordPress updates', 'text' => 'Core, themes and supported plugins' ),
+			array( 'title' => 'Security checks', 'text' => 'For eligible plugins while subscribed' ),
+			array( 'title' => 'Cloud backups', 'text' => 'Recovery points stored off-site' ),
+			array(
+				'title'        => 'Monthly summary report',
+				'mobile_title' => 'Monthly reporting',
+				'text'         => 'Speed, store status, changes and uptime',
+			),
+			array(
+				'title'        => $support_title,
+				'mobile_title' => $support_mobile,
+				'text'         => $support_text,
+			),
 		);
+	}
 
-		if ( $reports_on ) {
-			$cards[] = array( 'kicker' => 'Reporting', 'title' => 'Clear reporting', 'text' => 'Page speed, store status, changes, updates and backups, in plain language.' );
-			$cards[] = array( 'kicker' => 'Changes', 'title' => 'Change history', 'text' => 'Who changed the site, what they changed, and when.' );
-			$cards[] = array( 'kicker' => 'Store', 'title' => 'Store status', 'text' => 'Orders waiting, stock and this month\'s sales, when WooCommerce is on the site.' );
-		}
-		if ( $speed_on ) {
-			$cards[] = array( 'kicker' => 'Page speed', 'title' => 'Page speed', 'text' => 'Google PageSpeed scores for mobile and desktop, when that connection is on.' );
-		}
+	private static function benefit_cards( $reports_on, $speed_on ) {
+		unset( $reports_on, $speed_on );
 
-		return $cards;
+		return array(
+			array(
+				'kicker'      => 'Updates',
+				'title'       => 'Managed updates',
+				'text'        => 'Routine WordPress, theme and supported plugin updates are handled and recorded.',
+				'mobile_text' => 'WordPress, themes and supported plugins kept current.',
+				'tone'        => 'blue',
+			),
+			array(
+				'kicker'      => 'Security',
+				'title'       => 'Security checks',
+				'text'        => 'Routine checks help catch problems early.',
+				'mobile_text' => 'Routine security checks on your site.',
+				'tone'        => 'green',
+			),
+			array(
+				'kicker'      => 'Backups',
+				'title'       => 'Cloud backups',
+				'text'        => 'Scheduled off-site backups make recovery possible if an update causes trouble.',
+				'mobile_text' => 'Off-site recovery points for when something goes wrong.',
+				'tone'        => 'purple',
+			),
+			array(
+				'kicker'      => 'Reporting',
+				'title'       => 'Monthly reports',
+				'text'        => 'Availability, SSL and domain health, plus a scheduled database tidy.',
+				'mobile_text' => 'Availability, SSL, domain health and a scheduled database tidy.',
+				'tone'        => 'green',
+			),
+			array(
+				'kicker'       => 'Security',
+				'title'        => 'Security checks',
+				'text'         => 'Vulnerability and security signals inform maintenance priorities.',
+				'tone'         => 'green',
+				'desktop_only' => true,
+			),
+			array(
+				'kicker'       => 'Reporting',
+				'title'        => 'Clear reporting',
+				'mobile_title' => 'Reporting',
+				'text'         => 'Page speed, store status, changes, updates and backups, in plain language.',
+				'mobile_text'  => 'Speed, store status, changes, updates and backups.',
+				'tone'         => 'blue',
+			),
+			array(
+				'kicker'      => 'Page speed',
+				'title'       => 'Page speed',
+				'text'        => 'Google PageSpeed scores for mobile and desktop, when that connection is on.',
+				'mobile_text' => 'Google PageSpeed scores when that connection is on.',
+				'tone'        => 'blue',
+			),
+			array(
+				'kicker'      => 'Store',
+				'title'       => 'Store status',
+				'text'        => 'Orders waiting, stock and this month\'s sales, when WooCommerce is on the site.',
+				'mobile_text' => 'Orders, stock and sales when WooCommerce is on the site.',
+				'tone'        => 'blue',
+			),
+			array(
+				'kicker'      => 'Changes',
+				'title'       => 'Change history',
+				'text'        => 'Who changed the site, what they changed, and when.',
+				'mobile_text' => 'Who changed the site, what changed, and when.',
+				'tone'        => 'blue',
+			),
+		);
 	}
 
 	private static function report_cards( $reports_on, $speed_on ) {

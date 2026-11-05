@@ -224,6 +224,10 @@ class RW_Test_Subscription {
 	}
 	public function save() {
 	}
+	public $status = '';
+	public function get_status() {
+		return $this->status;
+	}
 	public function get_items() {
 		return $this->items;
 	}
@@ -1439,7 +1443,7 @@ if ( ! function_exists( 'did_action' ) ) {
 }
 if ( ! function_exists( 'get_current_user_id' ) ) {
 	function get_current_user_id() {
-		return 0;
+		return isset( $GLOBALS['rw_current_user_id'] ) ? (int) $GLOBALS['rw_current_user_id'] : 0;
 	}
 }
 
@@ -1533,6 +1537,7 @@ rw_test(
 		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding h2' )
 		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding .rw-maint-button' )
 		&& false !== strpos( $maintenance_css, '.rw-maint-onboarding .rw-maint-hero .rw-maint-button-secondary' )
+		&& false !== strpos( $maintenance_css, '--general-text-color: #fff' )
 );
 rw_test(
 	'plan blocks are separate cards with space between them',
@@ -2817,6 +2822,48 @@ rw_test(
 		&& false !== strpos( $offer_template, 'Continue to checkout' )
 		&& false !== strpos( $offer_template, 'rw-maint-pill--good' )
 );
+
+if ( ! function_exists( 'wcs_get_users_subscriptions' ) ) {
+	function wcs_get_users_subscriptions( $user_id ) {
+		$all = isset( $GLOBALS['rw_user_subscriptions'] ) && is_array( $GLOBALS['rw_user_subscriptions'] ) ? $GLOBALS['rw_user_subscriptions'] : array();
+		$user_id = (int) $user_id;
+		return isset( $all[ $user_id ] ) ? $all[ $user_id ] : array();
+	}
+}
+
+function rw_menu_subscription( $status, $product_id ) {
+	$item              = new RW_Test_Item();
+	$item->product_id  = (int) $product_id;
+	$subscription         = new RW_Test_Subscription();
+	$subscription->status = $status;
+	$subscription->items  = array( $item );
+	return $subscription;
+}
+
+$menu_items = array(
+	'dashboard' => 'Dashboard',
+	'orders'    => 'Orders',
+);
+rw_test( 'a logged-out customer does not see the maintenance menu', false === RW_Portal_Account::user_has_maintenance_for_menu( 0 ) && ! isset( RW_Portal_Account::add_menu_item( $menu_items )['maintenance'] ) );
+$GLOBALS['rw_user_subscriptions'][8] = array( rw_menu_subscription( 'active', 999 ) );
+rw_test( 'a subscription without a maintenance product does not show the menu', false === RW_Portal_Account::user_has_maintenance_for_menu( 8 ) );
+$GLOBALS['rw_user_subscriptions'][8] = array( rw_menu_subscription( 'cancelled', 3654 ) );
+rw_test( 'a cancelled maintenance subscription does not show the menu', false === RW_Portal_Account::user_has_maintenance_for_menu( 8 ) );
+$GLOBALS['rw_user_subscriptions'][8] = array( rw_menu_subscription( 'on-hold', 3660 ) );
+$GLOBALS['rw_current_user_id'] = 8;
+$shown_menu = RW_Portal_Account::add_menu_item( $menu_items );
+rw_test(
+	'an on-hold maintenance subscription adds the menu after Dashboard',
+	true === RW_Portal_Account::user_has_maintenance_for_menu( 8 )
+		&& array( 'dashboard', 'maintenance', 'orders' ) === array_keys( $shown_menu )
+		&& 'Maintenance' === $shown_menu['maintenance']
+);
+$GLOBALS['rw_user_subscriptions'][9] = array( rw_menu_subscription( 'pending-cancel', 3657 ) );
+rw_test( 'pending-cancel still counts as maintenance for the menu', true === RW_Portal_Account::user_has_maintenance_for_menu( 9 ) );
+$kept_menu = RW_Portal_Account::add_menu_item( array( 'maintenance' => 'Already there', 'dashboard' => 'Dashboard' ) );
+rw_test( 'an existing maintenance menu item is left unchanged', 'Already there' === $kept_menu['maintenance'] && 2 === count( $kept_menu ) );
+$GLOBALS['rw_current_user_id'] = 0;
+unset( $GLOBALS['rw_user_subscriptions'] );
 
 if ( ! function_exists( 'get_locale' ) ) {
 	function get_locale() {

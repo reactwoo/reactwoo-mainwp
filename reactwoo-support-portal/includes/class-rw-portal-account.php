@@ -131,6 +131,11 @@ class RW_Portal_Account {
 			return $items;
 		}
 
+		// Menu only: the endpoint stays reachable by URL for existing bookmarks.
+		if ( ! self::user_has_maintenance_for_menu( get_current_user_id() ) ) {
+			return $items;
+		}
+
 		$new_items = array();
 		foreach ( $items as $key => $label ) {
 			$new_items[ $key ] = $label;
@@ -144,6 +149,42 @@ class RW_Portal_Account {
 		}
 
 		return $new_items;
+	}
+
+	/**
+	 * Whether this customer should see the Maintenance account menu item.
+	 * The endpoint itself stays available when this returns false.
+	 *
+	 * @param int $user_id WordPress user id.
+	 * @return bool
+	 */
+	public static function user_has_maintenance_for_menu( $user_id ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 || ! function_exists( 'wcs_get_users_subscriptions' ) || ! class_exists( 'RW_Support_Offers' ) ) {
+			return false;
+		}
+
+		$subscriptions = wcs_get_users_subscriptions( $user_id );
+		if ( ! is_array( $subscriptions ) ) {
+			return false;
+		}
+
+		foreach ( $subscriptions as $subscription ) {
+			if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'get_status' ) ) {
+				continue;
+			}
+			$status = (string) $subscription->get_status();
+			if ( ! in_array( $status, array( 'active', 'pending-cancel', 'on-hold' ), true ) ) {
+				continue;
+			}
+			foreach ( RW_Support_Offers::product_ids_from_subscription( $subscription ) as $product_id ) {
+				if ( in_array( (int) $product_id, RW_Support_Offers::MAINTENANCE_PRODUCT_IDS, true ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	public static function render() {

@@ -2326,3 +2326,8 @@
 	--links-hover-color: #fff;
 	color: #fff;
 }
+
+/* Elementor's ".woocommerce strong" uses --general-text-color (default #000); keep it white on dark panels. */
+.rw-maint .rw-maint-panel--ink {
+	--general-text-color: #fff;
+}

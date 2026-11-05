@@ -823,10 +823,11 @@ class RW_Portal_Account {
 		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
 		echo '<input type="hidden" name="rw_portal_action" value="update_reporting" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
-		echo '<label for="rw-report-email-' . esc_attr( $site_id ) . '">Report email</label>';
-		echo '<input id="rw-report-email-' . esc_attr( $site_id ) . '" type="email" name="report_email" value="' . esc_attr( $email ) . '" required />';
+		echo '<label for="rw-report-recipients-' . esc_attr( $site_id ) . '">Report recipients</label>';
+		echo '<textarea id="rw-report-recipients-' . esc_attr( $site_id ) . '" name="report_recipients" rows="3" required placeholder="you@example.com, ops@example.com">' . esc_textarea( $email ) . '</textarea>';
+		echo '<p class="rw-maint-helper">Add one or more emails, separated by commas. The first address is the primary contact on the maintenance hub.</p>';
 		echo '<label class="rw-maint-check"><input type="checkbox" name="report_enabled" value="1" ' . checked( $enabled, true, false ) . ' /> Send maintenance summaries</label>';
-		echo '<button type="submit" class="rw-maint-button">Save report email</button>';
+		echo '<button type="submit" class="rw-maint-button">Save recipients</button>';
 		echo '</form>';
 	}
 
@@ -1363,10 +1364,14 @@ class RW_Portal_Account {
 				self::handle_disconnect_site( $user_id );
 				break;
 			case 'check_site':
-				self::handle_maint_action( $user_id, 'check', 'site_check_requested', 'Health check requested.' );
-				break;
 			case 'sync_site':
-				self::handle_maint_action( $user_id, 'sync', 'site_sync_requested', 'Sync requested.' );
+			case 'request_backup':
+			case 'run_updates':
+			case 'security_scan':
+			case 'pause_maintenance':
+			case 'resume_maintenance':
+			case 'download_report':
+				RW_Portal_Customer_Actions::handle( $user_id, $action );
 				break;
 			case 'reconnect_site':
 				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );
@@ -1378,7 +1383,7 @@ class RW_Portal_Account {
 				self::handle_resync_site( $user_id );
 				break;
 			case 'update_reporting':
-				self::handle_update_reporting( $user_id );
+				RW_Portal_Customer_Actions::handle_update_reporting( $user_id );
 				break;
 			case 'request_manual_setup':
 				self::handle_manual_setup( $user_id );

@@ -1540,9 +1540,12 @@
 	letter-spacing: -0.03em;
 }
 
-.rw-maint-live-intro p,
-.rw-maint-sites-index > p {
+.rw-maint-live-intro p {
 	margin-top: 8px;
+	color: var(--rw-muted);
+}
+.rw-maint-sites-index > p {
+	margin-top: 0;
 	color: var(--rw-muted);
 }
 
@@ -1978,9 +1981,11 @@
 .rw-maint-backup,
 .rw-maint-activity,
 .rw-maint-reports-band,
-.rw-maint-others,
-.rw-maint-sites-index {
+.rw-maint-others {
 	gap: 16px;
+}
+.rw-maint-sites-index {
+	gap: 12px;
 }
 
 .rw-maint-live-intro,
@@ -2002,8 +2007,18 @@
 }
 
 .rw-maint-sites-index .rw-maint-site-card {
-	gap: 16px;
+	gap: 12px;
 	padding: 24px;
+	min-height: 100%;
+	box-sizing: border-box;
+}
+.rw-maint-sites-index .rw-maint-site-card h3 {
+	margin: 0;
+}
+.rw-maint-sites-index .rw-maint-site-card h3 + .rw-maint-site-meta {
+	margin-top: -4px;
+	margin-bottom: 0;
+	line-height: 1.45;
 }
 
 .rw-maint-sites-index .rw-maint-site-card h3,
@@ -2330,4 +2345,80 @@
 /* Elementor's ".woocommerce strong" uses --general-text-color (default #000); keep it white on dark panels. */
 .rw-maint .rw-maint-panel--ink {
 	--general-text-color: #fff;
+}
+
+
+/* Sites index header group (optional markup 03) */
+.rw-maint-sites-index-head {
+	display: grid;
+	gap: 6px;
+}
+.rw-maint-sites-index-head h2,
+.rw-maint-sites-index-head p {
+	margin: 0;
+}
+.rw-maint-sites-index > .rw-maint-site-cards {
+	margin-top: 4px;
+}
+.rw-maint-sites-index > h2 {
+	margin: 0;
+}
+.rw-maint-sites-index > p {
+	margin: 0;
+	max-width: 40rem;
+}
+
+/* Tools + customer actions */
+.rw-maint-tools-band,
+.rw-maint-actions-band {
+	display: grid;
+	gap: 16px;
+	margin-top: 8px;
+}
+.rw-maint-tools-row,
+.rw-maint-action-cards {
+	align-items: stretch;
+}
+.rw-maint-action-cards > .rw-maint-panel,
+.rw-maint-tools-row > .rw-maint-panel,
+.rw-maint-connector-card {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	height: 100%;
+	min-height: 100%;
+	box-sizing: border-box;
+}
+.rw-maint-action-form {
+	display: grid;
+	gap: 10px;
+	margin-top: auto;
+}
+.rw-maint-confirm {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0;
+	color: var(--rw-muted);
+	font-size: 13px;
+	line-height: 1.45;
+}
+.rw-maint-confirm input {
+	margin-top: 3px;
+}
+.rw-maint-form textarea {
+	width: 100%;
+	min-height: 72px;
+	padding: 10px 12px;
+	border: 1px solid #cfd3dc;
+	border-radius: 10px;
+	font: inherit;
+	box-sizing: border-box;
+}
+.rw-maint-actions-band .rw-maint-panel--ink .rw-maint-confirm {
+	color: rgba(255, 255, 255, 0.88);
+}
+.rw-maint-actions-band .rw-maint-panel--ink .rw-maint-button-secondary {
+	background: #fff;
+	color: #111;
 }

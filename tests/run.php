@@ -1470,7 +1470,7 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.6' === RW_PORTAL_VERSION
+		&& '0.5.7' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -3317,8 +3317,8 @@ RW_Maint_MainWP_Clients::use_directory( null );
 
 $bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.6',
-	false !== strpos( $bridge_php, 'Version: 0.3.6' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.6' )" )
+	'bridge version is 0.3.7',
+	false !== strpos( $bridge_php, 'Version: 0.3.7' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.7' )" )
 );
 $hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
 $hardening_output = array();
@@ -3328,6 +3328,30 @@ foreach ( $hardening_output as $hardening_line ) {
 	echo $hardening_line . "\n";
 }
 rw_test( 'audit log failures and a missing table are reported without SHOW TABLES on every request', 0 === $hardening_status );
+
+
+// --- Customer actions helpers (no WP) ---
+require_once dirname( __DIR__ ) . '/reactwoo-support-portal/includes/class-rw-portal-customer-actions.php';
+
+if ( ! function_exists( 'sanitize_email' ) ) {
+	function sanitize_email( $e ) {
+		$e = filter_var( $e, FILTER_SANITIZE_EMAIL );
+		return is_string( $e ) ? $e : '';
+	}
+}
+if ( ! function_exists( 'is_email' ) ) {
+	function is_email( $e ) {
+		return (bool) filter_var( $e, FILTER_VALIDATE_EMAIL );
+	}
+}
+
+$parsed = RW_Portal_Customer_Actions::parse_emails( 'a@example.com, b@example.com; bad;; a@example.com' );
+rw_test( 'parse_emails unique valid', array( 'a@example.com', 'b@example.com' ) === $parsed );
+
+$pdf = RW_Portal_Customer_Actions::build_simple_pdf( array( 'Hello', 'World' ) );
+rw_test( 'build_simple_pdf header', 0 === strpos( $pdf, '%PDF-1.4' ) );
+rw_test( 'build_simple_pdf eof', false !== strpos( $pdf, '%%EOF' ) );
+rw_test( 'build_simple_pdf has text', false !== strpos( $pdf, 'Hello' ) );
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

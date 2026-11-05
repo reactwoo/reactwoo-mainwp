@@ -1436,6 +1436,45 @@ if ( ! function_exists( 'wp_print_styles' ) ) {
 		}
 	}
 }
+
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	function wp_enqueue_script( $handle, $src = '', $deps = array(), $ver = false, $in_footer = false ) {
+		$GLOBALS['rw_enqueued_scripts'][ $handle ] = array(
+			'src'       => $src,
+			'deps'      => $deps,
+			'ver'       => $ver,
+			'in_footer' => $in_footer,
+		);
+	}
+}
+if ( ! function_exists( 'wp_script_is' ) ) {
+	function wp_script_is( $handle, $status = 'enqueued' ) {
+		if ( 'enqueued' === $status ) {
+			return isset( $GLOBALS['rw_enqueued_scripts'][ $handle ] );
+		}
+		if ( 'done' === $status ) {
+			return ! empty( $GLOBALS['rw_printed_scripts'][ $handle ] );
+		}
+		return false;
+	}
+}
+if ( ! function_exists( 'wp_print_scripts' ) ) {
+	function wp_print_scripts( $handles = false ) {
+		if ( is_string( $handles ) ) {
+			$GLOBALS['rw_printed_scripts'][ $handles ] = true;
+		}
+	}
+}
+if ( ! function_exists( 'wp_localize_script' ) ) {
+	function wp_localize_script( $handle, $name, $data ) {
+		$GLOBALS['rw_localized_scripts'][ $handle ] = array( 'name' => $name, 'data' => $data );
+	}
+}
+if ( ! function_exists( 'wp_create_nonce' ) ) {
+	function wp_create_nonce( $action ) {
+		return 'nonce-' . $action;
+	}
+}
 if ( ! function_exists( 'did_action' ) ) {
 	function did_action( $hook ) {
 		return isset( $GLOBALS['rw_did_action'][ $hook ] ) ? (int) $GLOBALS['rw_did_action'][ $hook ] : 0;
@@ -1459,6 +1498,9 @@ rw_test(
 
 $GLOBALS['rw_enqueued_styles'] = array();
 $GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_enqueued_scripts'] = array();
+$GLOBALS['rw_printed_scripts']  = array();
+$GLOBALS['rw_localized_scripts'] = array();
 $GLOBALS['rw_wc_endpoint']     = 'maintenance';
 $GLOBALS['rw_is_account_page'] = false;
 $GLOBALS['rw_query_vars']      = array();
@@ -1470,9 +1512,17 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.6' === RW_PORTAL_VERSION
+		&& '0.5.7' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
+
+$maintenance_theme = isset( $GLOBALS['rw_enqueued_scripts']['rw-portal-maintenance-theme'] ) ? $GLOBALS['rw_enqueued_scripts']['rw-portal-maintenance-theme'] : null;
+rw_test(
+	'maintenance endpoint enqueues the theme toggle script',
+	is_array( $maintenance_theme )
+		&& false !== strpos( (string) $maintenance_theme['src'], 'assets/js/account-maintenance-theme.js' )
+);
+
 
 $GLOBALS['rw_enqueued_styles'] = array();
 $GLOBALS['rw_wc_endpoint']     = '';
@@ -3317,8 +3367,8 @@ RW_Maint_MainWP_Clients::use_directory( null );
 
 $bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.6',
-	false !== strpos( $bridge_php, 'Version: 0.3.6' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.6' )" )
+	'bridge version is 0.3.7',
+	false !== strpos( $bridge_php, 'Version: 0.3.7' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.7' )" )
 );
 $hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
 $hardening_output = array();
@@ -3328,6 +3378,30 @@ foreach ( $hardening_output as $hardening_line ) {
 	echo $hardening_line . "\n";
 }
 rw_test( 'audit log failures and a missing table are reported without SHOW TABLES on every request', 0 === $hardening_status );
+
+
+// --- Customer actions helpers (no WP) ---
+require_once dirname( __DIR__ ) . '/reactwoo-support-portal/includes/class-rw-portal-customer-actions.php';
+
+if ( ! function_exists( 'sanitize_email' ) ) {
+	function sanitize_email( $e ) {
+		$e = filter_var( $e, FILTER_SANITIZE_EMAIL );
+		return is_string( $e ) ? $e : '';
+	}
+}
+if ( ! function_exists( 'is_email' ) ) {
+	function is_email( $e ) {
+		return (bool) filter_var( $e, FILTER_VALIDATE_EMAIL );
+	}
+}
+
+$parsed = RW_Portal_Customer_Actions::parse_emails( 'a@example.com, b@example.com; bad;; a@example.com' );
+rw_test( 'parse_emails unique valid', array( 'a@example.com', 'b@example.com' ) === $parsed );
+
+$pdf = RW_Portal_Customer_Actions::build_simple_pdf( array( 'Hello', 'World' ) );
+rw_test( 'build_simple_pdf header', 0 === strpos( $pdf, '%PDF-1.4' ) );
+rw_test( 'build_simple_pdf eof', false !== strpos( $pdf, '%%EOF' ) );
+rw_test( 'build_simple_pdf has text', false !== strpos( $pdf, 'Hello' ) );
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

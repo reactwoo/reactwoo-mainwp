@@ -109,10 +109,84 @@ class RW_Portal_Account {
 			);
 		}
 
+		$js_handle = 'rw-portal-maintenance-theme';
+		$js_path   = ( defined( 'RW_PORTAL_DIR' ) ? RW_PORTAL_DIR : dirname( __DIR__ ) . '/' ) . 'assets/js/account-maintenance-theme.js';
+		$js_ver    = file_exists( $js_path ) ? (string) filemtime( $js_path ) : ( defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.6' );
+		if ( function_exists( 'wp_enqueue_script' ) && ( ! function_exists( 'wp_script_is' ) || ! wp_script_is( $js_handle, 'enqueued' ) ) ) {
+			wp_enqueue_script(
+				$js_handle,
+				RW_PORTAL_URL . 'assets/js/account-maintenance-theme.js',
+				array(),
+				$js_ver,
+				true
+			);
+			if ( function_exists( 'wp_localize_script' ) ) {
+				wp_localize_script(
+					$js_handle,
+					'rwMaintTheme',
+					array(
+						'ajaxUrl' => function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : '',
+						'nonce'   => function_exists( 'wp_create_nonce' ) ? wp_create_nonce( 'rw_portal_maint_theme' ) : '',
+					)
+				);
+			}
+		}
+
 		$late = function_exists( 'did_action' ) && ( did_action( 'wp_head' ) || did_action( 'wp_footer' ) );
 		if ( $late && function_exists( 'wp_print_styles' ) && ( ! function_exists( 'wp_style_is' ) || ! wp_style_is( $handle, 'done' ) ) ) {
 			wp_print_styles( $handle );
 		}
+		if ( $late && function_exists( 'wp_print_scripts' ) && function_exists( 'wp_enqueue_script' ) && ( ! function_exists( 'wp_script_is' ) || ! wp_script_is( $js_handle, 'done' ) ) ) {
+			wp_print_scripts( $js_handle );
+		}
+	}
+
+	/**
+	 * @param int $user_id
+	 * @return string light|dark|system
+	 */
+	public static function maintenance_theme_pref( $user_id ) {
+		$meta = $user_id ? get_user_meta( (int) $user_id, 'rw_maint_theme', true ) : '';
+		if ( in_array( $meta, array( 'light', 'dark', 'system' ), true ) ) {
+			return $meta;
+		}
+		return 'system';
+	}
+
+	/**
+	 * @param string $pref
+	 * @return string light|dark
+	 */
+	public static function maintenance_theme_effective( $pref ) {
+		if ( 'dark' === $pref ) {
+			return 'dark';
+		}
+		if ( 'light' === $pref ) {
+			return 'light';
+		}
+		# Server cannot know prefers-color-scheme; default light and let JS correct.
+		return 'light';
+	}
+
+	/**
+	 * Persist dashboard theme preference.
+	 *
+	 * @return void
+	 */
+	public static function ajax_maint_theme() {
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( array( 'message' => 'auth' ), 403 );
+		}
+		$nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+		if ( ! wp_verify_nonce( $nonce, 'rw_portal_maint_theme' ) ) {
+			wp_send_json_error( array( 'message' => 'nonce' ), 403 );
+		}
+		$theme = isset( $_POST['theme'] ) ? sanitize_key( wp_unslash( $_POST['theme'] ) ) : '';
+		if ( ! in_array( $theme, array( 'light', 'dark', 'system' ), true ) ) {
+			wp_send_json_error( array( 'message' => 'theme' ), 400 );
+		}
+		update_user_meta( get_current_user_id(), 'rw_maint_theme', $theme );
+		wp_send_json_success( array( 'theme' => $theme ) );
 	}
 
 	public static function activate() {
@@ -231,7 +305,9 @@ class RW_Portal_Account {
 		$blocks   = self::sort_subscription_blocks( $blocks );
 		$decision = self::blocks_for_request( $blocks, self::selected_subscription_id() );
 
-		echo '<div class="rw-maint">';
+		$theme_pref = self::maintenance_theme_pref( $user_id );
+		$theme_eff  = self::maintenance_theme_effective( $theme_pref );
+		echo '<div class="rw-maint" data-theme="' . esc_attr( $theme_eff ) . '" data-theme-pref="' . esc_attr( $theme_pref ) . '">';
 		if ( 'index' === $decision['mode'] ) {
 			$rw_sites = self::site_index_cards( $decision['blocks'] );
 			include RW_PORTAL_DIR . 'templates/account-sites.php';
@@ -823,10 +899,11 @@ class RW_Portal_Account {
 		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
 		echo '<input type="hidden" name="rw_portal_action" value="update_reporting" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
-		echo '<label for="rw-report-email-' . esc_attr( $site_id ) . '">Report email</label>';
-		echo '<input id="rw-report-email-' . esc_attr( $site_id ) . '" type="email" name="report_email" value="' . esc_attr( $email ) . '" required />';
+		echo '<label for="rw-report-recipients-' . esc_attr( $site_id ) . '">Report recipients</label>';
+		echo '<textarea id="rw-report-recipients-' . esc_attr( $site_id ) . '" name="report_recipients" rows="3" required placeholder="you@example.com, ops@example.com">' . esc_textarea( $email ) . '</textarea>';
+		echo '<p class="rw-maint-helper">Add one or more emails, separated by commas. The first address is the primary contact on the maintenance hub.</p>';
 		echo '<label class="rw-maint-check"><input type="checkbox" name="report_enabled" value="1" ' . checked( $enabled, true, false ) . ' /> Send maintenance summaries</label>';
-		echo '<button type="submit" class="rw-maint-button">Save report email</button>';
+		echo '<button type="submit" class="rw-maint-button">Save recipients</button>';
 		echo '</form>';
 	}
 
@@ -1363,10 +1440,14 @@ class RW_Portal_Account {
 				self::handle_disconnect_site( $user_id );
 				break;
 			case 'check_site':
-				self::handle_maint_action( $user_id, 'check', 'site_check_requested', 'Health check requested.' );
-				break;
 			case 'sync_site':
-				self::handle_maint_action( $user_id, 'sync', 'site_sync_requested', 'Sync requested.' );
+			case 'request_backup':
+			case 'run_updates':
+			case 'security_scan':
+			case 'pause_maintenance':
+			case 'resume_maintenance':
+			case 'download_report':
+				RW_Portal_Customer_Actions::handle( $user_id, $action );
 				break;
 			case 'reconnect_site':
 				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );
@@ -1378,7 +1459,7 @@ class RW_Portal_Account {
 				self::handle_resync_site( $user_id );
 				break;
 			case 'update_reporting':
-				self::handle_update_reporting( $user_id );
+				RW_Portal_Customer_Actions::handle_update_reporting( $user_id );
 				break;
 			case 'request_manual_setup':
 				self::handle_manual_setup( $user_id );

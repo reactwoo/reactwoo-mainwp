@@ -25,6 +25,9 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 		include RW_PORTAL_DIR . 'templates/partials/site-switcher.php';
 	}
 	?>
+	<div class="rw-maint-dash-toolbar">
+		<?php include RW_PORTAL_DIR . 'templates/partials/theme-toggle.php'; ?>
+	</div>
 	<section class="rw-maint-hero<?php echo $needs_attention ? ' rw-maint-hero--attention' : ''; ?>" aria-labelledby="rw-maint-dash-title">
 		<div>
 			<p class="rw-maint-hero-host"><?php echo esc_html( $host ); ?></p>
@@ -67,6 +70,25 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 		include RW_PORTAL_DIR . 'templates/partials/support-offer.php';
 		?>
 	<?php endif; ?>
+
+	<section class="rw-maint-tools-band" aria-labelledby="rw-maint-tools-title">
+		<h2 id="rw-maint-tools-title">Tools</h2>
+		<div class="rw-maint-row rw-maint-row-2 rw-maint-tools-row">
+			<?php include RW_PORTAL_DIR . 'templates/partials/connector-download-card.php'; ?>
+			<article class="rw-maint-panel rw-maint-panel--paper">
+				<p class="rw-maint-kicker">Help</p>
+				<h3>Need the connector again?</h3>
+				<p class="rw-maint-panel-copy">Use Download site plugin on the left anytime. After installing it in WordPress, your site stays linked to this maintenance plan.</p>
+			</article>
+		</div>
+	</section>
+
+	<?php
+	if ( $site ) {
+		include RW_PORTAL_DIR . 'templates/partials/status-strip.php';
+		include RW_PORTAL_DIR . 'templates/partials/customer-actions.php';
+	}
+	?>
 
 	<?php if ( ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['maintenance'] ) ) : ?>
 		<?php

@@ -48,6 +48,20 @@ if ( $flash ) {
 	);
 }
 
+if ( ! $item && isset( $rw_view ) && is_array( $rw_view ) && ! empty( $rw_view['lifecycle_notice'] ) ) {
+	$item = array(
+		'tone'    => 'info',
+		'label'   => 'Paid through',
+		'message' => (string) $rw_view['lifecycle_notice'],
+		'cta'     => ! empty( $rw_view['subscriptions_url'] )
+			? array(
+				'href'  => (string) $rw_view['subscriptions_url'],
+				'label' => 'Subscriptions',
+			)
+			: null,
+	);
+}
+
 if ( ! $item ) {
 	return;
 }

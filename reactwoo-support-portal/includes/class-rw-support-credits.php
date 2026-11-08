@@ -56,9 +56,10 @@ class RW_Support_Credits {
 
 		$subscription_id = $subscription ? (int) $subscription->get_id() : 0;
 		$existing        = $subscription_id ? RW_Support_Ledger::rows_for_subscription( $subscription_id ) : self::rows_for_order_item( $item_id );
-		$validity        = (int) $meta['_rw_credit_validity_days'];
-		if ( $validity <= 0 ) {
-			$validity = 365;
+		$validity        = RW_Support_Balance::configured_validity_days( $meta['_rw_credit_validity_days'] );
+		if ( null === $validity ) {
+			self::flag_policy_unset( $product_id );
+			return 0;
 		}
 		$row = RW_Support_Balance::purchase_row( $existing, $item_id, (int) $meta['_rw_support_minutes'], $validity, current_time( 'mysql' ) );
 		if ( ! $row ) {
@@ -67,6 +68,25 @@ class RW_Support_Credits {
 		$row['order_id'] = $order_id;
 
 		return RW_Support_Ledger::append( $user_id, $subscription_id, $row, 0 );
+	}
+
+	/**
+	 * Record that a support product has no owner-set expiry. Does not invent one.
+	 *
+	 * @param int $product_id Product.
+	 * @return void
+	 */
+	public static function flag_policy_unset( $product_id ) {
+		$product_id = (int) $product_id;
+		if ( $product_id <= 0 || ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
+			return;
+		}
+		$existing = get_option( RW_Support_Balance::CREDIT_POLICY_UNSET_OPTION, array() );
+		if ( ! is_array( $existing ) ) {
+			$existing = array();
+		}
+		$existing[] = $product_id;
+		update_option( RW_Support_Balance::CREDIT_POLICY_UNSET_OPTION, array_values( array_unique( array_map( 'intval', $existing ) ) ), false );
 	}
 
 	private static function maintenance_subscription_for_user( $user_id ) {

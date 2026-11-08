@@ -511,7 +511,7 @@ class RW_Portal_Customer_Actions {
 	public static function render_action_form( $site, $action, $label, $confirm_label, $button_class = 'rw-maint-button-secondary' ) {
 		$card_notice = self::consume_card_notice_for_action( get_current_user_id(), $action );
 		echo '<form class="rw-maint-action-form" method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		RW_Portal_Account::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="' . esc_attr( $action ) . '" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
 		echo '<label class="rw-maint-confirm"><input type="checkbox" name="rw_confirm_action" value="1" required /> ' . esc_html( $confirm_label ) . '</label>';

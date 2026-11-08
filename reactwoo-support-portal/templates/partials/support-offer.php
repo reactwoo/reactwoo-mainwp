@@ -32,13 +32,16 @@ $offer_first   = $offer_options[0];
 		<div class="rw-maint-offer-actions">
 			<?php if ( $offer_card ) : ?>
 				<p class="rw-maint-pill rw-maint-pill--good">Card ••••<?php echo esc_html( $offer_card['last4'] ); ?></p>
+				<p class="rw-maint-helper">Your saved card will be selected at checkout. Payment is confirmed there.</p>
+			<?php endif; ?>
+			<?php if ( $offer_card && ! empty( $support_offer['charge'] ) ) : ?>
 				<button type="button" class="rw-maint-button" data-offer-open><?php echo esc_html( $offer_card['label'] ); ?></button>
 			<?php else : ?>
 				<a class="rw-maint-button" data-offer-checkout href="<?php echo esc_url( $offer_first['checkout_url'] ); ?>">Continue to checkout</a>
 			<?php endif; ?>
 		</div>
 	</article>
-	<?php if ( $offer_card ) : ?>
+	<?php if ( $offer_card && ! empty( $support_offer['charge'] ) ) : ?>
 		<dialog class="rw-maint-offer-dialog" data-offer-dialog>
 			<h3>Confirm purchase</h3>
 			<p data-offer-name><?php echo esc_html( $offer_first['name'] ); ?></p>

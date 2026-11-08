@@ -51,6 +51,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-offers.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-purchase.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscription-policy.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-account-access.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-redact.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-rest-url.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maintenance-entitlements.php';

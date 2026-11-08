@@ -225,8 +225,12 @@ class RW_Test_Subscription {
 	public function save() {
 	}
 	public $status = '';
+	public $end    = 0;
 	public function get_status() {
 		return $this->status;
+	}
+	public function get_time( $type ) {
+		return ( 'end' === $type ) ? (int) $this->end : 0;
 	}
 	public function get_items() {
 		return $this->items;
@@ -921,6 +925,7 @@ $component_versions = RW_Maint_MainWP_Client::extract_component_versions(
 rw_test( 'check and sync can read both component versions', '6.4' === $component_versions['mainwp_child_version'] && '2.3.1' === $component_versions['mainwp_child_reports_version'] );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-account-access.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php';
 
 $link_values = array(
@@ -1512,7 +1517,7 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.7' === RW_PORTAL_VERSION
+		&& '0.5.8' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -2741,7 +2746,9 @@ rw_test(
 		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'add-to-cart=3666' )
 		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_subscription_id=11' )
 		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_site_id=7' )
-		&& 'Buy now with card ending ••••1234' === $offer_card['card']['label']
+		&& 'Checkout with card ending ••••1234' === $offer_card['card']['label']
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_payment_token=9' )
+		&& empty( $offer_card['charge'] )
 );
 $offer_with_plan = RW_Support_Offers::present(
 	array(
@@ -2807,6 +2814,16 @@ $offer_request = array(
 	),
 	'gateway'             => $offer_gateway,
 );
+$offer_unauthorised = RW_Support_Purchase::attempt( $offer_request );
+rw_test(
+	'a saved card is not charged unless that charge is explicitly authorised',
+	'failure' === $offer_unauthorised['result']
+		&& false !== strpos( $offer_unauthorised['message'], 'checkout' )
+		&& 0 === $offer_orders
+		&& 0 === count( $offer_gateway->calls )
+);
+$offer_request['charge_authorised'] = true;
+$offer_request['idempotency_key'] = 'click-once-key-1234';
 $offer_first = RW_Support_Purchase::attempt( $offer_request );
 $offer_second = RW_Support_Purchase::attempt( $offer_request );
 rw_test(
@@ -2881,11 +2898,12 @@ if ( ! function_exists( 'wcs_get_users_subscriptions' ) ) {
 	}
 }
 
-function rw_menu_subscription( $status, $product_id ) {
-	$item              = new RW_Test_Item();
-	$item->product_id  = (int) $product_id;
+function rw_menu_subscription( $status, $product_id, $end = 0 ) {
+	$item                 = new RW_Test_Item();
+	$item->product_id     = (int) $product_id;
 	$subscription         = new RW_Test_Subscription();
 	$subscription->status = $status;
+	$subscription->end    = (int) $end;
 	$subscription->items  = array( $item );
 	return $subscription;
 }
@@ -2914,6 +2932,8 @@ $kept_menu = RW_Portal_Account::add_menu_item( array( 'maintenance' => 'Already 
 rw_test( 'an existing maintenance menu item is left unchanged', 'Already there' === $kept_menu['maintenance'] && 2 === count( $kept_menu ) );
 $GLOBALS['rw_current_user_id'] = 0;
 unset( $GLOBALS['rw_user_subscriptions'] );
+
+require __DIR__ . '/account-readiness.php';
 
 if ( ! function_exists( 'get_locale' ) ) {
 	function get_locale() {

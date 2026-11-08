@@ -12,6 +12,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_Support_Balance {
+	const CREDIT_VALIDITY_META = '_rw_credit_validity_days';
+
+	/**
+	 * Option listing product ids whose purchased-minute expiry was not set.
+	 * No duration is assumed when this is raised.
+	 */
+	const CREDIT_POLICY_UNSET_OPTION = 'rw_support_credit_policy_unset';
+
+	/**
+	 * Explicit validity in days, or null when the product does not set one.
+	 *
+	 * @param mixed $raw Product meta.
+	 * @return int|null
+	 */
+	public static function configured_validity_days( $raw ) {
+		if ( ! is_numeric( $raw ) ) {
+			return null;
+		}
+		$days = (int) $raw;
+		if ( $days <= 0 ) {
+			return null;
+		}
+
+		return $days;
+	}
 	/**
 	 * @param string $start Subscription start datetime.
 	 * @param string $now   Current datetime.
@@ -114,7 +139,10 @@ class RW_Support_Balance {
 		if ( ! $start ) {
 			return null;
 		}
-		$days = max( 1, (int) $validity_days );
+		$days = (int) $validity_days;
+		if ( $days <= 0 ) {
+			return null;
+		}
 
 		return array(
 			'minutes_delta' => $minutes,

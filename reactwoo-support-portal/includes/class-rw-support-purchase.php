@@ -16,6 +16,27 @@ class RW_Support_Purchase {
 	const NONCE_ACTION = 'rw_buy_extra_support';
 
 	/**
+	 * Immediate saved-card charges stay off unless the owner turns them on.
+	 * One-click otherwise starts checkout with the stored method selected.
+	 *
+	 * @param bool|null $override Test override. Null reads the option.
+	 * @return bool
+	 */
+	public static function saved_method_charge_authorised( $override = null ) {
+		if ( null !== $override ) {
+			return (bool) $override;
+		}
+		if ( defined( 'RW_SUPPORT_CHARGE_SAVED_METHOD' ) && RW_SUPPORT_CHARGE_SAVED_METHOD ) {
+			return true;
+		}
+		if ( function_exists( 'get_option' ) && 'yes' === (string) get_option( 'rw_support_charge_saved_method', 'no' ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * @var callable|null
 	 */
 	public static $order_factory = null;
@@ -172,6 +193,11 @@ class RW_Support_Purchase {
 		);
 		if ( ! RW_Support_Offers::allows_purchase( ! empty( $product['purchasable'] ), $kind, $has_plan ) ) {
 			return self::failure( 'Additional support is available with an active maintenance plan.' );
+		}
+
+		$charge_override = array_key_exists( 'charge_authorised', $input ) ? $input['charge_authorised'] : null;
+		if ( ! self::saved_method_charge_authorised( $charge_override ) ) {
+			return self::failure( 'Confirm this pack at checkout. A saved card is not charged from this page.' );
 		}
 
 		$token = isset( $input['token'] ) && is_array( $input['token'] ) ? $input['token'] : null;

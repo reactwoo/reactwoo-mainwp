@@ -596,7 +596,7 @@ class RW_Maint_MainWP_Client {
 		}
 
 		if ( empty( $summary ) ) {
-			$summary['response'] = 'ok';
+			$summary['response'] = 'accepted';
 		}
 
 		return $summary;

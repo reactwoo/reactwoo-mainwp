@@ -127,6 +127,9 @@ class RW_Maint_Client {
 		$payload = array(
 			'portal_site_id' => (int) $site->id,
 		);
+		if ( ! empty( $site->subscription_id ) ) {
+			$payload['subscription_id'] = (int) $site->subscription_id;
+		}
 
 		return self::post( $action, $payload );
 	}

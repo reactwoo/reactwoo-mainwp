@@ -25,12 +25,12 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 			<p class="rw-maint-pill"><?php echo esc_html( $plan_name ); ?></p>
 			<h2 id="rw-maint-hero-title-<?php echo esc_attr( (string) $block_id ); ?>">Your website,<br class="rw-maint-copy-desktop" /> looked after.</h2>
 			<p class="rw-maint-lead">
-				<span class="rw-maint-copy-desktop">We keep WordPress updated, backed up and checked, so you can focus on your business instead of routine website maintenance.</span>
-				<span class="rw-maint-copy-mobile">We keep WordPress updated, backed up and checked so you can focus on your business.</span>
+				<span class="rw-maint-copy-desktop">Connect the website to see reported updates, backups and checks. A result stays unavailable until it is recorded.</span>
+				<span class="rw-maint-copy-mobile">Reported updates, backups and checks appear after they are recorded.</span>
 			</p>
 			<ul class="rw-maint-checks">
 				<li><span aria-hidden="true">✓</span> Secure WordPress connection, approved by you</li>
-				<li><span aria-hidden="true">✓</span> We set up backups, updates, security checks and reports</li>
+				<li><span aria-hidden="true">✓</span> Reported status in this account, including when a result is not available yet</li>
 			</ul>
 			<?php if ( $rw_view['can_connect'] && ! $site ) : ?>
 				<?php RW_Portal_Account::render_connect_form( $rw_view['subscription_id'], false ); ?>
@@ -80,7 +80,7 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 			<span class="rw-maint-copy-desktop">Your website maintenance, covered.</span>
 			<span class="rw-maint-copy-mobile">Everything working behind the scenes.</span>
 		</h2>
-		<p class="rw-maint-intro rw-maint-copy-desktop">Practical protection and support for the WordPress tasks that are easy to overlook.</p>
+		<p class="rw-maint-intro rw-maint-copy-desktop">What this account can show for your plan. A service stays unavailable until a result is reported.</p>
 		<div class="rw-maint-grid">
 			<?php foreach ( $rw_view['benefits'] as $benefit ) : ?>
 				<?php
@@ -120,7 +120,7 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 				<article class="rw-maint-card rw-maint-card--mobile">
 					<p class="rw-maint-kicker rw-maint-kicker--purple">Support</p>
 					<h3>Technical support</h3>
-					<p><?php echo esc_html( (string) $granted ); ?> minutes included each billing period<?php echo 'Standard' === $plan_short ? ' on Standard' : ''; ?>.</p>
+					<p><?php echo esc_html( (string) $granted ); ?> minutes included each service period<?php echo 'Standard' === $plan_short ? ' on Standard' : ''; ?>.</p>
 				</article>
 			<?php endif; ?>
 		</div>
@@ -129,8 +129,8 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 	<section class="rw-maint-split" aria-labelledby="rw-maint-report-title-<?php echo esc_attr( (string) $block_id ); ?>">
 		<div>
 			<p class="rw-maint-kicker">More value from maintenance</p>
-			<h2 id="rw-maint-report-title-<?php echo esc_attr( (string) $block_id ); ?>">Know what changed each month.</h2>
-			<p class="rw-maint-intro">Each report summarises the updates, backups and checks we carried out.</p>
+			<h2 id="rw-maint-report-title-<?php echo esc_attr( (string) $block_id ); ?>">See what has been reported.</h2>
+			<p class="rw-maint-intro">A report lists updates, backups and checks only when those results are recorded.</p>
 			<a class="rw-maint-report-link" href="#<?php echo esc_attr( $support_id ); ?>">View your reports →</a>
 		</div>
 		<aside class="rw-maint-aside" id="<?php echo esc_attr( $support_id ); ?>" aria-label="Reports in your plan">
@@ -183,7 +183,7 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 			<?php if ( ! empty( $rw_view['show_included_minutes'] ) ) : ?>
 				<p class="rw-maint-pill"><?php echo esc_html( $plan_short ); ?> plan</p>
 				<p class="rw-maint-minutes"><?php echo esc_html( (string) $granted ); ?> minutes</p>
-				<p>of technical support per billing period</p>
+				<p>of technical support per service period</p>
 				<p class="rw-maint-allowance-note">For small fixes, troubleshooting and WordPress help.</p>
 				<?php if ( null !== $rw_view['included_minutes_remaining'] ) : ?>
 					<p class="rw-maint-allowance-note"><?php echo esc_html( (string) (int) $rw_view['included_minutes_remaining'] ); ?> minutes remain in this service period.</p>
@@ -199,9 +199,9 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 		<div class="rw-maint-support-copy">
 			<h2 id="rw-maint-support-title-<?php echo esc_attr( (string) $block_id ); ?>">Real help when your site needs it.</h2>
 			<?php if ( ! empty( $rw_view['show_included_minutes'] ) ) : ?>
-				<p>Automation covers routine maintenance. Your <?php echo esc_html( $plan_short ); ?> plan also includes <?php echo esc_html( $hour_phrase ); ?> of hands-on technical support each billing period.</p>
+				<p>Your <?php echo esc_html( $plan_short ); ?> plan includes <?php echo esc_html( $hour_phrase ); ?> of hands-on technical support each service period.</p>
 			<?php else : ?>
-				<p>Automation covers routine maintenance. Hands-on technical support is available when a plan includes it.</p>
+				<p>Hands-on technical support is available when a plan includes it.</p>
 			<?php endif; ?>
 			<p class="rw-maint-reassure">If a request needs additional billable work, we'll confirm this with you first.</p>
 		</div>

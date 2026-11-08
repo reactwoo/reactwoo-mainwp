@@ -165,7 +165,7 @@ class RW_Maint_MainWP {
 		return array(
 			'child_plugin_hide'                  => 1,
 			'child_plugin_name'                  => 'ReactWoo Maintenance',
-			'child_plugin_desc'                  => 'Keeps this website updated, backed up and monitored.',
+			'child_plugin_desc'                  => 'Connects this website to ReactWoo Maintenance.',
 			'child_plugin_author'                => 'ReactWoo',
 			'child_plugin_author_uri'            => 'https://reactwoo.com',
 			'child_plugin_uri'                   => 'https://reactwoo.com',

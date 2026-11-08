@@ -450,7 +450,7 @@ class RW_Connection_Orchestrator {
 					'managed_site_id' => (int) $attempt->managed_site_id,
 				)
 			);
-			self::finish_redirect( 'We connected the site, but need to remove a temporary credential. Contact ReactWoo before using the site as protected.', 'error' );
+			self::finish_redirect( 'We connected the site, but need to remove a temporary credential. Contact ReactWoo before treating this connection as ready.', 'error' );
 		}
 
 		if ( ! $operational ) {
@@ -494,7 +494,7 @@ class RW_Connection_Orchestrator {
 			)
 		);
 
-		self::finish_redirect( 'Your website is protected.', 'success' );
+		self::finish_redirect( 'Your website is connected.', 'success' );
 	}
 
 	/**

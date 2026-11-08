@@ -646,13 +646,32 @@ class RW_Maint_Rest_Controller {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	private static function customer_mainwp_action( WP_REST_Request $request, $client_method, $audit_event, $hook ) {
-		$portal_site_id = self::extract_portal_site_id( $request );
-		if ( ! $portal_site_id ) {
-			return new WP_Error( 'rw_maint_missing', 'Portal site ID is required.', array( 'status' => 400 ) );
+		$replay = RW_Maint_Idempotency::begin( $request );
+		if ( is_wp_error( $replay ) || $replay instanceof WP_REST_Response ) {
+			return $replay;
+		}
+
+		return RW_Maint_Idempotency::finish( $request, self::dispatch_customer_mainwp_action( $request, $client_method, $audit_event, $hook ) );
+	}
+
+	/**
+	 * Dispatch one customer action. A hub acceptance is not a completed backup, update, or scan.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @param string          $client_method MainWP client method suffix (backup|run_updates|security_scan).
+	 * @param string          $audit_event Audit event name.
+	 * @param string          $hook Action hook fired after a successful MainWP call.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	private static function dispatch_customer_mainwp_action( WP_REST_Request $request, $client_method, $audit_event, $hook ) {
+		$portal_site_id  = self::extract_portal_site_id( $request );
+		$subscription_id = self::extract_subscription_id( $request );
+		if ( ! $portal_site_id || ! $subscription_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID and subscription ID are required.', array( 'status' => 400 ) );
 		}
 
 		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
-		if ( ! $site ) {
+		if ( ! RW_Maint_Site_Snapshot::site_is_in_scope( $site, $subscription_id ) ) {
 			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
 		}
 
@@ -690,7 +709,8 @@ class RW_Maint_Rest_Controller {
 				'portal_site_id' => $portal_site_id,
 				'status'         => $site->status,
 				'action'         => $client_method,
-				'ok'             => true,
+				'accepted'       => true,
+				'completed'      => false,
 			)
 		);
 	}

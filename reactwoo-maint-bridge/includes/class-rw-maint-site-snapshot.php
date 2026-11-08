@@ -906,8 +906,7 @@ class RW_Maint_Site_Snapshot {
 				}
 				continue;
 			}
-			$default_status = false !== strpos( strtolower( (string) $name ), 'updraft' ) ? 'success' : null;
-			self::collect_backup_points( $points, $value, $default_status );
+			self::collect_backup_points( $points, $value, null );
 			$decoded = self::decode_blob( $value );
 			if ( is_array( $decoded ) && ! self::looks_like_list( $decoded ) ) {
 				foreach ( array( 'next', 'next_scheduled', 'next_backup', 'next_scheduled_backup' ) as $key ) {
@@ -1682,7 +1681,7 @@ class RW_Maint_Site_Snapshot {
 	 * @return array<string,mixed>|null
 	 */
 	private static function event_from_text( $text, $at, array $row ) {
-		if ( ! $at ) {
+		if ( ! $at || self::activity_event_is_request( $row, $text ) ) {
 			return null;
 		}
 		$flags = array(
@@ -1713,16 +1712,17 @@ class RW_Maint_Site_Snapshot {
 		}
 
 		$plain = strtolower( wp_strip_all_tags( (string) $text ) );
+		$finished = (bool) preg_match( '/\b(completed|finished|succeeded|success|complete)\b/', $plain );
 		if ( null === $flags['updates_applied'] && preg_match( '/\b(updated|upgraded|updates applied|applied updates|update installed)\b/', $plain ) && ! preg_match( '/\bavailable\b/', $plain ) ) {
 			$flags['updates_applied'] = true;
 		}
-		if ( null === $flags['backup'] && preg_match( '/\b(backup|updraft|backwpup|time capsule|wpvivid)\b/', $plain ) ) {
+		if ( null === $flags['backup'] && $finished && preg_match( '/\b(backup|updraft|backwpup|time capsule|wpvivid)\b/', $plain ) ) {
 			$flags['backup'] = true;
 		}
-		if ( null === $flags['security_scan'] && ( preg_match( '/\b(security scan|malware scan|vulnerability scan|wordfence|sucuri)\b/', $plain ) || ( false !== strpos( $plain, 'security' ) && false !== strpos( $plain, 'scan' ) ) ) ) {
+		if ( null === $flags['security_scan'] && $finished && preg_match( '/\b(security scan|malware scan|vulnerability scan|wordfence scan|sucuri scan)\b/', $plain ) ) {
 			$flags['security_scan'] = true;
 		}
-		if ( null === $flags['optimisation'] && preg_match( '/optimis|optimiz|database tidy|cache purge|cache flush|cleaned database/', $plain ) ) {
+		if ( null === $flags['optimisation'] && preg_match( '/\b(optimised|optimized|cache purged|cache flushed|cleaned database|database cleaned)\b/', $plain ) ) {
 			$flags['optimisation'] = true;
 		}
 
@@ -1738,6 +1738,28 @@ class RW_Maint_Site_Snapshot {
 		}
 
 		return array_merge( array( 'at' => (int) $at ), $flags );
+	}
+
+	/**
+	 * A request, dispatch, or schedule mention is not a completed service result.
+	 *
+	 * @param array<string,mixed> $row Source row.
+	 * @param string              $text Combined log text.
+	 * @return bool
+	 */
+	private static function activity_event_is_request( array $row, $text ) {
+		$type = strtolower( trim( (string) ( isset( $row['event_type'] ) ? $row['event_type'] : '' ) ) );
+		if ( '' !== $type && preg_match( '/(?:^|_)(requested|sent|failed)$/', $type ) ) {
+			return true;
+		}
+
+		$plain = strtolower( wp_strip_all_tags( (string) $text ) );
+		$finished = (bool) preg_match( '/\b(completed|finished|succeeded|success|complete)\b/', $plain );
+		if ( ! $finished && preg_match( '/\b(requested|queued|dispatched|starting|scheduled)\b/', $plain ) ) {
+			return true;
+		}
+
+		return false;
 	}
 
 	/**

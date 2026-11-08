@@ -52,7 +52,8 @@ class RW_Maintenance_Plans {
 		$plan['reactwoo_product_entitlements']    = array();
 		$plan['third_party_premium_entitlements'] = self::third_party_premium_entitlements();
 		$plan['technical_support_minutes']        = (int) $plan['technical_support_minutes_monthly'];
-		$plan['backup_frequency']                 = (string) $plan['backup_profile'];
+		// A profile name is not a schedule, retention period, or storage provider.
+		$plan['backup_frequency']                 = '';
 		$plan['uptime_monitoring']                = (bool) $plan['uptime'];
 		$plan['ssl_monitoring']                   = (bool) $plan['ssl'];
 
@@ -76,6 +77,8 @@ class RW_Maintenance_Plans {
 	}
 
 	public static function catalogue() {
+		// These booleans are catalogue markers. They do not create a schedule,
+		// a monitor, a scanner, or a stored result.
 		$shared = array(
 			'site_limit'       => 1,
 			'managed_updates'  => true,

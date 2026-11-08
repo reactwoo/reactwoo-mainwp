@@ -17,6 +17,9 @@ class RW_Maint_MainWP_Client {
 		add_action( 'rw_maint_mainwp_sync_site', array( __CLASS__, 'sync_site' ), 10, 1 );
 		add_action( 'rw_maint_mainwp_reconnect_site', array( __CLASS__, 'reconnect_site' ), 10, 1 );
 		add_action( 'rw_maint_mainwp_purge_site', array( __CLASS__, 'purge_site' ), 10, 1 );
+		add_action( 'rw_maint_mainwp_backup_site', array( __CLASS__, 'backup_site' ), 10, 1 );
+		add_action( 'rw_maint_mainwp_run_updates', array( __CLASS__, 'run_updates' ), 10, 1 );
+		add_action( 'rw_maint_mainwp_security_scan', array( __CLASS__, 'security_scan' ), 10, 1 );
 	}
 
 	/**
@@ -220,6 +223,29 @@ class RW_Maint_MainWP_Client {
 	public static function purge_site( $site ) {
 		self::send_lifecycle_action( $site, 'purge' );
 	}
+
+	public static function backup_site( $site ) {
+		if ( ! RW_Maint_MainWP::current_mainwp_target( $site ) ) {
+			return new WP_Error( 'rw_mainwp_stale_site', 'The saved maintenance site is not the website being backed up.' );
+		}
+		return self::send_lifecycle_action( $site, 'backup' );
+	}
+
+	public static function run_updates( $site ) {
+		if ( ! RW_Maint_MainWP::current_mainwp_target( $site ) ) {
+			return new WP_Error( 'rw_mainwp_stale_site', 'The saved maintenance site is not the website being updated.' );
+		}
+		return self::send_lifecycle_action( $site, 'run_updates' );
+	}
+
+	public static function security_scan( $site ) {
+		if ( ! RW_Maint_MainWP::current_mainwp_target( $site ) ) {
+			return new WP_Error( 'rw_mainwp_stale_site', 'The saved maintenance site is not the website being scanned.' );
+		}
+		return self::send_lifecycle_action( $site, 'security_scan' );
+	}
+
+
 
 	private static function send_lifecycle_action( $site, $action ) {
 		if ( ! $site || empty( $site->mainwp_site_id ) ) {
@@ -570,7 +596,7 @@ class RW_Maint_MainWP_Client {
 		}
 
 		if ( empty( $summary ) ) {
-			$summary['response'] = 'ok';
+			$summary['response'] = 'accepted';
 		}
 
 		return $summary;
@@ -872,6 +898,13 @@ class RW_Maint_MainWP_Client {
 				return sprintf( 'sites/%d/reconnect/', (int) $site->mainwp_site_id );
 			case 'purge':
 				return sprintf( 'sites/%d/remove/', (int) $site->mainwp_site_id );
+			case 'backup':
+				// Overridable via rw_maint_mainwp_action_path; default MainWP Dashboard REST shape.
+				return sprintf( 'sites/%d/backup/', (int) $site->mainwp_site_id );
+			case 'run_updates':
+				return sprintf( 'sites/%d/updateplugins/', (int) $site->mainwp_site_id );
+			case 'security_scan':
+				return sprintf( 'sites/%d/security/', (int) $site->mainwp_site_id );
 			default:
 				return '';
 		}

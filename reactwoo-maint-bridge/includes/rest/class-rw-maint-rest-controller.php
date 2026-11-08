@@ -106,6 +106,37 @@ class RW_Maint_Rest_Controller {
 			)
 		);
 
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/backup',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'backup' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/run-updates',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'run_updates' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/security-scan',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'security_scan' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
 		register_rest_route(
 			'reactwoo-maint/v1',
 			'/status',
@@ -592,4 +623,96 @@ class RW_Maint_Rest_Controller {
 
 		return 0;
 	}
+
+	public static function backup( WP_REST_Request $request ) {
+		return self::customer_mainwp_action( $request, 'backup', 'site_backup_requested', 'rw_maint_site_backup_requested' );
+	}
+
+	public static function run_updates( WP_REST_Request $request ) {
+		return self::customer_mainwp_action( $request, 'run_updates', 'site_run_updates_requested', 'rw_maint_site_run_updates_requested' );
+	}
+
+	public static function security_scan( WP_REST_Request $request ) {
+		return self::customer_mainwp_action( $request, 'security_scan', 'site_security_scan_requested', 'rw_maint_site_security_scan_requested' );
+	}
+
+	/**
+	 * Shared handler for customer-triggered MainWP actions.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @param string          $client_method MainWP client method suffix (backup|run_updates|security_scan).
+	 * @param string          $audit_event Audit event name.
+	 * @param string          $hook Action hook fired after a successful MainWP call.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	private static function customer_mainwp_action( WP_REST_Request $request, $client_method, $audit_event, $hook ) {
+		$replay = RW_Maint_Idempotency::begin( $request );
+		if ( is_wp_error( $replay ) || $replay instanceof WP_REST_Response ) {
+			return $replay;
+		}
+
+		return RW_Maint_Idempotency::finish( $request, self::dispatch_customer_mainwp_action( $request, $client_method, $audit_event, $hook ) );
+	}
+
+	/**
+	 * Dispatch one customer action. A hub acceptance is not a completed backup, update, or scan.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @param string          $client_method MainWP client method suffix (backup|run_updates|security_scan).
+	 * @param string          $audit_event Audit event name.
+	 * @param string          $hook Action hook fired after a successful MainWP call.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	private static function dispatch_customer_mainwp_action( WP_REST_Request $request, $client_method, $audit_event, $hook ) {
+		$portal_site_id  = self::extract_portal_site_id( $request );
+		$subscription_id = self::extract_subscription_id( $request );
+		if ( ! $portal_site_id || ! $subscription_id ) {
+			return new WP_Error( 'rw_maint_missing', 'Portal site ID and subscription ID are required.', array( 'status' => 400 ) );
+		}
+
+		$site = RW_Maint_Sites::get_by_portal_site_id( $portal_site_id );
+		if ( ! RW_Maint_Site_Snapshot::site_is_in_scope( $site, $subscription_id ) ) {
+			return new WP_Error( 'rw_maint_not_found', 'Site not found.', array( 'status' => 404 ) );
+		}
+
+		$map = array(
+			'backup'        => 'backup_site',
+			'run_updates'   => 'run_updates',
+			'security_scan' => 'security_scan',
+		);
+		$method = isset( $map[ $client_method ] ) ? $map[ $client_method ] : '';
+		if ( '' === $method || ! is_callable( array( 'RW_Maint_MainWP_Client', $method ) ) ) {
+			return new WP_Error( 'rw_mainwp_action_unsupported', 'Maintenance action is not available.', array( 'status' => 501 ) );
+		}
+
+		$result = call_user_func( array( 'RW_Maint_MainWP_Client', $method ), $site );
+		if ( is_wp_error( $result ) ) {
+			$status = 502;
+			if ( 'rw_mainwp_action_unsupported' === $result->get_error_code() ) {
+				$status = 501;
+			}
+			$result->add_data( array( 'status' => $status ) );
+			return $result;
+		}
+
+		RW_Maint_Audit::log(
+			$audit_event,
+			array(
+				'portal_site_id' => $portal_site_id,
+			)
+		);
+
+		do_action( $hook, $portal_site_id, $site );
+
+		return rest_ensure_response(
+			array(
+				'portal_site_id' => $portal_site_id,
+				'status'         => $site->status,
+				'action'         => $client_method,
+				'accepted'       => true,
+				'completed'      => false,
+			)
+		);
+	}
+
 }

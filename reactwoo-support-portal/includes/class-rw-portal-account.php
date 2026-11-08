@@ -1034,9 +1034,9 @@ class RW_Portal_Account {
 		$labels  = array(
 			array( 'WordPress authorised', 'You approve the connection on your website.' ),
 			array( 'ReactWoo connected', 'We confirm the website and start setup.' ),
-			array( 'Setting up maintenance', 'Updates, backups and monitoring are turned on.' ),
-			array( 'Preparing backups', 'The first recovery point is prepared.' ),
-			array( 'Running initial checks', 'We confirm the website is looked after.' ),
+			array( 'Setting up maintenance', 'Maintenance components are installed for this connection.' ),
+			array( 'Checking the link', 'The first check and sync run before the site is marked connected.' ),
+			array( 'Running the first check', 'The website is marked connected only after that check. Service results appear when they are reported.' ),
 		);
 		$steps = array();
 		foreach ( $labels as $index => $label ) {
@@ -1069,17 +1069,17 @@ class RW_Portal_Account {
 				$support_mobile = $support_title;
 			}
 			$short_plan   = trim( (string) preg_replace( '/\s+maintenance$/i', '', (string) $plan_name ) );
-			$support_text = '' !== $short_plan ? 'On ' . $short_plan . ', each billing period' : 'Each billing period';
+			$support_text = '' !== $short_plan ? 'On ' . $short_plan . ', each service period' : 'Each service period';
 		}
 
 		return array(
-			array( 'title' => 'Managed WordPress updates', 'text' => 'Core, themes and supported plugins' ),
-			array( 'title' => 'Security checks', 'text' => 'For eligible plugins while subscribed' ),
-			array( 'title' => 'Cloud backups', 'text' => 'Recovery points stored off-site' ),
+			array( 'title' => 'Managed WordPress updates', 'text' => 'Core, themes and supported plugins, when a result is reported' ),
+			array( 'title' => 'Security checks', 'text' => 'Reported security signals. Removal is not included here.' ),
+			array( 'title' => 'Cloud backups', 'text' => 'Shown after a backup result is reported' ),
 			array(
-				'title'        => 'Monthly summary report',
-				'mobile_title' => 'Monthly reporting',
-				'text'         => 'Speed, store status, changes and uptime',
+				'title'        => 'Maintenance reporting',
+				'mobile_title' => 'Maintenance reporting',
+				'text'         => 'Status from the connected site. Unavailable until a result is reported.',
 			),
 			array(
 				'title'        => $support_title,
@@ -1090,41 +1090,41 @@ class RW_Portal_Account {
 	}
 
 	private static function benefit_cards( $reports_on, $speed_on ) {
-		unset( $reports_on, $speed_on );
+		unset( $reports_on );
 
-		return array(
+		$cards = array(
 			array(
 				'kicker'      => 'Updates',
 				'title'       => 'Managed updates',
-				'text'        => 'Routine WordPress, theme and supported plugin updates are handled and recorded.',
-				'mobile_text' => 'WordPress, themes and supported plugins kept current.',
+				'text'        => 'WordPress, theme and supported plugin updates are shown after they are reported.',
+				'mobile_text' => 'Updates appear after they are reported.',
 				'tone'        => 'blue',
 			),
 			array(
 				'kicker'      => 'Security',
 				'title'       => 'Security checks',
-				'text'        => 'Routine checks help catch problems early.',
-				'mobile_text' => 'Routine security checks on your site.',
+				'text'        => 'Reported security signals. This is not malware removal.',
+				'mobile_text' => 'Reported security signals, not removal.',
 				'tone'        => 'green',
 			),
 			array(
 				'kicker'      => 'Backups',
 				'title'       => 'Cloud backups',
-				'text'        => 'Scheduled off-site backups make recovery possible if an update causes trouble.',
-				'mobile_text' => 'Off-site recovery points for when something goes wrong.',
+				'text'        => 'A backup is shown after a result is reported. Schedule and storage are not assumed.',
+				'mobile_text' => 'Backup results appear after they are reported.',
 				'tone'        => 'purple',
 			),
 			array(
 				'kicker'      => 'Reporting',
-				'title'       => 'Monthly reports',
-				'text'        => 'Availability, SSL and domain health, plus a scheduled database tidy.',
-				'mobile_text' => 'Availability, SSL, domain health and a scheduled database tidy.',
+				'title'       => 'Maintenance reporting',
+				'text'        => 'Reported maintenance status. A result that has not been recorded stays unavailable.',
+				'mobile_text' => 'Reported status, or unavailable when nothing is recorded.',
 				'tone'        => 'green',
 			),
 			array(
 				'kicker'       => 'Security',
 				'title'        => 'Security checks',
-				'text'         => 'Vulnerability and security signals inform maintenance priorities.',
+				'text'         => 'Vulnerability signals are shown when the connected site reports them.',
 				'tone'         => 'green',
 				'desktop_only' => true,
 			),
@@ -1132,42 +1132,46 @@ class RW_Portal_Account {
 				'kicker'       => 'Reporting',
 				'title'        => 'Clear reporting',
 				'mobile_title' => 'Reporting',
-				'text'         => 'Page speed, store status, changes, updates and backups, in plain language.',
-				'mobile_text'  => 'Speed, store status, changes, updates and backups.',
+				'text'         => 'Recorded updates, backups and checks, in plain language.',
+				'mobile_text'  => 'Recorded updates, backups and checks.',
 				'tone'         => 'blue',
 			),
-			array(
+		);
+		if ( $speed_on ) {
+			$cards[] = array(
 				'kicker'      => 'Page speed',
 				'title'       => 'Page speed',
 				'text'        => 'Google PageSpeed scores for mobile and desktop, when that connection is on.',
 				'mobile_text' => 'Google PageSpeed scores when that connection is on.',
 				'tone'        => 'blue',
-			),
-			array(
-				'kicker'      => 'Store',
-				'title'       => 'Store status',
-				'text'        => 'Orders waiting, stock and this month\'s sales, when WooCommerce is on the site.',
-				'mobile_text' => 'Orders, stock and sales when WooCommerce is on the site.',
-				'tone'        => 'blue',
-			),
-			array(
-				'kicker'      => 'Changes',
-				'title'       => 'Change history',
-				'text'        => 'Who changed the site, what they changed, and when.',
-				'mobile_text' => 'Who changed the site, what changed, and when.',
-				'tone'        => 'blue',
-			),
+			);
+		}
+		$cards[] = array(
+			'kicker'      => 'Store',
+			'title'       => 'Store status',
+			'text'        => 'Published products, drafts and out-of-stock counts, when WooCommerce reports them.',
+			'mobile_text' => 'Catalogue counts when WooCommerce reports them.',
+			'tone'        => 'blue',
 		);
+		$cards[] = array(
+			'kicker'      => 'Changes',
+			'title'       => 'Change history',
+			'text'        => 'Recorded maintenance activity, when a run is reported.',
+			'mobile_text' => 'Recorded activity, when a run is reported.',
+			'tone'        => 'blue',
+		);
+
+		return $cards;
 	}
 
 	private static function report_cards( $reports_on, $speed_on ) {
 		$cards = array(
-			array( 'title' => 'Updates and backups', 'text' => 'Completed updates and backup points appear here after the first maintenance run.' ),
-			array( 'title' => 'Database tidy', 'text' => 'Old revisions and clutter are cleared on a schedule. The last tidy is shown after it runs.' ),
+			array( 'title' => 'Updates and backups', 'text' => 'Completed updates and backup results appear here after they are reported.' ),
+			array( 'title' => 'Database tidy', 'text' => 'A tidy is shown only after a completed tidy is reported.' ),
 		);
 		if ( $reports_on ) {
-			$cards[] = array( 'title' => 'Change history', 'text' => 'Who changed the site, what they changed, and when. This list starts once activity reporting is on.' );
-			$cards[] = array( 'title' => 'Store status', 'text' => 'Orders, stock and sales, shown when WooCommerce is on this website.' );
+			$cards[] = array( 'title' => 'Change history', 'text' => 'Recorded maintenance activity, once reporting is on.' );
+			$cards[] = array( 'title' => 'Store status', 'text' => 'Product counts, when WooCommerce data is reported for this website.' );
 		}
 		if ( $speed_on ) {
 			$cards[] = array( 'title' => 'Page speed', 'text' => 'Mobile and desktop Google PageSpeed scores appear here when that connection is on.' );

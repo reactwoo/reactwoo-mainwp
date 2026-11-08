@@ -556,9 +556,14 @@ foreach ( array( 'essential' => 0, 'standard' => 60, 'business' => 120 ) as $pla
 		! empty( $plan['is_maintenance'] )
 			&& $minutes === (int) $plan['technical_support_minutes_monthly']
 			&& 1 === (int) $plan['site_limit']
+			&& $plan_key === (string) $plan['backup_profile']
+			&& '' === (string) $plan['backup_frequency']
 			&& empty( $plan['reactwoo_product_entitlements'] )
 			&& ! isset( $plan['price'] )
 			&& ! isset( $plan['currency'] )
+			&& ! isset( $plan['restore_test'] )
+			&& ! isset( $plan['malware_removal'] )
+			&& ! isset( $plan['checkout_test'] )
 	);
 }
 rw_test( 'business performance monitoring stays off until delivery is proven', empty( RW_Maintenance_Plans::resolve( 'business' )['performance_monitoring'] ) );
@@ -1975,6 +1980,51 @@ rw_test(
 		&& gmdate( 'c', $snapshot_now + 86400 ) === $full['activity']['next_scheduled']
 );
 
+$requested_only = RW_Maint_Site_Snapshot::build(
+	$scoped_site,
+	array(
+		'audit'   => array(
+			array(
+				'event_type' => 'mainwp_action_sent',
+				'message'    => wp_json_encode(
+					array(
+						'action' => 'backup',
+						'result' => array( 'response' => 'accepted' ),
+					)
+				),
+				'created_at' => gmdate( 'Y-m-d H:i:s', 1700000000 ),
+			),
+			array(
+				'event_type' => 'site_security_scan_requested',
+				'message'    => wp_json_encode( array( 'action' => 'security_scan' ) ),
+				'created_at' => gmdate( 'Y-m-d H:i:s', 1700001000 ),
+			),
+			array(
+				'event_type' => 'site_backup_requested',
+				'created_at' => gmdate( 'Y-m-d H:i:s', 1700002000 ),
+			),
+		),
+		'logs'    => array(
+			array( 'created' => 1700003000, 'action' => 'backup requested', 'context' => 'backups' ),
+			array( 'created' => 1700004000, 'action' => 'security scan', 'context' => 'security', 'item' => 'Scan' ),
+			array( 'created' => 1700005000, 'action' => 'malware scan', 'context' => 'security' ),
+			array( 'created' => 1700006000, 'action' => 'database tidy scheduled', 'context' => 'maintenance' ),
+		),
+		'options' => array(
+			'updraftplus_history' => array(
+				array( 'time' => 1700000000 ),
+			),
+		),
+	),
+	1700604900
+);
+rw_test(
+	'a requested backup, scan, or tidy is not a completed result',
+	null === $requested_only['activity']['last_run']
+		&& gmdate( 'c', 1700000000 ) === $requested_only['backups']['last']['time']
+		&& null === $requested_only['backups']['last']['status']
+);
+
 $missing = RW_Maint_Site_Snapshot::build( $scoped_site, array() );
 rw_test(
 	'missing synced fields stay empty instead of invented values',
@@ -2171,7 +2221,48 @@ RW_Portal_Maintenance_Status::for_site( $failed_site, $failed_fetch );
 RW_Portal_Maintenance_Status::for_site( $failed_site, $failed_fetch );
 rw_test( 'a failed status fetch is not cached', 2 === $failed_calls && ! get_transient( RW_Portal_Maintenance_Status::cache_key( $failed_site ) ) );
 
+$dash_copy     = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-dashboard.php' );
+$onboard_copy  = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-onboarding.php' );
+$account_copy  = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php' );
+$status_copy   = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/maintenance-status.php' );
+$email_copy    = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maintenance-emails.php' );
+$connect_copy  = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-connection-orchestrator.php' );
+rw_test(
+	'the account does not present an unreported backup or a protected site as done',
+	false === strpos( $dash_copy, 'Your website is protected' )
+		&& false !== strpos( $dash_copy, 'Your website is connected' )
+		&& false === strpos( $dash_copy, 'running regular security checks' )
+		&& false === strpos( $status_copy, 'Your site is backed up' )
+		&& false === strpos( $connect_copy, 'Your website is protected.' )
+		&& false !== strpos( $connect_copy, 'Your website is connected.' )
+		&& false === strpos( $onboard_copy, 'off-site' )
+		&& false === strpos( $onboard_copy, 'billing period' )
+		&& false === strpos( $onboard_copy, 'We set up backups' )
+		&& false === strpos( $account_copy, 'stored off-site' )
+		&& false === strpos( $account_copy, 'Scheduled off-site' )
+		&& false === strpos( $account_copy, 'scheduled database tidy' )
+		&& false === strpos( $account_copy, 'each billing period' )
+		&& false === strpos( $account_copy, 'recovery point is prepared' )
+		&& false === strpos( $account_copy, 'monitoring are turned on' )
+		&& false === strpos( $email_copy, 'each month' )
+);
 $status_controller = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/includes/rest/class-rw-maint-rest-controller.php' );
+$action_pos        = strpos( $status_controller, 'function dispatch_customer_mainwp_action' );
+$action_body       = false === $action_pos ? '' : substr( $status_controller, $action_pos, 2600 );
+$action_scope      = false === $action_pos ? false : strpos( $status_controller, 'site_is_in_scope', $action_pos );
+$action_call       = false === $action_pos ? false : strpos( $status_controller, 'call_user_func', $action_pos );
+rw_test(
+	'customer maintenance actions record a request, not a completed result',
+	false !== strpos( $status_controller, 'RW_Maint_Idempotency::begin' )
+		&& false !== strpos( $status_controller, 'RW_Maint_Idempotency::finish' )
+		&& false !== strpos( $action_body, "'accepted'" )
+		&& false !== strpos( $action_body, "'completed'" )
+		&& false !== strpos( $action_body, 'false' )
+		&& false === strpos( $action_body, "'ok'" )
+		&& false !== $action_scope
+		&& false !== $action_call
+		&& $action_scope < $action_call
+);
 $status_pos        = strpos( $status_controller, 'function site_status' );
 $scope_pos         = strpos( $status_controller, 'site_is_in_scope', $status_pos );
 $collect_pos       = strpos( $status_controller, 'RW_Maint_MainWP_Status::collect', $status_pos );
@@ -2185,11 +2276,17 @@ rw_test(
 );
 $portal_client = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-maint-client.php' );
 $fetch_pos     = strpos( $portal_client, 'function fetch_site_status' );
+$update_pos = strpos( $portal_client, 'function update_site_status' );
 rw_test(
 	'the portal requests status for the site subscription',
 	false !== $fetch_pos
 		&& false !== strpos( substr( $portal_client, $fetch_pos, 500 ), "'status'" )
 		&& false !== strpos( substr( $portal_client, $fetch_pos, 500 ), 'subscription_id' )
+);
+rw_test(
+	'portal actions name the subscription as well as the site',
+	false !== $update_pos
+		&& false !== strpos( substr( $portal_client, $update_pos, 450 ), 'subscription_id' )
 );
 rw_test(
 	'status cards stack on small screens and use the account tokens',
@@ -3317,8 +3414,8 @@ RW_Maint_MainWP_Clients::use_directory( null );
 
 $bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.6',
-	false !== strpos( $bridge_php, 'Version: 0.3.6' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.6' )" )
+	'bridge version is 0.3.7',
+	false !== strpos( $bridge_php, 'Version: 0.3.7' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.7' )" )
 );
 $hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
 $hardening_output = array();

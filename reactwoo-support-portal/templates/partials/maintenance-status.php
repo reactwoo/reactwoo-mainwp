@@ -192,7 +192,7 @@ $next      = isset( $activity['next'] ) && is_array( $activity['next'] ) ? $acti
 
 	<?php $backup_panel = isset( $maintenance['backup_panel'] ) && is_array( $maintenance['backup_panel'] ) ? $maintenance['backup_panel'] : array(); ?>
 	<section class="rw-maint-backup" aria-labelledby="rw-maint-backup-title">
-		<h2 id="rw-maint-backup-title">Your site is backed up</h2>
+		<h2 id="rw-maint-backup-title">Backups</h2>
 		<div class="rw-maint-row rw-maint-row-2">
 			<article class="rw-maint-panel rw-maint-panel--ink" data-status-card="backups">
 				<p class="rw-maint-kicker">Last backup</p>

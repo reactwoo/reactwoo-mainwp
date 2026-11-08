@@ -28,8 +28,8 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 	<section class="rw-maint-hero<?php echo $needs_attention ? ' rw-maint-hero--attention' : ''; ?>" aria-labelledby="rw-maint-dash-title">
 		<div>
 			<p class="rw-maint-hero-host"><?php echo esc_html( $host ); ?></p>
-			<h2 id="rw-maint-dash-title"><?php echo $needs_attention ? 'Needs attention' : 'Your website is protected'; ?></h2>
-			<p class="rw-maint-lead"><?php echo $needs_attention ? 'A check on this website needs attention.' : 'We are keeping WordPress, plugins and themes up to date, backing up your site and running regular security checks.'; ?></p>
+			<h2 id="rw-maint-dash-title"><?php echo $needs_attention ? 'Needs attention' : 'Your website is connected'; ?></h2>
+			<p class="rw-maint-lead"><?php echo $needs_attention ? 'A check on this website needs attention.' : 'Reported status is shown below. Anything without a recorded result stays unavailable.'; ?></p>
 			<div class="rw-maint-actions">
 				<?php if ( ! empty( $rw_view['support_mailto'] ) ) : ?>
 					<a class="rw-maint-button" href="<?php echo esc_url( $rw_view['support_mailto'] ); ?>">Request support</a>

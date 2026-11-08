@@ -40,7 +40,7 @@ class RW_Maintenance_Emails {
 		$sent    = wp_mail(
 			$user->user_email,
 			'Your ReactWoo Maintenance plan is ready',
-			"Your ReactWoo Maintenance plan is ready.\n\nFrom your account, choose Connect WordPress. You approve access in WordPress. ReactWoo does not ask for your normal WordPress password.\n\n" . self::account_url() . "\n\nIncluded technical support: {$minutes} minutes each month of your plan.\n"
+			"Your ReactWoo Maintenance plan is ready.\n\nFrom your account, choose Connect WordPress. You approve access in WordPress. ReactWoo does not ask for your normal WordPress password.\n\n" . self::account_url() . "\n\nIncluded technical support: {$minutes} minutes each service period.\n"
 		);
 
 		if ( $sent ) {
@@ -58,7 +58,7 @@ class RW_Maintenance_Emails {
 			$email,
 			'Your website is now connected',
 			sprintf(
-				"Your website is now connected to ReactWoo Maintenance.\n\nWebsite: %s\n\nYou can view status, backups and reports from your account:\n%s\n",
+				"Your website is now connected to ReactWoo Maintenance.\n\nWebsite: %s\n\nOpen your account for reported status. A backup, check, or report is shown only after a result is recorded:\n%s\n",
 				$site->site_url,
 				self::account_url()
 			)

@@ -190,13 +190,27 @@ jobs:
           PY
           python -m json.tool publish-payload.json >/dev/null
 
-          curl --fail-with-body -sS -X POST "${API_PUBLISH_URL}" \
+          response="$(curl --fail-with-body -sS -X POST "${API_PUBLISH_URL}" \
             --http1.1 \
             --retry 8 --retry-delay 15 \
             -H "Authorization: Bearer ${{ secrets.UPDATES_PUBLISH_TOKEN }}" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json; charset=utf-8" \
-            --data-binary @publish-payload.json
+            --data-binary @publish-payload.json)"
+          printf '%s\n' "${response}"
+          VERSION="${{ steps.meta.outputs.version }}" python3 -c '
+          import json, os, sys
+          data = json.loads(sys.stdin.read() or "{}")
+          latest = str(data.get("latest") or "")
+          version = os.environ.get("VERSION", "")
+          if latest and latest != version:
+              sys.stderr.write(
+                  "Update service kept latest at %s after publishing %s. "
+                  "There is no yank or set-latest route; latest was not moved.\n"
+                  % (latest, version)
+              )
+              sys.exit(1)
+          ' <<<"${response}"
 
       - name: Upload latest pointer artifacts to R2
         if: steps.meta.outputs.publish == 'true'

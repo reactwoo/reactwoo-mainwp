@@ -74,6 +74,8 @@ class RW_Rest_Controller {
 			)
 		);
 
+		// Connector posts to index.php?rest_route=/reactwoo/v1/sites/maintenance-report
+		// and signs the route /reactwoo/v1/sites/maintenance-report, without /wp-json.
 		register_rest_route(
 			'reactwoo/v1',
 			'/sites/maintenance-report',

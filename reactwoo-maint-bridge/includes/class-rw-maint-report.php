@@ -20,10 +20,12 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 class RW_Maint_Report {
 	const MAX_BYTES           = 65536;
 	const MAX_ENVELOPE        = 98304;
-	const MAX_UPDATES         = 40;
-	const MAX_FAILURES        = 25;
+	const MAX_UPDATES         = 100;
+	const MAX_FAILURES        = 20;
+	const MAX_PAGES           = 20;
 	const MAX_CONFLICTS       = 20;
 	const MAX_EXCERPT         = 180;
+	const SCHEMA_VERSION      = '1.0.0';
 	const NOTICE_DEFAULT      = 24;
 	const NOTICE_MIN          = 1;
 	const NOTICE_MAX          = 168;
@@ -227,8 +229,9 @@ class RW_Maint_Report {
 			}
 		}
 
-		$conflicts = isset( $report['wordfence']['conflicts_removed'] ) && is_array( $report['wordfence']['conflicts_removed'] )
-			? $report['wordfence']['conflicts_removed']
+		$wordfence = ( isset( $report['wordfence'] ) && is_array( $report['wordfence'] ) ) ? $report['wordfence'] : array();
+		$conflicts = isset( $wordfence['conflicts_removed'] ) && is_array( $wordfence['conflicts_removed'] )
+			? $wordfence['conflicts_removed']
 			: array();
 		foreach ( $conflicts as $name ) {
 			$fixed[] = array(
@@ -472,7 +475,17 @@ class RW_Maint_Report {
 			}
 		}
 
+		$wordfence = null;
+		if ( ! array_key_exists( 'wordfence', $source ) || null !== $source['wordfence'] ) {
+			$wordfence = self::parse_wordfence( isset( $source['wordfence'] ) ? $source['wordfence'] : null );
+		}
+		$schema = self::schema_version( isset( $source['schema_version'] ) ? $source['schema_version'] : '' );
+		if ( '' !== $schema && self::SCHEMA_VERSION !== $schema ) {
+			$warnings[] = 'schema_version_unrecognised';
+		}
+
 		return array(
+			'schema_version'     => $schema,
 			'portal_site_id'     => $portal,
 			'mainwp_site_id'     => $mainwp,
 			'site_label'         => $label,
@@ -483,7 +496,7 @@ class RW_Maint_Report {
 			'audit'              => $audit,
 			'audit_supplied'     => is_array( $audit ),
 			'backup_ref'         => $backup,
-			'wordfence'          => self::parse_wordfence( isset( $source['wordfence'] ) ? $source['wordfence'] : null ),
+			'wordfence'          => $wordfence,
 			'warnings'           => $warnings,
 		);
 	}
@@ -576,14 +589,21 @@ class RW_Maint_Report {
 					$applied = false;
 				}
 			}
-			$rows[] = array(
-				'slug'               => $slug,
-				'from'               => self::version_text( isset( $item['from'] ) ? $item['from'] : ( isset( $item['current'] ) ? $item['current'] : '' ) ),
-				'to'                 => self::version_text( isset( $item['to'] ) ? $item['to'] : ( isset( $item['latest'] ) ? $item['latest'] : '' ) ),
-				'is_security'        => self::flag( isset( $item['is_security'] ) ? $item['is_security'] : false ),
-				'changelog_excerpt'  => self::plain( isset( $item['changelog_excerpt'] ) ? $item['changelog_excerpt'] : '', self::MAX_EXCERPT ),
-				'severity_hint'      => self::severity( isset( $item['severity_hint'] ) ? $item['severity_hint'] : '' ),
-				'applied'            => $applied,
+			$current = self::version_text( isset( $item['current'] ) ? $item['current'] : ( isset( $item['from'] ) ? $item['from'] : '' ) );
+			$latest  = self::version_text( isset( $item['latest'] ) ? $item['latest'] : ( isset( $item['to'] ) ? $item['to'] : '' ) );
+			$from    = self::version_text( isset( $item['from'] ) ? $item['from'] : $current );
+			$to      = self::version_text( isset( $item['to'] ) ? $item['to'] : $latest );
+			$rows[]  = array(
+				'slug'              => $slug,
+				'type'              => self::update_type( isset( $item['type'] ) ? $item['type'] : '' ),
+				'current'           => $current,
+				'latest'            => $latest,
+				'from'              => $from,
+				'to'                => $to,
+				'is_security'       => self::flag( isset( $item['is_security'] ) ? $item['is_security'] : false ),
+				'changelog_excerpt' => self::plain( isset( $item['changelog_excerpt'] ) ? $item['changelog_excerpt'] : '', self::MAX_EXCERPT ),
+				'severity_hint'     => self::severity( isset( $item['severity_hint'] ) ? $item['severity_hint'] : '' ),
+				'applied'           => $applied,
 			);
 		}
 
@@ -604,8 +624,9 @@ class RW_Maint_Report {
 			return null;
 		}
 		$pages = self::digits( isset( $audit['pages_checked'] ) ? $audit['pages_checked'] : 0 );
-		if ( $pages > 100000 ) {
-			$pages = 100000;
+		if ( $pages > self::MAX_PAGES ) {
+			$pages = self::MAX_PAGES;
+			$warnings[] = 'pages_checked_capped';
 		}
 		$failures = array();
 		$raw      = isset( $audit['failures'] ) && is_array( $audit['failures'] ) ? $audit['failures'] : array();
@@ -628,7 +649,7 @@ class RW_Maint_Report {
 			$failures[] = array(
 				'url'    => $url,
 				'status' => $status,
-				'note'   => self::plain( isset( $failure['note'] ) ? $failure['note'] : '', 180 ),
+				'note'   => self::plain( isset( $failure['note'] ) ? $failure['note'] : '', 80 ),
 			);
 		}
 
@@ -658,7 +679,7 @@ class RW_Maint_Report {
 				if ( count( $conflicts ) >= self::MAX_CONFLICTS ) {
 					break;
 				}
-				$clean = self::plain( $name, 80 );
+				$clean = self::plain( $name, 200 );
 				if ( '' !== $clean ) {
 					$conflicts[] = $clean;
 				}
@@ -687,7 +708,7 @@ class RW_Maint_Report {
 		if ( 'critical' === $hint ) {
 			return 'critical';
 		}
-		if ( 'high' === $hint || ( $security && ! in_array( $hint, array( 'low', 'info' ), true ) ) ) {
+		if ( 'high' === $hint || ( $security && ( 'unknown' === $hint || ! in_array( $hint, array( 'low', 'info' ), true ) ) ) ) {
 			return 'high';
 		}
 		if ( $security ) {
@@ -1007,6 +1028,9 @@ class RW_Maint_Report {
 	private static function public_item( array $item, $kind ) {
 		return array(
 			'slug'     => isset( $item['slug'] ) ? (string) $item['slug'] : '',
+			'type'     => isset( $item['type'] ) ? (string) $item['type'] : '',
+			'current'  => isset( $item['current'] ) ? (string) $item['current'] : '',
+			'latest'   => isset( $item['latest'] ) ? (string) $item['latest'] : '',
 			'from'     => isset( $item['from'] ) ? (string) $item['from'] : '',
 			'to'       => isset( $item['to'] ) ? (string) $item['to'] : '',
 			'severity' => isset( $item['severity_hint'] ) ? (string) $item['severity_hint'] : '',
@@ -1082,7 +1106,35 @@ class RW_Maint_Report {
 	 */
 	private static function severity( $value ) {
 		$text = strtolower( trim( self::plain( $value, 20 ) ) );
-		if ( in_array( $text, array( 'critical', 'high', 'medium', 'low', 'info' ), true ) ) {
+		if ( in_array( $text, array( 'critical', 'high', 'medium', 'low', 'info', 'unknown' ), true ) ) {
+			return $text;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Schema 1.0.0 uses core, plugin, or theme. Anything else is left blank.
+	 *
+	 * @param mixed $value
+	 * @return string
+	 */
+	private static function update_type( $value ) {
+		$text = strtolower( trim( self::plain( $value, 20 ) ) );
+		if ( in_array( $text, array( 'core', 'plugin', 'theme' ), true ) ) {
+			return $text;
+		}
+
+		return '';
+	}
+
+	/**
+	 * @param mixed $value
+	 * @return string Empty when the reporter did not send a version token.
+	 */
+	private static function schema_version( $value ) {
+		$text = trim( self::plain( $value, 20 ) );
+		if ( 1 === preg_match( '/^[0-9]+\.[0-9]+\.[0-9]+$/', $text ) ) {
 			return $text;
 		}
 
@@ -1097,7 +1149,7 @@ class RW_Maint_Report {
 		$text = strtolower( trim( self::plain( $value, 120 ) ) );
 		$text = (string) preg_replace( '/[^a-z0-9._\/-]/', '', $text );
 
-		return substr( $text, 0, 120 );
+		return substr( $text, 0, 200 );
 	}
 
 	/**
@@ -1131,22 +1183,23 @@ class RW_Maint_Report {
 	 * @return string
 	 */
 	private static function clean_page_url( $url ) {
-		$url = self::plain( $url, 300 );
+		$url = self::plain( $url, 200 );
 		if ( '' === $url ) {
 			return '';
 		}
-		if ( isset( $url[0] ) && '/' === $url[0] ) {
-			if ( isset( $url[1] ) && '/' === $url[1] ) {
-				return '';
-			}
-
-			return $url;
-		}
 		if ( preg_match( '#^https?://#i', $url ) ) {
-			return $url;
+			$path = wp_parse_url( $url, PHP_URL_PATH );
+			$url  = is_string( $path ) ? $path : '';
+		}
+		$path = (string) preg_replace( '/[?#].*$/', '', $url );
+		if ( '' === $path || '/' !== $path[0] || ( isset( $path[1] ) && '/' === $path[1] ) ) {
+			return '';
+		}
+		if ( strlen( $path ) > 200 ) {
+			$path = substr( $path, 0, 200 );
 		}
 
-		return '';
+		return $path;
 	}
 
 	/**

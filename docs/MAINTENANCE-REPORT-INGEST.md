@@ -1,68 +1,29 @@
 # Maintenance report ingest
 
-Compact update and page-check reports are stored on the maintenance hub and shown in the ReactWoo account. The connector signs the report the same way it signs a heartbeat. The account site checks that signature, then forwards the JSON to the hub on the existing portal signature.
+The payload contract is schema 1.0.0, published with the connector reporter as `docs/maintenance-report-1.0.0.schema.json` and `docs/maintenance-report-1.0.0.md`. This note does not copy that schema. It only records how the account site and the maintenance hub handle a report that matches it.
 
-This note matches the example in the maintenance plan. A versioned schema may replace it later. The parser keeps a report when optional fields are missing and ignores keys it does not know.
+## Transport
 
-## Connector request
+The connector posts to:
 
-`POST /reactwoo/v1/sites/maintenance-report` on the account site.
+`POST {portal}/index.php?rest_route=/reactwoo/v1/sites/maintenance-report`
 
-Headers are the same as the heartbeat:
+The signed path is `/reactwoo/v1/sites/maintenance-report`, with no `/wp-json` prefix. The account site registers that route and checks the signature with the same rules as the heartbeat. The body cap on that route is 64 KiB.
 
-- `X-RW-Site-Id`: portal site id
-- `X-RW-Timestamp`
-- `X-RW-Nonce`
-- `X-RW-Signature`
+The account site then forwards the object to `POST /reactwoo-maint/v1/maintenance-report` on the existing portal signature. The hub stores it against the client account already mapped from the MainWP site.
 
-Sign `POST|/reactwoo/v1/sites/maintenance-report|{timestamp}|{nonce}|{sha256 of the raw body}` with the site secret. The body must be a JSON object of at most 65536 bytes.
+## What the parser keeps
 
-```json
-{
-  "site_id": "42",
-  "timestamp": "2026-11-09T12:00:00Z",
-  "updates": [
-    {
-      "slug": "woocommerce",
-      "from": "8.0.0",
-      "to": "8.0.1",
-      "is_security": true,
-      "changelog_excerpt": "Fixes a checkout auth check.",
-      "severity_hint": "critical"
-    }
-  ],
-  "audit": {
-    "pages_checked": 42,
-    "failures": [
-      { "url": "/checkout/", "status": 500, "note": "empty response" }
-    ]
-  },
-  "backup_ref": "rwsnap_20261109T120000Z_abcd1234",
-  "wordfence": {
-    "version": "8.0.1",
-    "pro": true,
-    "template_applied": "v3",
-    "conflicts_removed": []
-  }
-}
-```
+Schema 1.0.0 fields are kept: `schema_version`, string `site_id`, `timestamp`, update rows (`slug`, `type`, `current`, `latest`, `from`, `to`, `is_security`, `changelog_excerpt`, `severity_hint`), `audit.pages_checked`, failures (`url`, `status`, `note` only), `backup_ref`, and `wordfence`.
 
-`site_id` may be the portal site id. When it is numeric it must match `X-RW-Site-Id`. A non-numeric `site_id` is kept as a label. `portal_site_id` and `mainwp_site_id` are optional. The hub stores the report on the client account already mapped from that MainWP site.
+`severity_hint` may be `unknown`. Core rows use the slug `wordpress`. `wordfence` may be null, which is stored as null. An empty `backup_ref` is valid. Page checks are capped at 20. Load time and the content flag are not read, even if a later payload adds them.
 
-Optional fields the parser understands:
+A numeric `site_id` must match `X-RW-Site-ID`. Keys the schema does not name are ignored, so a missing optional block in an older body does not reject the report.
 
-- `phase`, `report_type`, or `kind`: `exposure`, `post_patch`, or `status`. If omitted, updates that are not marked applied are treated as waiting exposure. A page check with no updates is treated as a post-update result.
-- `applied` on an update, or `state` of `applied`, `installed`, or `updated`.
-- `current` and `latest` are accepted as aliases of `from` and `to`.
-
-`backup_ref` is kept only when it matches `rwsnap_YYYYMMDDThhmmssZ_` plus 8 to 32 hex characters, the same shape as an on-site snapshot. Anything else is ignored and the rest of the report is stored.
-
-## Hub route
-
-The account site forwards the same object to `POST /reactwoo-maint/v1/maintenance-report` with the portal signature. The hub also accepts that route directly. History, triage, and the customer actions are read with `maintenance-reports` and `maintenance-report-action`.
+Schema 1.0.0 does not name a phase. Rows are available updates, so they are triaged as exposure unless a row is explicitly marked applied. A page check with no update rows is triaged as a post-update result.
 
 ## Emails
 
-Scheduled emails are off until an administrator enables them. The sender is `portal` (the account site) or `maint` (the hub). The default sender is the account site and the default notice period is 24 hours. A notice is sent only by the site named on it, and only when that site's switch is on. Notices still waiting after 7 days are expired and are not sent.
+Scheduled emails stay off until an administrator enables them. The sender is `portal` (the account site) or `maint` (the hub). The default sender is the account site and the default notice period is 24 hours. A notice is sent only by the site named on it, and only when that site's switch is on. Notices still waiting after 7 days expire and are not sent.
 
 The customer switch for maintenance summaries also applies. When that is off, the notice is stored as skipped.

@@ -76,7 +76,9 @@ function wp_parse_url( $url, $component = -1 ) {
 		return $parsed;
 	}
 	$map = array(
-		PHP_URL_HOST => 'host',
+		PHP_URL_HOST   => 'host',
+		PHP_URL_PATH   => 'path',
+		PHP_URL_SCHEME => 'scheme',
 	);
 	$key = isset( $map[ $component ] ) ? $map[ $component ] : '';
 	return ( $parsed && $key && isset( $parsed[ $key ] ) ) ? $parsed[ $key ] : null;
@@ -138,7 +140,7 @@ rw_test(
 		&& 'exposure' === $report['phase']
 		&& 'rwsnap_20261109T120000Z_abcd1234' === $report['backup_ref']
 		&& 1 === count( $report['updates'] )
-		&& ! isset( $report['schema_version'] )
+		&& '' === $report['schema_version']
 		&& is_array( $again )
 		&& $report['hash'] === $again['report']['hash']
 );
@@ -160,6 +162,61 @@ rw_test(
 		&& in_array( 'timestamp_missing', $sparse_report['report']['warnings'], true )
 		&& null === $sparse_report['report']['audit']
 		&& array() === $sparse_report['report']['wordfence']['conflicts_removed']
+);
+
+$schema_report = array(
+	'schema_version' => '1.0.0',
+	'site_id'        => '42',
+	'timestamp'      => '2026-11-09T15:04:05Z',
+	'updates'        => array(
+		array(
+			'slug'               => 'wordpress',
+			'type'               => 'core',
+			'current'            => '6.4.1',
+			'latest'             => '6.4.2',
+			'from'               => '6.4.1',
+			'to'                 => '6.4.2',
+			'is_security'        => true,
+			'changelog_excerpt'  => 'Security fix.',
+			'severity_hint'      => 'unknown',
+		),
+	),
+	'audit'          => array(
+		'pages_checked' => 42,
+		'failures'      => array(
+			array(
+				'url'             => 'https://shop.example/checkout/?utm=1#pay',
+				'status'          => 500,
+				'note'            => 'empty response',
+				'load_time_ms'    => 900,
+				'content_present' => false,
+			),
+		),
+	),
+	'backup_ref'     => '',
+	'wordfence'      => null,
+);
+$schema_parsed = RW_Maint_Report::prepare( $schema_report, $now );
+$schema_row    = is_array( $schema_parsed ) ? $schema_parsed['report'] : array();
+$schema_triage = is_array( $schema_parsed ) ? RW_Maint_Report::triage( $schema_row, $now, 24 ) : array();
+rw_test(
+	'schema 1.0.0 keeps core, unknown severity, a path-only failure and a null Wordfence block',
+	is_array( $schema_parsed )
+		&& '1.0.0' === $schema_row['schema_version']
+		&& 'wordpress' === $schema_row['updates'][0]['slug']
+		&& 'core' === $schema_row['updates'][0]['type']
+		&& '6.4.1' === $schema_row['updates'][0]['current']
+		&& '6.4.2' === $schema_row['updates'][0]['latest']
+		&& 'unknown' === $schema_row['updates'][0]['severity_hint']
+		&& null === $schema_row['wordfence']
+		&& '' === $schema_row['backup_ref']
+		&& ! in_array( 'backup_ref_ignored', $schema_row['warnings'], true )
+		&& 20 === $schema_row['audit']['pages_checked']
+		&& '/checkout/' === $schema_row['audit']['failures'][0]['url']
+		&& ! isset( $schema_row['audit']['failures'][0]['load_time_ms'] )
+		&& ! isset( $schema_row['audit']['failures'][0]['content_present'] )
+		&& 'high' === $schema_triage['criticality']
+		&& 'wordpress' === $schema_triage['exposed'][0]['slug']
 );
 
 $bad_ref = $example;
@@ -533,6 +590,12 @@ rw_test(
 		&& 24 === RW_Portal_Reports::email_settings()['notice_hours']
 		&& false === strpos( $copy, "\u{2014}" )
 		&& RW_Maint_Report::BACKUP_REF_PATTERN === RW_Portal_Reports::BACKUP_REF_PATTERN
+		&& false !== strpos(
+			(string) file_get_contents( dirname( __DIR__ ) . '/reactwoo-support-portal/includes/rest/class-rw-rest-controller.php' ),
+			"'/sites/maintenance-report'"
+		)
+		&& false !== strpos( $copy, 'maintenance-report-1.0.0.schema.json' )
+		&& ! is_file( dirname( __DIR__ ) . '/docs/maintenance-report-1.0.0.schema.json' )
 );
 
 if ( $failures > 0 ) {

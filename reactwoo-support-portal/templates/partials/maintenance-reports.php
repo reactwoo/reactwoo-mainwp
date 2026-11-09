@@ -21,10 +21,13 @@ $label_for = function ( $value ) {
 		'medium'   => 'Medium',
 		'low'      => 'Low',
 		'none'     => 'None',
-		'unknown'  => 'Not checked',
 		'exposure' => 'Exposure',
 		'post_patch' => 'After update',
 		'status'   => 'Status',
+		'core'     => 'Core',
+		'plugin'   => 'Plugin',
+		'theme'    => 'Theme',
+		'unknown'  => 'Unknown',
 	);
 	$key = sanitize_key( (string) $value );
 
@@ -67,6 +70,9 @@ $label_for = function ( $value ) {
 					<?php foreach ( $latest['exposed'] as $item ) : ?>
 						<li>
 							<strong><?php echo esc_html( isset( $item['slug'] ) ? (string) $item['slug'] : '' ); ?></strong>
+							<?php if ( ! empty( $item['type'] ) ) : ?>
+								<span class="rw-maint-report-meta"><?php echo esc_html( $label_for( $item['type'] ) ); ?></span>
+							<?php endif; ?>
 							<?php if ( ! empty( $item['from'] ) || ! empty( $item['to'] ) ) : ?>
 								<span><?php echo esc_html( (string) $item['from'] ); ?> to <?php echo esc_html( (string) $item['to'] ); ?></span>
 							<?php endif; ?>
@@ -89,6 +95,9 @@ $label_for = function ( $value ) {
 								Conflict removed: <?php echo esc_html( (string) $item['slug'] ); ?>
 							<?php else : ?>
 								<strong><?php echo esc_html( isset( $item['slug'] ) ? (string) $item['slug'] : '' ); ?></strong>
+							<?php if ( ! empty( $item['type'] ) ) : ?>
+								<span class="rw-maint-report-meta"><?php echo esc_html( $label_for( $item['type'] ) ); ?></span>
+							<?php endif; ?>
 								<?php if ( ! empty( $item['from'] ) || ! empty( $item['to'] ) ) : ?>
 									<span><?php echo esc_html( (string) $item['from'] ); ?> to <?php echo esc_html( (string) $item['to'] ); ?></span>
 								<?php endif; ?>

@@ -104,6 +104,8 @@ class RW_Portal_Wordfence {
 		$report    = isset( $stored['report'] ) && is_array( $stored['report'] ) ? $stored['report'] : array();
 		$version   = isset( $report['version'] ) ? (string) $report['version'] : '';
 		$applied   = isset( $report['template_applied'] ) ? (string) $report['template_applied'] : '';
+		$approval  = isset( $stored['approval_status'] ) ? (string) $stored['approval_status'] : '';
+		$waiting   = ( 'awaiting_approval' === $approval && '' !== $version );
 		$conflicts = isset( $stored['conflicts'] ) && is_array( $stored['conflicts'] ) ? $stored['conflicts'] : array();
 		$removable = array();
 		$optional  = array();
@@ -130,9 +132,9 @@ class RW_Portal_Wordfence {
 			'notices'         => $notices,
 			'report'          => $report,
 			'message'         => isset( $stored['message'] ) ? (string) $stored['message'] : '',
-			'show_setup'      => empty( $removable ) && ( '' === $version || '' === $applied ),
+			'show_setup'      => empty( $removable ) && ! $waiting && ( '' === $version || '' === $applied ),
 			'show_conflicts'  => ! empty( $removable ) || ! empty( $optional ) || ! empty( $notices ),
-			'approval_status' => isset( $stored['approval_status'] ) ? (string) $stored['approval_status'] : '',
+			'approval_status' => $approval,
 			'limits'          => isset( $stored['limits'] ) && is_array( $stored['limits'] ) ? $stored['limits'] : array(),
 		);
 	}

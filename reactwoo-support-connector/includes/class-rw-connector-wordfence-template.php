@@ -11,12 +11,17 @@
  * This class does not write wp_wfConfig, wp_wfls_settings, or any other table.
  * If those methods are not loaded, application stops and reports the gap.
  *
- * Extended Protection (the auto_prepend file and .user.ini change) is not
- * installed. importSettings() needs a Wordfence cloud token, which this
- * template does not have, so values are applied locally with the methods above.
- * reCAPTCHA is not switched on, because the template has no site key.
- * Two-factor authentication can be required, but each person still has to
- * enrol an authenticator app. A grace period covers that.
+ * Settings are written only when approval_status is approved. A draft is
+ * ignored so onboarding can still install Wordfence.
+ *
+ * Extended Protection (the auto_prepend file and .user.ini change) is a later,
+ * separate step and is not installed. importSettings() needs a Wordfence cloud
+ * token, which this template does not have, so values are applied locally with
+ * the methods above. reCAPTCHA is not switched on, because the template has no
+ * site key. Two-factor authentication can be required, but each person still
+ * has to enrol an authenticator app, and that requirement does not turn off
+ * application passwords. XML-RPC authentication stays on unless the template
+ * sets disable_xmlrpc_authentication to 1.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -48,6 +53,14 @@ class RW_Connector_Wordfence_Template {
 		if ( is_wp_error( $template ) ) {
 			return $template;
 		}
+		if ( 'approved' !== $template['approval_status'] ) {
+			return array(
+				'applied'         => false,
+				'version'         => '',
+				'approval_status' => $template['approval_status'],
+				'limits'          => array( 'template_awaiting_approval' ),
+			);
+		}
 		if ( ! self::config_api_ready() ) {
 			return new WP_Error(
 				'rw_wordfence_config_unavailable',
@@ -57,6 +70,12 @@ class RW_Connector_Wordfence_Template {
 		}
 
 		$limits = array();
+		$template['wordfence'] = self::allow_application_passwords( $template['wordfence'] );
+		$template['login_security'] = self::allow_application_passwords( $template['login_security'] );
+		$template['wordfence']['loginSec_disableApplicationPasswords'] = 0;
+		$disable_xmlrpc = ! empty( $template['disable_xmlrpc_authentication'] );
+		$template['login_security']['xmlrpc-enabled'] = $disable_xmlrpc ? 0 : 1;
+		$template['login_security']['allow-xml-rpc']  = $disable_xmlrpc ? 0 : 1;
 		$emails = self::alert_emails( $template, $client_email );
 		if ( '' === $emails ) {
 			$limits[] = 'alert_emails_missing';
@@ -183,14 +202,55 @@ class RW_Connector_Wordfence_Template {
 		}
 
 		return array(
-			'version'              => $version,
-			'approval_status'      => $status,
-			'support_alert_email'  => $support,
-			'wordfence'            => $wordfence,
-			'waf'                  => $waf,
-			'serialized'           => $serial,
-			'login_security'       => $login,
+			'version'                       => $version,
+			'approval_status'               => $status,
+			'support_alert_email'           => $support,
+			'disable_xmlrpc_authentication' => ! empty( $template['disable_xmlrpc_authentication'] ) ? 1 : 0,
+			'wordfence'                     => $wordfence,
+			'waf'                           => $waf,
+			'serialized'                    => $serial,
+			'login_security'                => $login,
 		);
+	}
+
+	/**
+	 * True when a stored value would turn application passwords or the REST API off.
+	 *
+	 * @param mixed $key
+	 * @param mixed $value
+	 * @return bool
+	 */
+	public static function setting_blocks_application_passwords( $key, $value ) {
+		if ( ! self::names_application_password_block( $key ) ) {
+			return false;
+		}
+
+		return self::truthy( $value );
+	}
+
+	/**
+	 * @param array<string,mixed> $template
+	 * @return string[] Keys that would block application passwords.
+	 */
+	public static function application_password_blocks( array $template ) {
+		$hits = array();
+		$walk = function ( $value ) use ( &$walk, &$hits ) {
+			if ( ! is_array( $value ) ) {
+				return;
+			}
+			foreach ( $value as $key => $item ) {
+				if ( is_array( $item ) ) {
+					$walk( $item );
+					continue;
+				}
+				if ( self::setting_blocks_application_passwords( $key, $item ) ) {
+					$hits[] = (string) $key;
+				}
+			}
+		};
+		$walk( $template );
+
+		return $hits;
 	}
 
 	/**
@@ -251,6 +311,44 @@ class RW_Connector_Wordfence_Template {
 		}
 
 		return time();
+	}
+
+	/**
+	 * @param array<string,mixed> $map
+	 * @return array<string,mixed>
+	 */
+	private static function allow_application_passwords( array $map ) {
+		foreach ( $map as $key => $value ) {
+			unset( $value );
+			if ( self::names_application_password_block( $key ) ) {
+				$map[ $key ] = 0;
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * @param mixed $key
+	 * @return bool
+	 */
+	private static function names_application_password_block( $key ) {
+		$name = strtolower( (string) $key );
+
+		return false !== strpos( $name, 'applicationpassword' )
+			|| false !== strpos( $name, 'application_password' )
+			|| false !== strpos( $name, 'application-password' )
+			|| false !== strpos( $name, 'disablerest' )
+			|| false !== strpos( $name, 'disable_rest' )
+			|| false !== strpos( $name, 'disable-rest' );
+	}
+
+	/**
+	 * @param mixed $value
+	 * @return bool
+	 */
+	private static function truthy( $value ) {
+		return true === $value || 1 === $value || '1' === $value || 'true' === $value;
 	}
 
 	/**

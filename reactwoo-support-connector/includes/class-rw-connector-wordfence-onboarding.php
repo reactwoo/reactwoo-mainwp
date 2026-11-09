@@ -176,10 +176,14 @@ class RW_Connector_Wordfence_Onboarding {
 		$template_applied = '';
 		$approval         = '';
 		if ( $installed && isset( $args['template'] ) && is_array( $args['template'] ) ) {
-			$client = isset( $args['client_email'] ) ? (string) $args['client_email'] : '';
+			$client  = isset( $args['client_email'] ) ? (string) $args['client_email'] : '';
 			$applied = RW_Connector_Wordfence_Template::apply( $args['template'], $client );
 			if ( is_wp_error( $applied ) ) {
 				$limits[] = 'template_not_applied';
+				$approval = isset( $args['template']['approval_status'] ) ? sanitize_key( (string) $args['template']['approval_status'] ) : '';
+			} elseif ( empty( $applied['applied'] ) ) {
+				$approval = isset( $applied['approval_status'] ) ? (string) $applied['approval_status'] : '';
+				$limits   = array_merge( $limits, isset( $applied['limits'] ) ? $applied['limits'] : array() );
 			} else {
 				$template_applied = (string) $applied['version'];
 				$approval         = (string) $applied['approval_status'];
@@ -573,11 +577,10 @@ class RW_Connector_Wordfence_Onboarding {
 			return 'Wordfence could not be installed. No other plugin was removed.';
 		}
 		if ( '' !== $report['template_applied'] ) {
-			$line = 'Wordfence is active. Settings template ' . $report['template_applied'] . ' has been applied.';
-			if ( isset( $state['approval_status'] ) && 'awaiting_approval' === $state['approval_status'] ) {
-				$line .= ' This template is a draft waiting for approval.';
-			}
-			return $line;
+			return 'Wordfence is active. Settings template ' . $report['template_applied'] . ' has been applied.';
+		}
+		if ( ! empty( $report['version'] ) && isset( $state['approval_status'] ) && 'awaiting_approval' === $state['approval_status'] ) {
+			return 'Wordfence is active. The settings template is waiting for approval, so those settings have not been applied.';
 		}
 		if ( ! empty( $report['version'] ) ) {
 			return 'Wordfence is active. The settings template has not been applied.';

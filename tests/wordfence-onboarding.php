@@ -172,32 +172,101 @@ rw_test(
 );
 
 $GLOBALS['rw_wordfence_now'] = 1700000000;
-$wf_applied = RW_Connector_Wordfence_Template::apply( $wf_draft, 'client@example.com' );
+wfConfig::$store = array();
+wfConfig::$serialized = array();
+wfWAF::$config = array();
+\WordfenceLS\Controller_Settings::$values = array();
+$wf_held = RW_Connector_Wordfence_Template::apply( $wf_draft, 'client@example.com' );
+rw_test(
+	'an unapproved template is not written to Wordfence',
+	is_array( $wf_held )
+		&& false === $wf_held['applied']
+		&& '' === $wf_held['version']
+		&& 'awaiting_approval' === $wf_held['approval_status']
+		&& in_array( 'template_awaiting_approval', $wf_held['limits'], true )
+		&& ! isset( wfConfig::$store['schedMode'] )
+		&& ! isset( wfConfig::$store['alertEmails'] )
+		&& array() === wfWAF::$config
+		&& array() === \WordfenceLS\Controller_Settings::$values
+);
+
+$wf_approved = $wf_draft;
+$wf_approved['approval_status'] = 'approved';
+$wf_applied = RW_Connector_Wordfence_Template::apply( $wf_approved, 'client@example.com' );
 $wf_grace   = 1700000000 + ( 7 * 86400 );
 rw_test(
-	'draft template v1 is applied through Wordfence methods and marked awaiting approval',
+	'an approved template v1 is applied through Wordfence methods',
 	is_array( $wf_applied )
+		&& true === $wf_applied['applied']
 		&& 'v1' === $wf_applied['version']
-		&& 'awaiting_approval' === $wf_applied['approval_status']
+		&& 'approved' === $wf_applied['approval_status']
 		&& 'awaiting_approval' === $wf_draft['approval_status']
-		&& '' === $wf_draft['support_alert_email']
+		&& 'support@reactwoo.com' === $wf_draft['support_alert_email']
+		&& 0 === (int) $wf_draft['disable_xmlrpc_authentication']
 		&& 1 === $wf_draft['wordfence']['firewallEnabled']
 		&& 0 === $wf_draft['wordfence']['loginSec_disableApplicationPasswords']
+		&& 1 === (int) $wf_draft['login_security']['xmlrpc-enabled']
+		&& 1 === (int) $wf_draft['login_security']['allow-xml-rpc']
+		&& 7 === (int) $wf_draft['waf']['learningModeGracePeriodDays']
 		&& 1 === $wf_draft['serialized']['scanSched'][0][3]
 		&& 0 === $wf_draft['serialized']['scanSched'][0][4]
 		&& 'manual' === wfConfig::$store['schedMode']
 		&& 1 === wfConfig::$store['scanSched'][2][3]
 		&& in_array( 'scanSched', wfConfig::$serialized, true )
-		&& 'client@example.com' === wfConfig::$store['alertEmails']
+		&& 'client@example.com,support@reactwoo.com' === wfConfig::$store['alertEmails']
 		&& 'learning-mode' === wfWAF::$config['wafStatus']
 		&& $wf_grace === (int) wfWAF::$config['learningModeGracePeriod']
 		&& 1 === \WordfenceLS\Controller_Settings::$values['require-2fa.administrator']
 		&& 14 === \WordfenceLS\Controller_Settings::$values['require-2fa-grace-period']
-		&& 0 === \WordfenceLS\Controller_Settings::$values['allow-xml-rpc']
+		&& 1 === \WordfenceLS\Controller_Settings::$values['xmlrpc-enabled']
+		&& 1 === \WordfenceLS\Controller_Settings::$values['allow-xml-rpc']
+		&& 0 === (int) wfConfig::$store['loginSec_disableApplicationPasswords']
 		&& wfScanner::$runs >= 1
 		&& ! isset( wfConfig::$store['apiKey'] )
 		&& ! in_array( 'login_security_2fa_not_applied', $wf_applied['limits'], true )
 		&& ! in_array( 'waf_storage_unavailable', $wf_applied['limits'], true )
+);
+
+$wf_hostile = $wf_approved;
+$wf_hostile['wordfence']['loginSec_disableApplicationPasswords'] = 1;
+$wf_hostile['wordfence']['disableApplicationPasswords'] = 1;
+$wf_hostile['login_security']['disable-application-passwords'] = 1;
+$wf_hostile['login_security']['disable-rest-api'] = 1;
+$wf_hostile['login_security']['xmlrpc-enabled'] = 0;
+$wf_hostile['login_security']['allow-xml-rpc'] = 0;
+$wf_hostile_saved = RW_Maint_Wordfence_Template::validate( $wf_hostile );
+$wf_forced = RW_Connector_Wordfence_Template::apply( $wf_hostile, 'client@example.com' );
+rw_test(
+	'the template never disables WordPress application passwords',
+	array() === RW_Connector_Wordfence_Template::application_password_blocks( $wf_draft )
+		&& is_array( $wf_hostile_saved )
+		&& 0 === (int) $wf_hostile_saved['wordfence']['loginSec_disableApplicationPasswords']
+		&& 0 === (int) $wf_hostile_saved['wordfence']['disableApplicationPasswords']
+		&& 0 === (int) $wf_hostile_saved['login_security']['disable-application-passwords']
+		&& 0 === (int) $wf_hostile_saved['login_security']['disable-rest-api']
+		&& array() === RW_Connector_Wordfence_Template::application_password_blocks( $wf_hostile_saved )
+		&& is_array( $wf_forced )
+		&& true === $wf_forced['applied']
+		&& 0 === (int) wfConfig::$store['loginSec_disableApplicationPasswords']
+		&& 0 === (int) wfConfig::$store['disableApplicationPasswords']
+		&& 0 === (int) \WordfenceLS\Controller_Settings::$values['disable-application-passwords']
+		&& 0 === (int) \WordfenceLS\Controller_Settings::$values['disable-rest-api']
+		&& 1 === (int) \WordfenceLS\Controller_Settings::$values['require-2fa.administrator']
+		&& 1 === (int) \WordfenceLS\Controller_Settings::$values['xmlrpc-enabled']
+		&& 1 === (int) \WordfenceLS\Controller_Settings::$values['allow-xml-rpc']
+);
+
+$wf_xmlrpc_off = $wf_approved;
+$wf_xmlrpc_off['disable_xmlrpc_authentication'] = 1;
+$wf_xmlrpc_applied = RW_Connector_Wordfence_Template::apply( $wf_xmlrpc_off, 'client@example.com' );
+rw_test(
+	'XML-RPC authentication stays on unless the template opts out',
+	0 === (int) $wf_draft['disable_xmlrpc_authentication']
+		&& is_array( $wf_xmlrpc_applied )
+		&& true === $wf_xmlrpc_applied['applied']
+		&& 0 === (int) \WordfenceLS\Controller_Settings::$values['xmlrpc-enabled']
+		&& 0 === (int) \WordfenceLS\Controller_Settings::$values['allow-xml-rpc']
+		&& 0 === (int) wfConfig::$store['loginSec_disableApplicationPasswords']
 );
 
 $wf_missing_key = RW_Connector_Wordfence_Onboarding::activate_licence( 'abc123def4567890' );
@@ -255,6 +324,10 @@ rw_test(
 
 $wf_removed = array();
 $GLOBALS['rw_wordfence_active'] = false;
+wfConfig::$store = array();
+wfConfig::$serialized = array();
+wfWAF::$config = array();
+\WordfenceLS\Controller_Settings::$values = array();
 $wf_done = RW_Connector_Wordfence_Onboarding::run(
 	array(
 		'template'     => $wf_draft,
@@ -283,20 +356,46 @@ $wf_state  = get_option( RW_Connector_Wordfence_Onboarding::STATE_OPTION );
 $wf_report = rw_connector_wordfence_report();
 $wf_blob   = wp_json_encode( $wf_done ) . wp_json_encode( $wf_state ) . wp_json_encode( $wf_report );
 rw_test(
-	'confirmed removal installs Wordfence, applies template v1, and the report omits the licence key',
+	'confirmed removal installs Wordfence without applying an unapproved template',
 	1 === $wf_calls
 		&& array( 'sucuri-scanner/sucuri.php' ) === $wf_removed
 		&& is_array( $wf_done )
 		&& 'ready' === $wf_done['status']
 		&& '8.1.0' === $wf_done['report']['version']
 		&& true === $wf_done['report']['pro']
-		&& 'v1' === $wf_done['report']['template_applied']
+		&& '' === $wf_done['report']['template_applied']
+		&& 'awaiting_approval' === $wf_done['approval_status']
+		&& in_array( 'template_awaiting_approval', $wf_done['limits'], true )
 		&& array( 'sucuri-scanner/sucuri.php' ) === $wf_done['report']['conflicts_removed']
 		&& $wf_report === $wf_done['report']
 		&& 'abc123def4567890' === wfConfig::$store['apiKey']
+		&& ! isset( wfConfig::$store['schedMode'] )
+		&& ! isset( wfConfig::$store['alertEmails'] )
+		&& ! isset( wfConfig::$store['loginSec_disableApplicationPasswords'] )
 		&& false === strpos( $wf_blob, 'abc123def4567890' )
 		&& false !== strpos( $wf_done['message'], 'waiting for approval' )
+		&& false !== strpos( $wf_done['message'], 'have not been applied' )
 		&& false === strpos( $wf_done['message'], "\u{2014}" )
+);
+
+$GLOBALS['rw_wordfence_active'] = true;
+$wf_live = $wf_draft;
+$wf_live['approval_status'] = 'approved';
+$wf_live_done = RW_Connector_Wordfence_Onboarding::run(
+	array(
+		'template'     => $wf_live,
+		'client_email' => 'client@example.com',
+	)
+);
+rw_test(
+	'an approved template is applied after Wordfence is installed',
+	is_array( $wf_live_done )
+		&& 'v1' === $wf_live_done['report']['template_applied']
+		&& 'approved' === $wf_live_done['approval_status']
+		&& 'client@example.com,support@reactwoo.com' === wfConfig::$store['alertEmails']
+		&& 0 === (int) wfConfig::$store['loginSec_disableApplicationPasswords']
+		&& 1 === (int) \WordfenceLS\Controller_Settings::$values['allow-xml-rpc']
+		&& 'learning-mode' === wfWAF::$config['wafStatus']
 );
 
 $wf_clean = RW_Connector_Wordfence_Onboarding::normalise_report(
@@ -336,7 +435,9 @@ rw_test(
 		&& is_array( $wf_hub_saved )
 		&& 'v1' === RW_Maint_Wordfence_Template::current()['version']
 		&& 'awaiting_approval' === RW_Maint_Wordfence_Template::current()['approval_status']
-		&& '' === RW_Maint_Wordfence_Template::current()['support_alert_email']
+		&& 'support@reactwoo.com' === RW_Maint_Wordfence_Template::current()['support_alert_email']
+		&& 0 === (int) RW_Maint_Wordfence_Template::current()['disable_xmlrpc_authentication']
+		&& 1 === (int) RW_Maint_Wordfence_Template::current()['login_security']['allow-xml-rpc']
 );
 
 $wf_mail_before = isset( $GLOBALS['rw_mail'] ) ? count( $GLOBALS['rw_mail'] ) : 0;

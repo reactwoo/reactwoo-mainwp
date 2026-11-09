@@ -2,9 +2,10 @@
 /**
  * Wordfence settings template stored on the maintenance hub.
  *
- * Draft v1 is awaiting approval. Replace the stored option to publish a later
- * version without shipping a new connector. The connector applies whatever
- * valid template the portal sends, using Wordfence's own configuration methods.
+ * Draft v1 is awaiting approval. The connector installs Wordfence and records
+ * conflicts, and it writes these settings only after approval_status is
+ * approved. Replace the stored option to publish a later version without
+ * shipping a new connector.
  *
  * No licence key belongs in this template. Pro keys arrive separately, and
  * only when a future source provides one.
@@ -66,7 +67,8 @@ class RW_Maint_Wordfence_Template {
 			'id'                   => 'reactwoo-wordfence',
 			'version'              => 'v1',
 			'approval_status'      => 'awaiting_approval',
-			'support_alert_email'  => '',
+			'support_alert_email'  => 'support@reactwoo.com',
+			'disable_xmlrpc_authentication' => 0,
 			'customer_summary'     => 'Wordfence firewall, a daily scan at 03:00, login protection and alert emails.',
 			'wordfence'            => array(
 				'firewallEnabled'                      => 1,
@@ -144,8 +146,8 @@ class RW_Maint_Wordfence_Template {
 				'require-2fa.administrator'        => 1,
 				'require-2fa-grace-period-enabled' => 1,
 				'require-2fa-grace-period'         => 14,
-				'xmlrpc-enabled'                   => 0,
-				'allow-xml-rpc'                    => 0,
+				'xmlrpc-enabled'                   => 1,
+				'allow-xml-rpc'                    => 1,
 			),
 			'notes'                => self::notes(),
 		);
@@ -156,17 +158,17 @@ class RW_Maint_Wordfence_Template {
 	 */
 	public static function notes() {
 		return array(
-			'Draft v1 is awaiting approval. It is still applied so a new site gets a known baseline. Replace this template on the hub and the next onboarding run writes the new values.',
+			'Draft v1 is awaiting approval. Onboarding installs Wordfence Free and records conflicts, but these settings are not written until approval_status is approved.',
 			'The firewall is on. The web application firewall starts in learning mode for 7 days, then Wordfence ends that grace period itself.',
-			'Extended Protection is not installed. That step writes an auto_prepend file and can change .user.ini, which can break PHP on some servers.',
+			'Extended Protection is a later, separate step. This template does not write an auto_prepend file or change .user.ini.',
 			'Settings are applied with wfConfig::set, wfConfig::set_ser, the WAF storage setConfig method, and Wordfence Login Security Controller_Settings::set. The database tables are not written directly. wordfence::importSettings needs a Wordfence cloud token, which this template does not have.',
 			'Live traffic recording is off. Automatic blocking of scanners is on for 30 minutes. The Wordfence security network (other_WFNet) is on, which sends threat data to Wordfence.',
 			'A standard scan runs once a day at 03:00 in the site timezone. Low resource mode is on. Image scanning, high sensitivity, and scans outside WordPress are off.',
 			'Sign-in locks after 5 failures or 5 lost-password attempts in 4 hours, for 60 minutes. Unknown usernames are included. Leaked-password and strong-password checks apply to administrators.',
-			'Application passwords stay available because ReactWoo enrolment uses one and then removes it.',
-			'Administrators are required to use two-factor authentication after a 14 day grace period. ReactWoo cannot enrol an authenticator app for them. reCAPTCHA is not switched on because there is no site key.',
-			'XML-RPC authentication is off. Confirm this before approval if a site uses Jetpack or an app that needs XML-RPC.',
-			'Alert email is the client report address plus support_alert_email. The support address is empty until ReactWoo names the mailbox. Block alerts and lost-password alerts are off so the inbox is not flooded. Scan alerts start at severity 50. A weekly summary is on.',
+			'Application passwords stay enabled. Nothing in this template disables them, including login security, two-factor authentication, XML-RPC, or the REST API. loginSec_disableApplicationPasswords stays off.',
+			'Administrators are required to use two-factor authentication after a 14 day grace period. That requirement does not turn off application passwords. ReactWoo cannot enrol an authenticator app for them. reCAPTCHA is not switched on because there is no site key.',
+			'XML-RPC authentication stays on for Jetpack and mobile apps. Set disable_xmlrpc_authentication to 1 to switch it off. That opt-in is off in this draft.',
+			'Alert email is the client report address and support@reactwoo.com. Block alerts and lost-password alerts are off so the inbox is not flooded. Scan alerts start at severity 50. A weekly summary is on.',
 			'Wordfence Free and Pro are the same plugin. A Pro licence is applied in place. No licence key is stored here, and none is shipped in this draft.',
 		);
 	}
@@ -230,6 +232,12 @@ class RW_Maint_Wordfence_Template {
 		if ( is_wp_error( $wordfence ) || is_wp_error( $waf ) || is_wp_error( $login ) ) {
 			return new WP_Error( 'rw_wordfence_template_invalid', 'The Wordfence settings template contained a value that is not allowed.', array( 'status' => 400 ) );
 		}
+		$wordfence = self::allow_application_passwords( $wordfence );
+		$login     = self::allow_application_passwords( $login );
+		$wordfence['loginSec_disableApplicationPasswords'] = 0;
+		$disable_xmlrpc = ! empty( $template['disable_xmlrpc_authentication'] ) ? 1 : 0;
+		$login['xmlrpc-enabled'] = $disable_xmlrpc ? 0 : 1;
+		$login['allow-xml-rpc']  = $disable_xmlrpc ? 0 : 1;
 
 		$serial = array();
 		if ( isset( $template['serialized']['scanSched'] ) ) {
@@ -262,6 +270,7 @@ class RW_Maint_Wordfence_Template {
 			'version'             => $version,
 			'approval_status'     => $status,
 			'support_alert_email' => $support,
+			'disable_xmlrpc_authentication' => isset( $disable_xmlrpc ) ? (int) $disable_xmlrpc : 0,
 			'customer_summary'    => isset( $template['customer_summary'] ) ? sanitize_text_field( (string) $template['customer_summary'] ) : '',
 			'wordfence'           => $wordfence,
 			'waf'                 => $waf,
@@ -405,6 +414,39 @@ class RW_Maint_Wordfence_Template {
 		}
 
 		return $matrix;
+	}
+
+	/**
+	 * Keys that would turn off WordPress application passwords or the REST API
+	 * are stored as off. Two-factor sign-in for administrators does not count.
+	 *
+	 * @param array<string,mixed> $map
+	 * @return array<string,mixed>
+	 */
+	private static function allow_application_passwords( array $map ) {
+		foreach ( $map as $key => $value ) {
+			unset( $value );
+			if ( self::names_application_password_block( $key ) ) {
+				$map[ $key ] = 0;
+			}
+		}
+
+		return $map;
+	}
+
+	/**
+	 * @param mixed $key
+	 * @return bool
+	 */
+	private static function names_application_password_block( $key ) {
+		$name = strtolower( (string) $key );
+
+		return false !== strpos( $name, 'applicationpassword' )
+			|| false !== strpos( $name, 'application_password' )
+			|| false !== strpos( $name, 'application-password' )
+			|| false !== strpos( $name, 'disablerest' )
+			|| false !== strpos( $name, 'disable_rest' )
+			|| false !== strpos( $name, 'disable-rest' );
 	}
 
 	/**

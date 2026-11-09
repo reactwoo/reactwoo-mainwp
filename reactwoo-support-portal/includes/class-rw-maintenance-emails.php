@@ -137,6 +137,12 @@ class RW_Maintenance_Emails {
 		if ( ! $site ) {
 			return '';
 		}
+		if ( class_exists( 'RW_Portal_Support_Mail' ) && ! empty( $site->id ) ) {
+			$client = RW_Portal_Support_Mail::client_email( (int) $site->id );
+			if ( '' !== $client ) {
+				return $client;
+			}
+		}
 		if ( ! empty( $site->report_email ) && is_email( $site->report_email ) ) {
 			return $site->report_email;
 		}

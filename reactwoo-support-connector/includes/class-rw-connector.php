@@ -11,6 +11,7 @@ class RW_Connector {
 		self::load_dependencies();
 		RW_Connector_Updater::init();
 		RW_Whitelabel::register();
+		RW_Whitelabel_Mail::register();
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
 		add_action( self::HEARTBEAT_HOOK, array( __CLASS__, 'send_heartbeat' ) );
 	}
@@ -24,6 +25,7 @@ class RW_Connector {
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-mainwp-child-adapter.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-component-installer.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-whitelabel.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-whitelabel-mail.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-bootstrap.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-updater.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-security-scan.php';
@@ -203,7 +205,7 @@ class RW_Connector {
 		$headers = RW_Connector_Signing::build_headers( 'POST', $endpoint, $body, $site_id, $secret );
 		$headers['Content-Type'] = 'application/json';
 
-		wp_remote_post(
+		$response = wp_remote_post(
 			$endpoint,
 			array(
 				'timeout' => 20,
@@ -211,6 +213,9 @@ class RW_Connector {
 				'body'    => $body,
 			)
 		);
+		if ( class_exists( 'RW_Whitelabel_Mail' ) ) {
+			RW_Whitelabel_Mail::apply_remote_response( $response );
+		}
 	}
 
 	private static function schedule_heartbeat() {

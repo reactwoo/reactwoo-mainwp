@@ -155,88 +155,14 @@ class RW_Maint_MainWP {
 	}
 
 	/**
-	 * Settings the child plugin stores when child_plugin_hide is true.
-	 * Child 6.4 sets mainwp_child_branding_settings.hide to T, which removes
-	 * both MainWP Child and Child Reports from the plugins list.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function hide_child_branding_settings() {
-		return array(
-			'child_plugin_hide'                  => 1,
-			'child_plugin_name'                  => 'ReactWoo Maintenance',
-			'child_plugin_desc'                  => 'Keeps this website updated, backed up and monitored.',
-			'child_plugin_author'                => 'ReactWoo',
-			'child_plugin_author_uri'            => 'https://reactwoo.com',
-			'child_plugin_uri'                   => 'https://reactwoo.com',
-			'child_preserve_branding'            => 1,
-			'child_support_email'                => '',
-			'child_support_message'              => '',
-			'child_remove_restore'               => 1,
-			'child_remove_setting'               => 1,
-			'child_remove_server_info'           => 1,
-			'child_remove_connection_detail'     => 1,
-			'child_remove_wp_tools'              => 0,
-			'child_remove_wp_setting'            => 0,
-			'child_remove_permalink'             => 0,
-			'child_button_contact_label'         => '',
-			'child_send_email_message'           => '',
-			'child_message_return_sender'        => '',
-			'child_submit_button_title'          => '',
-			'child_show_support_button'          => 0,
-			'child_disable_switching_theme'      => 0,
-			'child_disable_wp_branding'          => 'N',
-			'child_show_support_button_in'       => '',
-			'child_global_footer'                => '',
-			'child_dashboard_footer'             => '',
-			'child_remove_widget_welcome'        => 0,
-			'child_remove_widget_glance'         => 0,
-			'child_remove_widget_activity'       => 0,
-			'child_remove_widget_quick'          => 0,
-			'child_remove_widget_news'           => 0,
-			'child_login_image_link'             => '',
-			'child_login_image_title'            => '',
-			'child_site_generator'               => '',
-			'child_generator_link'               => '',
-			'child_admin_css'                    => '',
-			'child_login_css'                    => '',
-			'child_texts_replace'                => '',
-			'child_hide_nag'                     => 0,
-			'child_hide_screen_opts'             => 0,
-			'child_hide_help_box'                => 0,
-			'child_hide_metabox_post_excerpt'    => 0,
-			'child_hide_metabox_post_slug'       => 0,
-			'child_hide_metabox_post_tags'       => 0,
-			'child_hide_metabox_post_author'     => 0,
-			'child_hide_metabox_post_comments'   => 0,
-			'child_hide_metabox_post_revisions'  => 0,
-			'child_hide_metabox_post_discussion' => 0,
-			'child_hide_metabox_post_categories' => 0,
-			'child_hide_metabox_post_custom_fields' => 0,
-			'child_hide_metabox_post_trackbacks' => 0,
-			'child_hide_metabox_page_custom_fields' => 0,
-			'child_hide_metabox_page_author'     => 0,
-			'child_hide_metabox_page_discussion' => 0,
-			'child_hide_metabox_page_revisions'  => 0,
-			'child_hide_metabox_page_attributes' => 0,
-			'child_hide_metabox_page_slug'       => 0,
-		);
-	}
-
-	/**
-	 * Dashboard calls that push the White Label hide settings onto the child.
+	 * Child Reports are outside the White Label extension.
+	 * Plugin name, login, footer and the support form stay in that extension.
+	 * update_branding is not sent: it replaces the whole child branding record.
 	 *
 	 * @return array<int,array{what:string,params:array<string,mixed>}>
 	 */
 	public static function branding_calls() {
 		return array(
-			array(
-				'what'   => 'branding_child_plugin',
-				'params' => array(
-					'action'   => 'update_branding',
-					'settings' => base64_encode( wp_json_encode( self::hide_child_branding_settings() ) ),
-				),
-			),
 			array(
 				'what'   => 'client_report',
 				'params' => array(
@@ -351,9 +277,10 @@ class RW_Maint_MainWP {
 	}
 
 	/**
-	 * Ask the MainWP Dashboard on this site to push hide-child branding.
+	 * Hide Child Reports on the enrolled site.
 	 * Enrolment still succeeds when the dashboard classes are not loaded.
-	 * Branding runs only for the id whose MainWP URL is this website.
+	 * The call runs only for the id whose MainWP URL is this website.
+	 * White Label fields are not included.
 	 *
 	 * @param object $site Operational site row.
 	 * @return bool

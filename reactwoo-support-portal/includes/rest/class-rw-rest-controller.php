@@ -378,11 +378,17 @@ class RW_Rest_Controller {
 			)
 		);
 
-		return rest_ensure_response(
-			array(
-				'received' => true,
-			)
+		$response = array(
+			'received' => true,
 		);
+		if ( class_exists( 'RW_Portal_Support_Mail' ) ) {
+			$support_mail = RW_Portal_Support_Mail::payload_for_site( $site_id );
+			if ( is_array( $support_mail ) ) {
+				$response['support_mail'] = $support_mail;
+			}
+		}
+
+		return rest_ensure_response( $response );
 	}
 
 	/**

@@ -911,8 +911,16 @@ rw_test( 'the connector is hidden only when that flag is set', ! isset( $hidden_
 unset( $GLOBALS['rw_options']['rw_connector_managed'], $GLOBALS['rw_options']['rw_connector_hide_self'] );
 
 $branding = RW_Maint_MainWP::branding_calls();
-$branding_settings = json_decode( base64_decode( $branding[0]['params']['settings'] ), true );
-rw_test( 'enrol pushes the hide-child branding settings', 'branding_child_plugin' === $branding[0]['what'] && 1 === (int) $branding_settings['child_plugin_hide'] && 'client_report' === $branding[1]['what'] && 'hide' === $branding[1]['params']['showhide'] );
+$branding_json = wp_json_encode( $branding );
+rw_test(
+	'enrol hides child reports without replacing white label settings',
+	1 === count( $branding )
+		&& 'client_report' === $branding[0]['what']
+		&& 'hide' === $branding[0]['params']['showhide']
+		&& false === strpos( $branding_json, 'update_branding' )
+		&& false === strpos( $branding_json, 'child_login_css' )
+		&& false === strpos( $branding_json, 'child_support_email' )
+);
 
 $component_versions = RW_Maint_MainWP_Client::extract_component_versions(
 	array(
@@ -3709,6 +3717,8 @@ rw_test(
 		&& false !== strpos( $guarded_copy, 'Completion has not been confirmed' )
 		&& false === strpos( $guarded_copy, "\u{2014}" )
 );
+
+require __DIR__ . '/white-label-support-mail.php';
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

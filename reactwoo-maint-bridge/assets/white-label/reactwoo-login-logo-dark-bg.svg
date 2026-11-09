@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="84" viewBox="0 0 320 84" fill="none">
+  <!-- Matches Figma logo/reactwoo/login-dark (844:1004 / 844:1010). Brand R mark + Maintained by eyebrow. -->
+  <text x="16" y="18" font-family="Inter, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" fill="#D1D5DB">Maintained by</text>
+  <g transform="translate(16,22)">
+    <svg width="56" height="56" viewBox="0 0 1028 1028">
+      <defs>
+        <linearGradient id="g_login-dark" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#0c91e4"/>
+          <stop offset="0.5" stop-color="#665bf1"/>
+          <stop offset="1" stop-color="#c325ff"/>
+        </linearGradient>
+      </defs>
+      <rect width="1028" height="1028" rx="100" fill="url(#g_login-dark)"/>
+      <path d="M366 338.5H569A65.25 65.25 0 0 1 569 469H366V644" fill="none" stroke="#ffffff" stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M492.6 469H577.6L671 635.7V681H611.4Z" fill="#ffffff"/>
+    </svg>
+  </g>
+  <text x="84" y="58" font-family="Inter, Helvetica, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="-0.56" fill="#FFFFFF">ReactWoo</text>
+</svg>

@@ -146,6 +146,16 @@ class RW_Maint_Rest_Controller {
 				'permission_callback' => array( __CLASS__, 'authorize_request' ),
 			)
 		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/support-mail',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( 'RW_Maint_Support_Mail', 'rest_response' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
 	}
 
 	/**

@@ -22,6 +22,7 @@ final class RW_Portal {
 		RW_Support_Purchase::register();
 		RW_Portal_Admin_Menu::register();
 		RW_Portal_Settings::register();
+		RW_Portal_Support_Mail::register();
 		RW_Portal_Account::register();
 		RW_Portal_Customer_Actions::register();
 		RW_Portal_Identity_Sync::register();
@@ -75,6 +76,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-maintenance-status.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-admin-menu.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-settings.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-support-mail.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-account.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-customer-actions.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-identity-sync.php';

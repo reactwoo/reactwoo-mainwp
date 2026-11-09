@@ -9,6 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Gated by the rw_connector_managed flag. ReactWoo support users bypass it.
  * The connector itself stays visible unless rw_connector_hide_self is set.
+ * Login logos, footers, plugin names and login CSS belong to the MainWP
+ * White Label extension. This class does not print them.
  *
  * Admin page slugs verified against MainWP Child 6.4 and Child Reports 2.3.1:
  * - options-general.php?page=mainwp_child_tab

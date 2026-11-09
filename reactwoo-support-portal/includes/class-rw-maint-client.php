@@ -147,6 +147,26 @@ class RW_Maint_Client {
 	 * @param object $site Portal managed site.
 	 * @return array|WP_Error
 	 */
+	/**
+	 * Signed read of the hub support mail settings for one site.
+	 *
+	 * @param int $portal_site_id Portal site id.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function support_mail( $portal_site_id ) {
+		$result = self::post(
+			'support-mail',
+			array(
+				'portal_site_id' => (int) $portal_site_id,
+			)
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return ( isset( $result['support_mail'] ) && is_array( $result['support_mail'] ) ) ? $result['support_mail'] : array();
+	}
+
 	public static function fetch_site_status( $site ) {
 		if ( ! $site ) {
 			return new WP_Error( 'rw_maint_missing_site', 'Managed site is required.' );

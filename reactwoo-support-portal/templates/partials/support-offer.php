@@ -21,7 +21,8 @@ $offer_first   = $offer_options[0];
 	<article class="rw-maint-panel">
 		<p class="rw-maint-kicker">Extra support</p>
 		<h3 id="rw-maint-support-offer-title">Buy extra support</h3>
-		<p class="rw-maint-panel-copy">Add support time for this website. The price is the current shop price.</p>
+		<?php $offer_host = isset( $support_offer['site_host'] ) ? (string) $support_offer['site_host'] : ''; ?>
+		<p class="rw-maint-panel-copy"><?php echo '' !== $offer_host ? 'Add support time for ' . esc_html( $offer_host ) . '. Additional support can only be used on the website covered by your maintenance plan.' : 'Add support time for this website. The price is the current shop price.'; ?></p>
 		<label class="rw-maint-offer-label" for="rw-maint-support-pack">Support pack</label>
 		<select id="rw-maint-support-pack" class="rw-maint-offer-select">
 			<?php foreach ( $offer_options as $offer_option ) : ?>
@@ -32,13 +33,16 @@ $offer_first   = $offer_options[0];
 		<div class="rw-maint-offer-actions">
 			<?php if ( $offer_card ) : ?>
 				<p class="rw-maint-pill rw-maint-pill--good">Card ••••<?php echo esc_html( $offer_card['last4'] ); ?></p>
+				<p class="rw-maint-helper">Your saved card will be selected at checkout. Payment is confirmed there.</p>
+			<?php endif; ?>
+			<?php if ( $offer_card && ! empty( $support_offer['charge'] ) ) : ?>
 				<button type="button" class="rw-maint-button" data-offer-open><?php echo esc_html( $offer_card['label'] ); ?></button>
 			<?php else : ?>
 				<a class="rw-maint-button" data-offer-checkout href="<?php echo esc_url( $offer_first['checkout_url'] ); ?>">Continue to checkout</a>
 			<?php endif; ?>
 		</div>
 	</article>
-	<?php if ( $offer_card ) : ?>
+	<?php if ( $offer_card && ! empty( $support_offer['charge'] ) ) : ?>
 		<dialog class="rw-maint-offer-dialog" data-offer-dialog>
 			<h3>Confirm purchase</h3>
 			<p data-offer-name><?php echo esc_html( $offer_first['name'] ); ?></p>

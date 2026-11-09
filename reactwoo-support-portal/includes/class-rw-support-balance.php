@@ -12,6 +12,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_Support_Balance {
+	const CREDIT_VALIDITY_META = '_rw_credit_validity_days';
+
+	/**
+	 * Option listing product ids whose purchased-minute expiry was not set.
+	 * No duration is assumed when this is raised.
+	 */
+	const CREDIT_POLICY_UNSET_OPTION = 'rw_support_credit_policy_unset';
+
+	/**
+	 * Explicit validity in days, or null when the product does not set one.
+	 *
+	 * @param mixed $raw Product meta.
+	 * @return int|null
+	 */
+	public static function configured_validity_days( $raw ) {
+		if ( ! is_numeric( $raw ) ) {
+			return null;
+		}
+		$days = (int) $raw;
+		if ( $days <= 0 ) {
+			return null;
+		}
+
+		return $days;
+	}
 	/**
 	 * @param string $start Subscription start datetime.
 	 * @param string $now   Current datetime.
@@ -98,7 +123,7 @@ class RW_Support_Balance {
 	 * @param array<int,array<string,mixed>> $existing
 	 * @return array<string,mixed>|null
 	 */
-	public static function purchase_row( array $existing, $order_item_id, $minutes, $validity_days, $now ) {
+	public static function purchase_row( array $existing, $order_item_id, $minutes, $validity_days, $now, $service_host = '' ) {
 		$order_item_id = (int) $order_item_id;
 		$minutes       = (int) $minutes;
 		if ( $order_item_id <= 0 || $minutes <= 0 ) {
@@ -114,7 +139,10 @@ class RW_Support_Balance {
 		if ( ! $start ) {
 			return null;
 		}
-		$days = max( 1, (int) $validity_days );
+		$days = (int) $validity_days;
+		if ( $days <= 0 ) {
+			return null;
+		}
 
 		return array(
 			'minutes_delta' => $minutes,
@@ -122,17 +150,23 @@ class RW_Support_Balance {
 			'reference'     => 'order_item:' . $order_item_id,
 			'order_item_id' => $order_item_id,
 			'expires_at'    => $start->modify( '+' . $days . ' days' )->format( 'Y-m-d H:i:s' ),
+			'service_host'  => self::host_of( $service_host ),
 		);
 	}
 
 	/**
 	 * Included minutes are consumed first. Purchased packs are consumed oldest-expiry first.
 	 *
+	 * Pass a host to spend purchased minutes for that website only. Packs with
+	 * no stored site are left untouched. Omit the host to count every pack,
+	 * which is the arithmetic used before sites were stored.
+	 *
 	 * @param array<int,array<string,mixed>> $rows
 	 * @param array<string,string>           $period
+	 * @param string|null                    $service_host Host, or null for every pack.
 	 * @return array{slices:array<int,array<string,mixed>>,unallocated:int}
 	 */
-	public static function usage_slices( array $rows, $minutes, array $period, $now ) {
+	public static function usage_slices( array $rows, $minutes, array $period, $now, $service_host = null ) {
 		$minutes = (int) $minutes;
 		$slices  = array();
 		if ( $minutes <= 0 ) {
@@ -153,18 +187,23 @@ class RW_Support_Balance {
 			);
 		}
 
-		$packs = self::purchased_packs( $rows, $now );
+		$host  = null === $service_host ? null : self::host_of( $service_host );
+		$packs = self::purchased_packs( $rows, $now, $host );
 		foreach ( $packs as $pack ) {
 			if ( $rest <= 0 || $pack['left'] <= 0 ) {
 				continue;
 			}
 			$take     = min( $rest, $pack['left'] );
-			$slices[] = array(
+			$slice = array(
 				'minutes_delta' => 0 - $take,
 				'credit_type'   => 'usage',
 				'reference'     => 'purchased:' . $pack['order_item_id'],
 				'expires_at'    => $pack['expires_at'],
 			);
+			if ( '' !== $pack['service_host'] ) {
+				$slice['service_host'] = $pack['service_host'];
+			}
+			$slices[] = $slice;
 			$rest    -= $take;
 		}
 
@@ -232,6 +271,99 @@ class RW_Support_Balance {
 	}
 
 	/**
+	 * Purchased minutes stored for one website. Rows with no site are excluded.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @param string                         $now
+	 * @param mixed                          $host
+	 * @return int
+	 */
+	public static function purchased_remainder_for_host( array $rows, $now, $host ) {
+		$host = self::host_of( $host );
+		if ( '' === $host ) {
+			return 0;
+		}
+		$sum = 0;
+		foreach ( self::purchased_packs( $rows, $now, $host ) as $pack ) {
+			$sum += (int) $pack['left'];
+		}
+
+		return $sum;
+	}
+
+	/**
+	 * Purchased minutes that were kept with no website. They are not spent.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @param string                         $now
+	 * @return int
+	 */
+	public static function unassigned_purchased_remainder( array $rows, $now ) {
+		$sum = 0;
+		foreach ( self::unassigned_packs( $rows, $now ) as $pack ) {
+			$sum += (int) $pack['left'];
+		}
+
+		return $sum;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $rows
+	 * @param string                         $now
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function unassigned_packs( array $rows, $now ) {
+		$packs = array();
+		foreach ( self::purchased_packs( $rows, $now, '' ) as $pack ) {
+			if ( (int) $pack['left'] > 0 ) {
+				$packs[] = $pack;
+			}
+		}
+
+		return $packs;
+	}
+
+	/**
+	 * Spend support on one website.
+	 *
+	 * Included minutes are used only when the website is the plan site.
+	 * Purchased minutes are used only when their stored host matches.
+	 * Minutes with no host stay on the account.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @param int                            $minutes
+	 * @param array<string,string>           $period
+	 * @param string                         $now
+	 * @param mixed                          $context_host
+	 * @param mixed                          $plan_host
+	 * @return array{slices:array<int,array<string,mixed>>,unallocated:int,refused:string}
+	 */
+	public static function usage_for_site( array $rows, $minutes, array $period, $now, $context_host, $plan_host ) {
+		$minutes      = (int) $minutes;
+		$context_host = self::host_of( $context_host );
+		$plan_host    = self::host_of( $plan_host );
+		if ( '' === $context_host ) {
+			return array(
+				'slices'      => array(),
+				'unallocated' => max( 0, $minutes ),
+				'refused'     => 'missing_site',
+			);
+		}
+
+		$source = $rows;
+		if ( '' === $plan_host || $context_host !== $plan_host ) {
+			$source = self::rows_without_included( $rows );
+		}
+		$result = self::usage_slices( $source, $minutes, $period, $now, $context_host );
+		foreach ( $result['slices'] as $index => $slice ) {
+			$result['slices'][ $index ]['service_host'] = $context_host;
+		}
+		$result['refused'] = '';
+
+		return $result;
+	}
+
+	/**
 	 * @param array<int,array<string,mixed>> $rows
 	 */
 	public static function current_grant( array $rows, $period_start_date ) {
@@ -280,7 +412,12 @@ class RW_Support_Balance {
 		return $sum;
 	}
 
-	private static function purchased_packs( array $rows, $now ) {
+	/**
+	 * @param array<int,array<string,mixed>> $rows
+	 * @param string|null                    $service_host Null keeps every pack. A string keeps that host, including an empty host.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function purchased_packs( array $rows, $now, $service_host = null ) {
 		$packs = array();
 		foreach ( $rows as $row ) {
 			if ( ! self::counts( $row, $now ) || 'purchased' !== (string) $row['credit_type'] ) {
@@ -292,9 +429,13 @@ class RW_Support_Balance {
 					'order_item_id' => $id,
 					'left'          => 0,
 					'expires_at'    => isset( $row['expires_at'] ) ? (string) $row['expires_at'] : '',
+					'service_host'  => self::host_of( isset( $row['service_host'] ) ? $row['service_host'] : '' ),
 				);
 			}
 			$packs[ $id ]['left'] += (int) $row['minutes_delta'];
+			if ( '' === $packs[ $id ]['service_host'] ) {
+				$packs[ $id ]['service_host'] = self::host_of( isset( $row['service_host'] ) ? $row['service_host'] : '' );
+			}
 		}
 		foreach ( $rows as $row ) {
 			if ( ! self::counts( $row, $now ) || 'usage' !== (string) $row['credit_type'] ) {
@@ -310,6 +451,16 @@ class RW_Support_Balance {
 			}
 		}
 
+		if ( null !== $service_host ) {
+			$wanted = self::host_of( $service_host );
+			$packs  = array_filter(
+				$packs,
+				static function ( $pack ) use ( $wanted ) {
+					return $pack['service_host'] === $wanted;
+				}
+			);
+		}
+
 		$packs = array_values( $packs );
 		usort(
 			$packs,
@@ -319,6 +470,42 @@ class RW_Support_Balance {
 		);
 
 		return $packs;
+	}
+
+	/**
+	 * @param mixed $raw
+	 * @return string
+	 */
+	private static function host_of( $raw ) {
+		if ( class_exists( 'RW_Support_Sites' ) ) {
+			return RW_Support_Sites::host_key( $raw );
+		}
+
+		return strtolower( trim( (string) $raw ) );
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $rows
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function rows_without_included( array $rows ) {
+		$kept = array();
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$type = isset( $row['credit_type'] ) ? (string) $row['credit_type'] : '';
+			$ref  = isset( $row['reference'] ) ? (string) $row['reference'] : '';
+			if ( 'plan_allowance' === $type || 'expiry' === $type ) {
+				continue;
+			}
+			if ( ( 'usage' === $type || 'adjustment' === $type ) && 0 === strpos( $ref, 'included:' ) ) {
+				continue;
+			}
+			$kept[] = $row;
+		}
+
+		return $kept;
 	}
 
 	private static function has_row( array $rows, $type, $reference ) {

@@ -59,10 +59,42 @@ class RW_Portal_Sites_Admin {
 
 		echo '<div class="wrap">';
 		echo '<h1>ReactWoo Managed Sites</h1>';
+		if ( class_exists( 'RW_Support_Sites' ) ) {
+			$assignment = RW_Support_Sites::assignment_notice();
+			if ( '' !== $assignment ) {
+				echo '<div class="notice notice-warning"><p>' . esc_html( $assignment ) . '</p></div>';
+			}
+		}
+		if ( class_exists( 'RW_Support_Site_Admin' ) ) {
+			RW_Support_Site_Admin::render_queue( self::unassigned_credit_rows() );
+		}
 		self::render_filters( $filters );
 		self::render_table( $sites );
 		self::render_pagination( $page, $total_pages, $filters );
 		echo '</div>';
+	}
+
+	/**
+	 * Purchased rows that still have no website. Used only to render the queue.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function unassigned_credit_rows() {
+		global $wpdb;
+
+		if ( ! class_exists( 'RW_DB' ) || ! method_exists( 'RW_DB', 'table_exists' ) ) {
+			return array();
+		}
+		$table = RW_DB::table( 'support_ledger' );
+		if ( ! RW_DB::table_exists( $table ) ) {
+			return array();
+		}
+		$loaded = $wpdb->get_results(
+			"SELECT * FROM {$table} WHERE credit_type = 'purchased' AND service_host = '' ORDER BY id ASC",
+			ARRAY_A
+		);
+
+		return is_array( $loaded ) ? $loaded : array();
 	}
 
 	private static function handle_actions() {
@@ -205,7 +237,7 @@ class RW_Portal_Sites_Admin {
 				echo '<td>' . esc_html( $site->subscription_id ) . '</td>';
 				echo '<td><strong>' . esc_html( $site->site_name ) . '</strong><br /><small>' . esc_html( $site->site_url ) . '</small></td>';
 				echo '<td>' . esc_html( $site->status ) . '</td>';
-				echo '<td>' . esc_html( self::support_label( (int) $site->subscription_id ) ) . '</td>';
+				echo '<td>' . esc_html( self::support_label( (int) $site->subscription_id, isset( $site->site_url ) ? (string) $site->site_url : '', isset( $site->user_id ) ? (int) $site->user_id : 0 ) ) . '</td>';
 				echo '<td>' . ( $site->enroll_url_override ? 'Yes' : 'No' ) . '</td>';
 				echo '<td>' . esc_html( $site->last_seen ? $site->last_seen : 'Never' ) . '</td>';
 				echo '<td><a class="button" href="' . esc_url( $action_url ) . '">' . esc_html( $override_label ) . ' Override</a></td>';
@@ -216,17 +248,64 @@ class RW_Portal_Sites_Admin {
 		echo '</tbody></table>';
 	}
 
-	private static function support_label( $subscription_id ) {
+	/**
+	 * Support that can be used on this managed site. Other sites' minutes are omitted.
+	 *
+	 * @param int    $subscription_id Subscription.
+	 * @param string $site_url Managed site URL.
+	 * @param int    $user_id Customer.
+	 * @return string
+	 */
+	private static function support_label( $subscription_id, $site_url = '', $user_id = 0 ) {
 		if ( ! class_exists( 'RW_Support_Ledger' ) || $subscription_id <= 0 ) {
 			return '';
 		}
 		$balances = RW_Support_Ledger::balances( $subscription_id );
-		$parts    = array();
-		if ( (int) $balances['included'] > 0 ) {
-			$parts[] = (int) $balances['included'] . ' included';
+		$rows     = $balances['rows'];
+		if ( $user_id > 0 ) {
+			$user_rows = RW_Support_Ledger::rows_for_user( $user_id );
+			if ( ! empty( $user_rows ) ) {
+				$rows = $user_rows;
+			}
 		}
-		if ( (int) $balances['purchased'] > 0 ) {
+		$now       = current_time( 'mysql' );
+		$host      = class_exists( 'RW_Support_Sites' ) ? RW_Support_Sites::host_key( $site_url ) : '';
+		$plan_host = '';
+		if ( '' !== $host && function_exists( 'wcs_get_subscription' ) && class_exists( 'RW_Support_Sites' ) ) {
+			$subscription = wcs_get_subscription( $subscription_id );
+			if ( is_object( $subscription ) ) {
+				$plan      = RW_Support_Sites::plan_site( $subscription );
+				$plan_host = $plan['host'];
+				if ( in_array( $plan['status'], array( 'empty', 'disagree' ), true ) ) {
+					RW_Support_Sites::flag_plan( $subscription_id, $user_id, $plan['status'] );
+				}
+			}
+		}
+		$parts = array();
+		$included_here = '' === $plan_host || ( '' !== $host && class_exists( 'RW_Support_Sites' ) && RW_Support_Sites::hosts_match( $host, $plan_host ) );
+		if ( $included_here && (int) $balances['included'] > 0 ) {
+			$label = (int) $balances['included'] . ' included';
+			if ( '' !== $plan_host ) {
+				$label .= ' for ' . $plan_host;
+			}
+			$parts[] = $label;
+		}
+		if ( '' !== $host && class_exists( 'RW_Support_Balance' ) ) {
+			$purchased = RW_Support_Balance::purchased_remainder_for_host( $rows, $now, $host );
+			if ( $purchased > 0 ) {
+				$parts[] = $purchased . ' purchased for ' . $host;
+			}
+		} elseif ( (int) $balances['purchased'] > 0 ) {
 			$parts[] = (int) $balances['purchased'] . ' purchased';
+		}
+		if ( class_exists( 'RW_Support_Balance' ) ) {
+			$unassigned = RW_Support_Balance::unassigned_purchased_remainder( $rows, $now );
+			if ( $unassigned > 0 ) {
+				$parts[] = $unassigned . ' purchased need a website';
+				if ( class_exists( 'RW_Support_Sites' ) ) {
+					RW_Support_Sites::flag_unassigned_rows( $rows, $now, $user_id );
+				}
+			}
 		}
 
 		return $parts ? implode( ', ', $parts ) : 'None remaining';

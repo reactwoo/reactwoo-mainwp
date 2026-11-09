@@ -225,8 +225,12 @@ class RW_Test_Subscription {
 	public function save() {
 	}
 	public $status = '';
+	public $end    = 0;
 	public function get_status() {
 		return $this->status;
+	}
+	public function get_time( $type ) {
+		return ( 'end' === $type ) ? (int) $this->end : 0;
 	}
 	public function get_items() {
 		return $this->items;
@@ -921,6 +925,7 @@ $component_versions = RW_Maint_MainWP_Client::extract_component_versions(
 rw_test( 'check and sync can read both component versions', '6.4' === $component_versions['mainwp_child_version'] && '2.3.1' === $component_versions['mainwp_child_reports_version'] );
 
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-wordpress-client.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-account-access.php';
 require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php';
 
 $link_values = array(
@@ -1436,6 +1441,45 @@ if ( ! function_exists( 'wp_print_styles' ) ) {
 		}
 	}
 }
+
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	function wp_enqueue_script( $handle, $src = '', $deps = array(), $ver = false, $in_footer = false ) {
+		$GLOBALS['rw_enqueued_scripts'][ $handle ] = array(
+			'src'       => $src,
+			'deps'      => $deps,
+			'ver'       => $ver,
+			'in_footer' => $in_footer,
+		);
+	}
+}
+if ( ! function_exists( 'wp_script_is' ) ) {
+	function wp_script_is( $handle, $status = 'enqueued' ) {
+		if ( 'enqueued' === $status ) {
+			return isset( $GLOBALS['rw_enqueued_scripts'][ $handle ] );
+		}
+		if ( 'done' === $status ) {
+			return ! empty( $GLOBALS['rw_printed_scripts'][ $handle ] );
+		}
+		return false;
+	}
+}
+if ( ! function_exists( 'wp_print_scripts' ) ) {
+	function wp_print_scripts( $handles = false ) {
+		if ( is_string( $handles ) ) {
+			$GLOBALS['rw_printed_scripts'][ $handles ] = true;
+		}
+	}
+}
+if ( ! function_exists( 'wp_localize_script' ) ) {
+	function wp_localize_script( $handle, $name, $data ) {
+		$GLOBALS['rw_localized_scripts'][ $handle ] = array( 'name' => $name, 'data' => $data );
+	}
+}
+if ( ! function_exists( 'wp_create_nonce' ) ) {
+	function wp_create_nonce( $action ) {
+		return 'nonce-' . $action;
+	}
+}
 if ( ! function_exists( 'did_action' ) ) {
 	function did_action( $hook ) {
 		return isset( $GLOBALS['rw_did_action'][ $hook ] ) ? (int) $GLOBALS['rw_did_action'][ $hook ] : 0;
@@ -1459,6 +1503,9 @@ rw_test(
 
 $GLOBALS['rw_enqueued_styles'] = array();
 $GLOBALS['rw_printed_styles']  = array();
+$GLOBALS['rw_enqueued_scripts'] = array();
+$GLOBALS['rw_printed_scripts']  = array();
+$GLOBALS['rw_localized_scripts'] = array();
 $GLOBALS['rw_wc_endpoint']     = 'maintenance';
 $GLOBALS['rw_is_account_page'] = false;
 $GLOBALS['rw_query_vars']      = array();
@@ -1470,9 +1517,17 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.6' === RW_PORTAL_VERSION
+		&& '0.5.10' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
+
+$maintenance_theme = isset( $GLOBALS['rw_enqueued_scripts']['rw-portal-maintenance-theme'] ) ? $GLOBALS['rw_enqueued_scripts']['rw-portal-maintenance-theme'] : null;
+rw_test(
+	'maintenance endpoint enqueues the theme toggle script',
+	is_array( $maintenance_theme )
+		&& false !== strpos( (string) $maintenance_theme['src'], 'assets/js/account-maintenance-theme.js' )
+);
+
 
 $GLOBALS['rw_enqueued_styles'] = array();
 $GLOBALS['rw_wc_endpoint']     = '';
@@ -2691,7 +2746,9 @@ rw_test(
 		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'add-to-cart=3666' )
 		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_subscription_id=11' )
 		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_site_id=7' )
-		&& 'Buy now with card ending ••••1234' === $offer_card['card']['label']
+		&& 'Checkout with card ending ••••1234' === $offer_card['card']['label']
+		&& false !== strpos( $offer_card['options'][0]['checkout_url'], 'rw_payment_token=9' )
+		&& empty( $offer_card['charge'] )
 );
 $offer_with_plan = RW_Support_Offers::present(
 	array(
@@ -2757,6 +2814,16 @@ $offer_request = array(
 	),
 	'gateway'             => $offer_gateway,
 );
+$offer_unauthorised = RW_Support_Purchase::attempt( $offer_request );
+rw_test(
+	'a saved card is not charged unless that charge is explicitly authorised',
+	'failure' === $offer_unauthorised['result']
+		&& false !== strpos( $offer_unauthorised['message'], 'checkout' )
+		&& 0 === $offer_orders
+		&& 0 === count( $offer_gateway->calls )
+);
+$offer_request['charge_authorised'] = true;
+$offer_request['idempotency_key'] = 'click-once-key-1234';
 $offer_first = RW_Support_Purchase::attempt( $offer_request );
 $offer_second = RW_Support_Purchase::attempt( $offer_request );
 rw_test(
@@ -2831,11 +2898,12 @@ if ( ! function_exists( 'wcs_get_users_subscriptions' ) ) {
 	}
 }
 
-function rw_menu_subscription( $status, $product_id ) {
-	$item              = new RW_Test_Item();
-	$item->product_id  = (int) $product_id;
+function rw_menu_subscription( $status, $product_id, $end = 0 ) {
+	$item                 = new RW_Test_Item();
+	$item->product_id     = (int) $product_id;
 	$subscription         = new RW_Test_Subscription();
 	$subscription->status = $status;
+	$subscription->end    = (int) $end;
 	$subscription->items  = array( $item );
 	return $subscription;
 }
@@ -2864,6 +2932,9 @@ $kept_menu = RW_Portal_Account::add_menu_item( array( 'maintenance' => 'Already 
 rw_test( 'an existing maintenance menu item is left unchanged', 'Already there' === $kept_menu['maintenance'] && 2 === count( $kept_menu ) );
 $GLOBALS['rw_current_user_id'] = 0;
 unset( $GLOBALS['rw_user_subscriptions'] );
+
+require __DIR__ . '/account-readiness.php';
+require __DIR__ . '/support-sites.php';
 
 if ( ! function_exists( 'get_locale' ) ) {
 	function get_locale() {
@@ -3317,8 +3388,8 @@ RW_Maint_MainWP_Clients::use_directory( null );
 
 $bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.6',
-	false !== strpos( $bridge_php, 'Version: 0.3.6' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.6' )" )
+	'bridge version is 0.3.7',
+	false !== strpos( $bridge_php, 'Version: 0.3.7' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.7' )" )
 );
 $hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
 $hardening_output = array();
@@ -3328,6 +3399,30 @@ foreach ( $hardening_output as $hardening_line ) {
 	echo $hardening_line . "\n";
 }
 rw_test( 'audit log failures and a missing table are reported without SHOW TABLES on every request', 0 === $hardening_status );
+
+
+// --- Customer actions helpers (no WP) ---
+require_once dirname( __DIR__ ) . '/reactwoo-support-portal/includes/class-rw-portal-customer-actions.php';
+
+if ( ! function_exists( 'sanitize_email' ) ) {
+	function sanitize_email( $e ) {
+		$e = filter_var( $e, FILTER_SANITIZE_EMAIL );
+		return is_string( $e ) ? $e : '';
+	}
+}
+if ( ! function_exists( 'is_email' ) ) {
+	function is_email( $e ) {
+		return (bool) filter_var( $e, FILTER_VALIDATE_EMAIL );
+	}
+}
+
+$parsed = RW_Portal_Customer_Actions::parse_emails( 'a@example.com, b@example.com; bad;; a@example.com' );
+rw_test( 'parse_emails unique valid', array( 'a@example.com', 'b@example.com' ) === $parsed );
+
+$pdf = RW_Portal_Customer_Actions::build_simple_pdf( array( 'Hello', 'World' ) );
+rw_test( 'build_simple_pdf header', 0 === strpos( $pdf, '%PDF-1.4' ) );
+rw_test( 'build_simple_pdf eof', false !== strpos( $pdf, '%%EOF' ) );
+rw_test( 'build_simple_pdf has text', false !== strpos( $pdf, 'Hello' ) );
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

@@ -13,8 +13,10 @@ $cards = isset( $rw_sites ) && is_array( $rw_sites ) ? $rw_sites : array();
 $count = count( $cards );
 ?>
 <section class="rw-maint-sites-index" aria-labelledby="rw-maint-sites-index-title">
-	<h2 id="rw-maint-sites-index-title">Your sites</h2>
-	<p>You have <?php echo esc_html( (string) $count ); ?> maintenance <?php echo 1 === $count ? 'plan' : 'plans'; ?>. Choose a site to view its dashboard.</p>
+	<header class="rw-maint-sites-index-head">
+		<h2 id="rw-maint-sites-index-title">Your sites</h2>
+		<p>You have <?php echo esc_html( (string) $count ); ?> maintenance <?php echo 1 === $count ? 'plan' : 'plans'; ?>. Choose a site to view its dashboard.</p>
+	</header>
 	<div class="rw-maint-row rw-maint-row-3 rw-maint-site-cards">
 		<?php foreach ( $cards as $card ) : ?>
 			<article class="rw-maint-site-card">
@@ -23,7 +25,10 @@ $count = count( $cards );
 					<p class="rw-maint-pill rw-maint-pill--<?php echo ! empty( $card['connected'] ) ? 'good' : 'attention'; ?>"><?php echo esc_html( $card['status'] ); ?></p>
 				</div>
 				<h3><?php echo esc_html( $card['host'] ); ?></h3>
-				<p class="rw-maint-site-meta"><?php echo esc_html( $card['plan'] ); ?><?php echo '' !== $card['renews'] ? ' · Renews ' . esc_html( $card['renews'] ) : ''; ?></p>
+				<p class="rw-maint-site-meta"><?php echo '' !== $card['renews'] ? 'Renews ' . esc_html( $card['renews'] ) : esc_html( $card['plan'] ); ?></p>
+				<?php if ( ! empty( $card['support_label'] ) ) : ?>
+					<p class="rw-maint-site-meta"><?php echo esc_html( $card['support_label'] ); ?></p>
+				<?php endif; ?>
 				<dl class="rw-maint-count-list">
 					<div>
 						<dt>Updates pending</dt>

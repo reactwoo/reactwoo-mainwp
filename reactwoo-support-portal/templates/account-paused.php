@@ -12,11 +12,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 $site = $rw_view['site'];
 $host = $site ? wp_parse_url( (string) $site->site_url, PHP_URL_HOST ) : '';
 $host = $host ? $host : 'your website';
+$heading = ! empty( $rw_view['heading'] ) ? (string) $rw_view['heading'] : ( 'disconnected' === $rw_view['state'] ? 'Website disconnected' : 'Maintenance is paused' );
 ?>
 <section class="rw-maint-hero" aria-labelledby="rw-maint-paused-title">
 		<div>
 			<p class="rw-maint-pill"><?php echo esc_html( $rw_view['status_label'] ); ?></p>
-			<h2 id="rw-maint-paused-title"><?php echo 'disconnected' === $rw_view['state'] ? 'Website disconnected' : 'Maintenance is paused'; ?></h2>
+			<h2 id="rw-maint-paused-title"><?php echo esc_html( $heading ); ?></h2>
 			<p class="rw-maint-lead">
 				<?php
 				echo esc_html(
@@ -31,6 +32,9 @@ $host = $host ? $host : 'your website';
 			<?php if ( 'disconnected' === $rw_view['state'] && $rw_view['can_connect'] && $site ) : ?>
 				<?php RW_Portal_Account::render_connect_existing_form( $site ); ?>
 				<p class="rw-maint-helper">No WordPress password required.</p>
+			<?php endif; ?>
+			<?php if ( ! empty( $rw_view['subscriptions_url'] ) && 'disconnected' !== $rw_view['state'] ) : ?>
+				<p class="rw-maint-helper"><a href="<?php echo esc_url( $rw_view['subscriptions_url'] ); ?>">Subscriptions</a></p>
 			<?php endif; ?>
 		</div>
 		<aside class="rw-maint-plan" aria-label="Your plan">

@@ -13,7 +13,9 @@ class RW_Portal_Account {
 		add_action( 'init', array( __CLASS__, 'register_endpoint' ) );
 		add_filter( 'woocommerce_get_query_vars', array( __CLASS__, 'add_query_var' ) );
 		add_filter( 'woocommerce_account_menu_items', array( __CLASS__, 'add_menu_item' ) );
+		add_filter( 'woocommerce_account_menu_items', array( __CLASS__, 'shape_menu_late' ), 30 );
 		add_action( 'woocommerce_account_' . self::ENDPOINT . '_endpoint', array( __CLASS__, 'render' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'maybe_block_unlicensed_endpoint' ), 9 );
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_download_site_plugin' ) );
 	}
@@ -94,7 +96,7 @@ class RW_Portal_Account {
 			return (string) $mtime;
 		}
 
-		return defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.6';
+		return defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.10';
 	}
 
 	public static function enqueue_maintenance_style() {
@@ -109,10 +111,84 @@ class RW_Portal_Account {
 			);
 		}
 
+		$js_handle = 'rw-portal-maintenance-theme';
+		$js_path   = ( defined( 'RW_PORTAL_DIR' ) ? RW_PORTAL_DIR : dirname( __DIR__ ) . '/' ) . 'assets/js/account-maintenance-theme.js';
+		$js_ver    = file_exists( $js_path ) ? (string) filemtime( $js_path ) : ( defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.10' );
+		if ( function_exists( 'wp_enqueue_script' ) && ( ! function_exists( 'wp_script_is' ) || ! wp_script_is( $js_handle, 'enqueued' ) ) ) {
+			wp_enqueue_script(
+				$js_handle,
+				RW_PORTAL_URL . 'assets/js/account-maintenance-theme.js',
+				array(),
+				$js_ver,
+				true
+			);
+			if ( function_exists( 'wp_localize_script' ) ) {
+				wp_localize_script(
+					$js_handle,
+					'rwMaintTheme',
+					array(
+						'ajaxUrl' => function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : '',
+						'nonce'   => function_exists( 'wp_create_nonce' ) ? wp_create_nonce( 'rw_portal_maint_theme' ) : '',
+					)
+				);
+			}
+		}
+
 		$late = function_exists( 'did_action' ) && ( did_action( 'wp_head' ) || did_action( 'wp_footer' ) );
 		if ( $late && function_exists( 'wp_print_styles' ) && ( ! function_exists( 'wp_style_is' ) || ! wp_style_is( $handle, 'done' ) ) ) {
 			wp_print_styles( $handle );
 		}
+		if ( $late && function_exists( 'wp_print_scripts' ) && function_exists( 'wp_enqueue_script' ) && ( ! function_exists( 'wp_script_is' ) || ! wp_script_is( $js_handle, 'done' ) ) ) {
+			wp_print_scripts( $js_handle );
+		}
+	}
+
+	/**
+	 * @param int $user_id
+	 * @return string light|dark|system
+	 */
+	public static function maintenance_theme_pref( $user_id ) {
+		$meta = $user_id ? get_user_meta( (int) $user_id, 'rw_maint_theme', true ) : '';
+		if ( in_array( $meta, array( 'light', 'dark', 'system' ), true ) ) {
+			return $meta;
+		}
+		return 'system';
+	}
+
+	/**
+	 * @param string $pref
+	 * @return string light|dark
+	 */
+	public static function maintenance_theme_effective( $pref ) {
+		if ( 'dark' === $pref ) {
+			return 'dark';
+		}
+		if ( 'light' === $pref ) {
+			return 'light';
+		}
+		# Server cannot know prefers-color-scheme; default light and let JS correct.
+		return 'light';
+	}
+
+	/**
+	 * Persist dashboard theme preference.
+	 *
+	 * @return void
+	 */
+	public static function ajax_maint_theme() {
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( array( 'message' => 'auth' ), 403 );
+		}
+		$nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+		if ( ! wp_verify_nonce( $nonce, 'rw_portal_maint_theme' ) ) {
+			wp_send_json_error( array( 'message' => 'nonce' ), 403 );
+		}
+		$theme = isset( $_POST['theme'] ) ? sanitize_key( wp_unslash( $_POST['theme'] ) ) : '';
+		if ( ! in_array( $theme, array( 'light', 'dark', 'system' ), true ) ) {
+			wp_send_json_error( array( 'message' => 'theme' ), 400 );
+		}
+		update_user_meta( get_current_user_id(), 'rw_maint_theme', $theme );
+		wp_send_json_success( array( 'theme' => $theme ) );
 	}
 
 	public static function activate() {
@@ -127,69 +203,146 @@ class RW_Portal_Account {
 	}
 
 	public static function add_menu_item( $items ) {
-		if ( isset( $items[ self::ENDPOINT ] ) ) {
+		if ( ! is_array( $items ) ) {
+			$items = array();
+		}
+
+		return self::shape_menu_for_user( $items, null );
+	}
+
+	/**
+	 * Runs after other account plugins so a hidden Maintenance link cannot be put back,
+	 * and Products & licences follows licensed records when that catalogue is available.
+	 *
+	 * @param array $items Menu items.
+	 * @return array
+	 */
+	public static function shape_menu_late( $items ) {
+		if ( ! is_array( $items ) ) {
+			$items = array();
+		}
+		$licences = null;
+		if ( function_exists( 'reactwoo_api_manager_get_customer_account_records' ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			$records  = reactwoo_api_manager_get_customer_account_records( get_current_user_id() );
+			$licences = is_array( $records ) && ! empty( $records );
+		}
+
+		return self::shape_menu_for_user( $items, $licences );
+	}
+
+	/**
+	 * @param array     $items Menu items.
+	 * @param bool|null $licences Licensed-product flag, or null to leave that item alone.
+	 * @return array
+	 */
+	public static function shape_menu_for_user( array $items, $licences ) {
+		if ( ! class_exists( 'RW_Account_Access' ) ) {
 			return $items;
 		}
 
-		// Menu only: the endpoint stays reachable by URL for existing bookmarks.
-		if ( ! self::user_has_maintenance_for_menu( get_current_user_id() ) ) {
-			return $items;
-		}
+		return RW_Account_Access::shape_menu( $items, self::user_has_maintenance_for_menu( get_current_user_id() ), $licences );
+	}
 
-		$new_items = array();
-		foreach ( $items as $key => $label ) {
-			$new_items[ $key ] = $label;
-			if ( 'dashboard' === $key ) {
-				$new_items[ self::ENDPOINT ] = 'Maintenance';
-			}
+	/**
+	 * Refuse Products & licences when the API Manager reports no licensed records.
+	 * Hosting endpoints are not handled here.
+	 *
+	 * @return void
+	 */
+	public static function maybe_block_unlicensed_endpoint() {
+		if ( ! function_exists( 'is_wc_endpoint_url' ) || ! is_wc_endpoint_url( 'license' ) ) {
+			return;
 		}
-
-		if ( ! isset( $new_items[ self::ENDPOINT ] ) ) {
-			$new_items[ self::ENDPOINT ] = 'Maintenance';
+		if ( ! function_exists( 'is_user_logged_in' ) || ! is_user_logged_in() ) {
+			return;
 		}
-
-		return $new_items;
+		if ( ! function_exists( 'reactwoo_api_manager_get_customer_account_records' ) || ! class_exists( 'RW_Account_Access' ) ) {
+			return;
+		}
+		$records = reactwoo_api_manager_get_customer_account_records( get_current_user_id() );
+		$count   = is_array( $records ) ? count( $records ) : 0;
+		if ( RW_Account_Access::licences_endpoint_allowed( $count ) ) {
+			return;
+		}
+		if ( function_exists( 'status_header' ) ) {
+			status_header( 403 );
+		}
+		if ( function_exists( 'wp_die' ) ) {
+			wp_die( esc_html__( 'Products and licences are not on this account.', 'reactwoo-support-portal' ), '', array( 'response' => 403 ) );
+		}
 	}
 
 	/**
 	 * Whether this customer should see the Maintenance account menu item.
-	 * The endpoint itself stays available when this returns false.
+	 * Direct endpoint access uses the same subscription set.
 	 *
 	 * @param int $user_id WordPress user id.
 	 * @return bool
 	 */
 	public static function user_has_maintenance_for_menu( $user_id ) {
-		$user_id = (int) $user_id;
-		if ( $user_id <= 0 || ! function_exists( 'wcs_get_users_subscriptions' ) || ! class_exists( 'RW_Support_Offers' ) ) {
-			return false;
-		}
+		return ! empty( self::entitled_subscription_ids( $user_id ) );
+	}
 
+	/**
+	 * Maintenance subscriptions this customer may open.
+	 *
+	 * @param int $user_id Customer.
+	 * @return int[]
+	 */
+	public static function entitled_subscription_ids( $user_id ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 || ! function_exists( 'wcs_get_users_subscriptions' ) || ! class_exists( 'RW_Support_Offers' ) || ! class_exists( 'RW_Account_Access' ) ) {
+			return array();
+		}
 		$subscriptions = wcs_get_users_subscriptions( $user_id );
 		if ( ! is_array( $subscriptions ) ) {
-			return false;
+			return array();
 		}
 
+		$ids = array();
+		$now = time();
 		foreach ( $subscriptions as $subscription ) {
-			if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'get_status' ) ) {
+			if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'get_status' ) || ! method_exists( $subscription, 'get_id' ) ) {
 				continue;
 			}
-			$status = (string) $subscription->get_status();
-			if ( ! in_array( $status, array( 'active', 'pending-cancel', 'on-hold' ), true ) ) {
-				continue;
-			}
-			foreach ( RW_Support_Offers::product_ids_from_subscription( $subscription ) as $product_id ) {
-				if ( in_array( (int) $product_id, RW_Support_Offers::MAINTENANCE_PRODUCT_IDS, true ) ) {
-					return true;
+			$product_ids = RW_Support_Offers::product_ids_from_subscription( $subscription );
+			$maintenance = false;
+			foreach ( $product_ids as $product_id ) {
+				if ( RW_Support_Offers::product_is_maintenance( (int) $product_id, 0 ) ) {
+					$maintenance = true;
+					break;
 				}
 			}
+			$end       = method_exists( $subscription, 'get_time' ) ? (int) $subscription->get_time( 'end' ) : 0;
+			$lifecycle = RW_Account_Access::lifecycle( (string) $subscription->get_status(), $maintenance, $end, $now );
+			if ( RW_Account_Access::menu_visible( $lifecycle ) ) {
+				$ids[] = (int) $subscription->get_id();
+			}
 		}
 
-		return false;
+		return array_values( array_unique( $ids ) );
+	}
+
+	/**
+	 * @param int $user_id Customer.
+	 * @param int $selected_id Endpoint subscription id.
+	 * @return array{allow:bool,status:int,code:string,message:string}
+	 */
+	public static function endpoint_response( $user_id, $selected_id ) {
+		if ( ! class_exists( 'RW_Account_Access' ) ) {
+			return array(
+				'allow'   => false,
+				'status'  => 403,
+				'code'    => 'no_plan',
+				'message' => 'Maintenance is not on this account.',
+			);
+		}
+
+		return RW_Account_Access::endpoint_decision( $user_id, $selected_id, self::entitled_subscription_ids( $user_id ) );
 	}
 
 	public static function render() {
 		self::enqueue_maintenance_style();
-		self::handle_actions();
 
 		$user_id = get_current_user_id();
 		if ( ! $user_id ) {
@@ -201,6 +354,21 @@ class RW_Portal_Account {
 			echo '<p>WooCommerce Subscriptions is required to manage maintenance plans.</p>';
 			return;
 		}
+
+		$decision = self::endpoint_response( $user_id, self::selected_subscription_id() );
+		if ( empty( $decision['allow'] ) ) {
+			if ( function_exists( 'status_header' ) ) {
+				status_header( (int) $decision['status'] );
+			}
+			$code    = isset( $decision['code'] ) ? (string) $decision['code'] : 'no_plan';
+			$message = isset( $decision['message'] ) ? (string) $decision['message'] : 'Maintenance is not on this account.';
+			$code    = function_exists( 'esc_attr' ) ? esc_attr( $code ) : htmlspecialchars( $code, ENT_QUOTES, 'UTF-8' );
+			$message = function_exists( 'esc_html' ) ? esc_html( $message ) : htmlspecialchars( $message, ENT_QUOTES, 'UTF-8' );
+			echo '<p class="rw-maint-denied" data-access="' . $code . '">' . $message . '</p>';
+			return;
+		}
+
+		self::handle_actions();
 
 		if ( ! RW_Maintenance_Entitlements::portal_v2_enabled() ) {
 			echo '<p>Maintenance setup is not available on this account yet.</p>';
@@ -231,7 +399,9 @@ class RW_Portal_Account {
 		$blocks   = self::sort_subscription_blocks( $blocks );
 		$decision = self::blocks_for_request( $blocks, self::selected_subscription_id() );
 
-		echo '<div class="rw-maint">';
+		$theme_pref = self::maintenance_theme_pref( $user_id );
+		$theme_eff  = self::maintenance_theme_effective( $theme_pref );
+		echo '<div class="rw-maint" data-theme="' . esc_attr( $theme_eff ) . '" data-theme-pref="' . esc_attr( $theme_pref ) . '">';
 		if ( 'index' === $decision['mode'] ) {
 			$rw_sites = self::site_index_cards( $decision['blocks'] );
 			include RW_PORTAL_DIR . 'templates/account-sites.php';
@@ -385,6 +555,7 @@ class RW_Portal_Account {
 				'flags'             => $flags,
 				'url'               => self::maintenance_url( isset( $view['subscription_id'] ) ? $view['subscription_id'] : 0 ),
 				'connected'         => $connected,
+				'support_label'     => self::site_support_label( $view ),
 			);
 		}
 
@@ -414,6 +585,22 @@ class RW_Portal_Account {
 		}
 
 		return $others;
+	}
+
+	/**
+	 * Purchased minutes that belong to the website on this card.
+	 *
+	 * @param array<string,mixed> $view Subscription view.
+	 * @return string
+	 */
+	private static function site_support_label( array $view ) {
+		$minutes = isset( $view['purchased_minutes_remaining'] ) ? (int) $view['purchased_minutes_remaining'] : 0;
+		$host    = isset( $view['support_site_host'] ) ? (string) $view['support_site_host'] : '';
+		if ( $minutes <= 0 || '' === $host ) {
+			return '';
+		}
+
+		return $minutes . ' purchased minutes for ' . $host;
 	}
 
 	/**
@@ -472,11 +659,14 @@ class RW_Portal_Account {
 			$rw_view = self::view_model( $subscription, $user_id );
 		}
 		$partials = array(
-			'connecting'   => 'account-connecting.php',
-			'attention'    => 'account-attention.php',
-			'connected'    => 'account-dashboard.php',
-			'paused'       => 'account-paused.php',
-			'disconnected' => 'account-paused.php',
+			'connecting'         => 'account-connecting.php',
+			'attention'          => 'account-attention.php',
+			'connected'          => 'account-dashboard.php',
+			'paused'             => 'account-paused.php',
+			'disconnected'       => 'account-paused.php',
+			'pending_activation' => 'account-paused.php',
+			'payment_failed'     => 'account-paused.php',
+			'expired'            => 'account-paused.php',
 		);
 		$file    = isset( $partials[ $rw_view['state'] ] ) ? $partials[ $rw_view['state'] ] : 'account-onboarding.php';
 		$host    = self::subscription_host( $rw_view );
@@ -782,7 +972,7 @@ class RW_Portal_Account {
 
 	public static function render_connect_form( $subscription_id, $compact = false ) {
 		echo '<form class="rw-maint-form" method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="connect_wordpress" />';
 		echo '<input type="hidden" name="subscription_id" value="' . esc_attr( $subscription_id ) . '" />';
 		echo '<label>Website address<input type="url" name="site_url" required placeholder="https://example.com" autocomplete="url" /></label>';
@@ -797,7 +987,7 @@ class RW_Portal_Account {
 
 	public static function render_connect_existing_form( $site ) {
 		echo '<form class="rw-maint-form" method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="connect_existing" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
 		echo '<button type="submit" class="rw-maint-button">Connect WordPress</button>';
@@ -806,7 +996,7 @@ class RW_Portal_Account {
 
 	public static function render_replace_connection_form( $site ) {
 		echo '<form class="rw-maint-form" method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="connect_existing" />';
 		echo '<input type="hidden" name="takeover" value="1" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
@@ -820,19 +1010,20 @@ class RW_Portal_Account {
 		$email   = isset( $site->report_email ) ? (string) $site->report_email : '';
 		$enabled = ! isset( $site->report_enabled ) || (int) $site->report_enabled;
 		echo '<form class="rw-maint-form" method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="update_reporting" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
-		echo '<label for="rw-report-email-' . esc_attr( $site_id ) . '">Report email</label>';
-		echo '<input id="rw-report-email-' . esc_attr( $site_id ) . '" type="email" name="report_email" value="' . esc_attr( $email ) . '" required />';
+		echo '<label for="rw-report-recipients-' . esc_attr( $site_id ) . '">Report recipients</label>';
+		echo '<textarea id="rw-report-recipients-' . esc_attr( $site_id ) . '" name="report_recipients" rows="3" required placeholder="you@example.com, ops@example.com">' . esc_textarea( $email ) . '</textarea>';
+		echo '<p class="rw-maint-helper">Add one or more emails, separated by commas. The first address is the primary contact on the maintenance hub.</p>';
 		echo '<label class="rw-maint-check"><input type="checkbox" name="report_enabled" value="1" ' . checked( $enabled, true, false ) . ' /> Send maintenance summaries</label>';
-		echo '<button type="submit" class="rw-maint-button">Save report email</button>';
+		echo '<button type="submit" class="rw-maint-button">Save recipients</button>';
 		echo '</form>';
 	}
 
 	public static function render_manual_request( $site ) {
 		echo '<form class="rw-maint-form" method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="request_manual_setup" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
 		echo '<button type="submit" class="rw-maint-button-secondary">Let ReactWoo connect it for you</button>';
@@ -844,7 +1035,7 @@ class RW_Portal_Account {
 			return;
 		}
 		echo '<form method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="disconnect_site" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( (int) $site->id ) . '" />';
 		echo '<button type="submit" class="rw-maint-button-secondary">Disconnect website</button>';
@@ -852,17 +1043,12 @@ class RW_Portal_Account {
 	}
 
 	private static function subscription_can_connect( $subscription ) {
-		if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'has_status' ) ) {
+		if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'get_status' ) || ! class_exists( 'RW_Account_Access' ) ) {
 			return false;
 		}
-		if ( $subscription->has_status( 'active' ) ) {
-			return true;
-		}
-		if ( ! $subscription->has_status( 'pending-cancel' ) ) {
-			return false;
-		}
-		$end = method_exists( $subscription, 'get_time' ) ? (int) $subscription->get_time( 'end' ) : 0;
-		return RW_Subscription_Policy::entitlement_still_paid( $end > 0 ? $end : null, time() );
+		$end       = method_exists( $subscription, 'get_time' ) ? (int) $subscription->get_time( 'end' ) : 0;
+		$lifecycle = RW_Account_Access::lifecycle( (string) $subscription->get_status(), true, $end, time() );
+		return RW_Account_Access::can_connect( $lifecycle );
 	}
 
 	private static function view_model( $subscription, $user_id ) {
@@ -895,7 +1081,18 @@ class RW_Portal_Account {
 			$message     = $entitlement->get_error_message();
 		}
 
-		if ( ! self::subscription_can_connect( $subscription ) ) {
+		$end       = method_exists( $subscription, 'get_time' ) ? (int) $subscription->get_time( 'end' ) : 0;
+		$lifecycle = class_exists( 'RW_Account_Access' )
+			? RW_Account_Access::lifecycle( (string) $subscription->get_status(), true, $end, time() )
+			: 'active';
+		$paid_through_label = '';
+		if ( 'cancelled_paid_through' === $lifecycle && $end > 0 ) {
+			$paid_through_label = function_exists( 'date_i18n' ) ? date_i18n( 'j M Y', $end ) : gmdate( 'j M Y', $end );
+		}
+		$lifecycle_message = class_exists( 'RW_Account_Access' ) ? RW_Account_Access::lifecycle_message( $lifecycle, $paid_through_label ) : '';
+		if ( '' !== $lifecycle_message && 'active' !== $lifecycle ) {
+			$message = $lifecycle_message;
+		} elseif ( ! self::subscription_can_connect( $subscription ) ) {
 			$message = 'This plan is not active, so website connection is paused.';
 		}
 
@@ -914,15 +1111,49 @@ class RW_Portal_Account {
 		$included_remaining = null;
 		$included_granted   = $minutes;
 		$purchased_remaining = 0;
+		$unassigned_purchased = 0;
+		$support_site_host = '';
+		$plan_site_host    = '';
+		if ( $site && ! empty( $site->site_url ) && class_exists( 'RW_Support_Sites' ) ) {
+			$support_site_host = RW_Support_Sites::host_key( $site->site_url );
+		}
 		$show_included      = $minutes > 0;
+		$included_for_site  = true;
 		if ( ! is_wp_error( $entitlement ) && class_exists( 'RW_Support_Allowance' ) ) {
 			RW_Support_Allowance::grant_subscription( $subscription );
 			$balances            = RW_Support_Ledger::balances( $subscription_id );
-			$period              = RW_Support_Balance::period_containing( (string) $subscription->get_date( 'start' ), current_time( 'mysql' ) );
+			$credit_rows         = $balances['rows'];
+			if ( class_exists( 'RW_Support_Ledger' ) ) {
+				$user_rows = RW_Support_Ledger::rows_for_user( $user_id );
+				if ( ! empty( $user_rows ) ) {
+					$credit_rows = $user_rows;
+				}
+			}
+			$now                 = current_time( 'mysql' );
+			$period              = RW_Support_Balance::period_containing( (string) $subscription->get_date( 'start' ), $now );
 			$included_granted    = $period ? RW_Support_Balance::current_grant( $balances['rows'], $period['start_date'] ) : 0;
 			$included_remaining  = (int) $balances['included'];
-			$purchased_remaining = (int) $balances['purchased'];
 			$show_included       = $included_granted > 0;
+			$plan_host           = '';
+			if ( class_exists( 'RW_Support_Sites' ) ) {
+				$plan_site = RW_Support_Sites::plan_site( $subscription );
+				$plan_host = $plan_site['host'];
+				$plan_site_host = $plan_host;
+				if ( in_array( $plan_site['status'], array( 'empty', 'disagree' ), true ) ) {
+					RW_Support_Sites::flag_plan( $subscription_id, (int) $user_id, $plan_site['status'] );
+				}
+				$context_host = ( $site && ! empty( $site->site_url ) ) ? RW_Support_Sites::host_key( $site->site_url ) : $plan_host;
+				$support_site_host = $context_host;
+				$scoped = RW_Support_Sites::context_balance( $credit_rows, $now, $context_host, $plan_host );
+				$purchased_remaining = (int) $scoped['purchased'];
+				$unassigned_purchased = (int) $scoped['unassigned'];
+				$included_for_site = ! empty( $scoped['included_applies'] ) || '' === $plan_host;
+				if ( $unassigned_purchased > 0 ) {
+					RW_Support_Sites::flag_unassigned_rows( $credit_rows, $now, (int) $user_id );
+				}
+			} else {
+				$purchased_remaining = (int) $balances['purchased'];
+			}
 		}
 
 		return array(
@@ -932,16 +1163,24 @@ class RW_Portal_Account {
 			'included_minutes_remaining' => $included_remaining,
 			'included_minutes_granted'   => $included_granted,
 			'purchased_minutes_remaining' => $purchased_remaining,
+			'unassigned_purchased_minutes' => $unassigned_purchased,
+			'support_site_host'          => $support_site_host,
+			'plan_site_host'             => $plan_site_host,
+			'included_for_site'          => $included_for_site,
 			'show_included_minutes'      => $show_included,
 			'site'            => $site,
 			'sites'           => self::site_summaries( $sites ),
 			'state'           => $state,
+			'lifecycle'       => $lifecycle,
 			'status_label'    => self::state_label( $state, $site ),
+			'heading'         => class_exists( 'RW_Account_Access' ) ? RW_Account_Access::heading( $state ) : '',
 			'message'         => $message,
+			'subscriptions_url' => self::subscriptions_url(),
+			'lifecycle_notice' => ( 'connected' === $state && 'cancelled_paid_through' === $lifecycle ) ? $lifecycle_message : '',
 			'can_connect'     => $can_connect,
 			'backup_label'    => '' !== $backup ? ucfirst( $backup ) : 'Included on your plan',
 			'last_seen'       => ( $site && ! empty( $site->last_seen ) ) ? self::format_datetime( $site->last_seen ) : '',
-			'support_mailto'  => $support ? 'mailto:' . $support . '?subject=' . rawurlencode( 'Maintenance support' ) : '',
+			'support_mailto'  => $support ? 'mailto:' . $support . '?subject=' . rawurlencode( '' !== $support_site_host ? 'Maintenance support for ' . $support_site_host : 'Maintenance support' ) : '',
 			'progress'        => self::progress_steps( $site ),
 			'plan_points'     => self::plan_points( $plan_name, $show_included, $included_granted ),
 			'benefits'        => self::benefit_cards( $reports_on, $speed_on ),
@@ -968,7 +1207,18 @@ class RW_Portal_Account {
 		return $sites[0];
 	}
 
+	private static function subscriptions_url() {
+		if ( function_exists( 'wc_get_account_endpoint_url' ) ) {
+			return wc_get_account_endpoint_url( 'subscriptions' );
+		}
+
+		return home_url( '/my-account/subscriptions/' );
+	}
+
 	private static function state_label( $state, $site ) {
+		if ( class_exists( 'RW_Account_Access' ) && in_array( (string) $state, array( 'pending_activation', 'payment_failed', 'expired' ), true ) ) {
+			return RW_Account_Access::status_label( $state );
+		}
 		if ( $site ) {
 			return self::customer_status_label( $site );
 		}
@@ -980,31 +1230,15 @@ class RW_Portal_Account {
 	}
 
 	private static function view_state( $subscription, $site ) {
-		if ( 'active' !== $subscription->get_status() ) {
-			return 'paused';
-		}
-		if ( ! $site ) {
-			return 'setup';
-		}
-		if ( isset( $site->status ) && 'suspended' === $site->status ) {
-			return 'paused';
-		}
-		if ( isset( $site->status ) && 'disconnected' === $site->status ) {
-			return 'disconnected';
-		}
+		$end       = ( is_object( $subscription ) && method_exists( $subscription, 'get_time' ) ) ? (int) $subscription->get_time( 'end' ) : 0;
+		$status    = ( is_object( $subscription ) && method_exists( $subscription, 'get_status' ) ) ? (string) $subscription->get_status() : '';
+		$lifecycle = class_exists( 'RW_Account_Access' ) ? RW_Account_Access::lifecycle( $status, true, $end, time() ) : 'active';
+		$site_status = ( $site && isset( $site->status ) ) ? (string) $site->status : '';
+		$connection  = ( $site && isset( $site->connection_state ) ) ? (string) $site->connection_state : '';
 
-		$state = isset( $site->connection_state ) ? (string) $site->connection_state : '';
-		if ( RW_Connection_State::CONNECTED === $state || ( '' === $state && isset( $site->status ) && 'connected' === $site->status ) ) {
-			return 'connected';
-		}
-		if ( in_array( $state, array( RW_Connection_State::ACTION_REQUIRED, RW_Connection_State::FAILED ), true ) ) {
-			return 'attention';
-		}
-		if ( in_array( $state, array( RW_Connection_State::NOT_STARTED, RW_Connection_State::AWAITING_SITE, '' ), true ) ) {
-			return 'setup';
-		}
-
-		return 'connecting';
+		return class_exists( 'RW_Account_Access' )
+			? RW_Account_Access::screen_for( $lifecycle, $site_status, $connection )
+			: 'setup';
 	}
 
 	private static function site_summaries( $sites ) {
@@ -1251,7 +1485,7 @@ class RW_Portal_Account {
 
 		if ( 'disconnected' !== $site->status && RW_Connection_State::CONNECTED !== $state ) {
 			echo '<form method="post" style="margin-bottom:8px;">';
-			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			self::action_fields();
 			echo '<input type="hidden" name="rw_portal_action" value="connect_existing" />';
 			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 			echo '<button type="submit" class="button button-primary">Connect WordPress</button>';
@@ -1259,7 +1493,7 @@ class RW_Portal_Account {
 		}
 
 		echo '<form method="post" style="margin-bottom:8px;">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="update_reporting" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 		echo '<input type="email" name="report_email" value="' . esc_attr( $site->report_email ) . '" placeholder="Report email" />';
@@ -1268,14 +1502,14 @@ class RW_Portal_Account {
 		echo '</form>';
 
 		echo '<form method="post" style="margin-bottom:8px;">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="resync_site" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 		echo '<button type="submit" class="button">Resync Client Details</button>';
 		echo '</form>';
 
 		echo '<form method="post" style="margin-bottom:8px;">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="toggle_url_override" />';
 		echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 		echo '<input type="hidden" name="override_value" value="' . esc_attr( (int) ! $site->enroll_url_override ) . '" />';
@@ -1285,14 +1519,14 @@ class RW_Portal_Account {
 
 		if ( in_array( $site->status, array( 'connected', 'suspended', 'error' ), true ) ) {
 			echo '<form method="post" style="margin-bottom:8px;">';
-			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			self::action_fields();
 			echo '<input type="hidden" name="rw_portal_action" value="check_site" />';
 			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 			echo '<button type="submit" class="button">Run Health Check</button>';
 			echo '</form>';
 
 			echo '<form method="post" style="margin-bottom:8px;">';
-			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			self::action_fields();
 			echo '<input type="hidden" name="rw_portal_action" value="sync_site" />';
 			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 			echo '<button type="submit" class="button">Sync Now</button>';
@@ -1301,7 +1535,7 @@ class RW_Portal_Account {
 
 		if ( in_array( $site->status, array( 'disconnected', 'error' ), true ) ) {
 			echo '<form method="post" style="margin-bottom:8px;">';
-			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			self::action_fields();
 			echo '<input type="hidden" name="rw_portal_action" value="reconnect_site" />';
 			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 			echo '<button type="submit" class="button">Reconnect Site</button>';
@@ -1310,7 +1544,7 @@ class RW_Portal_Account {
 
 		if ( 'disconnected' !== $site->status ) {
 			echo '<form method="post">';
-			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+			self::action_fields();
 			echo '<input type="hidden" name="rw_portal_action" value="disconnect_site" />';
 			echo '<input type="hidden" name="site_id" value="' . esc_attr( $site_id ) . '" />';
 			echo '<button type="submit" class="button">Disconnect Site</button>';
@@ -1321,7 +1555,7 @@ class RW_Portal_Account {
 	private static function render_create_form( $subscription_id ) {
 		echo '<h4>Add a Site</h4>';
 		echo '<form method="post">';
-		wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		self::action_fields();
 		echo '<input type="hidden" name="rw_portal_action" value="connect_wordpress" />';
 		echo '<input type="hidden" name="subscription_id" value="' . esc_attr( $subscription_id ) . '" />';
 		echo '<p><label>Site URL<br /><input type="url" name="site_url" required placeholder="https://example.com" /></label></p>';
@@ -1333,18 +1567,128 @@ class RW_Portal_Account {
 		echo '</form>';
 	}
 
+	/**
+	 * Nonce plus a single-use token. A repeated POST is refused.
+	 *
+	 * @return void
+	 */
+	public static function action_fields() {
+		if ( function_exists( 'wp_nonce_field' ) ) {
+			wp_nonce_field( 'rw_portal_account_action', 'rw_portal_nonce' );
+		}
+		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		$token   = self::issue_action_token( $user_id );
+		echo '<input type="hidden" name="rw_action_token" value="' . htmlspecialchars( $token, ENT_QUOTES, 'UTF-8' ) . '" />';
+	}
+
+	/**
+	 * @param int $user_id Customer.
+	 * @return string
+	 */
+	public static function issue_action_token( $user_id ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 ) {
+			return '';
+		}
+		try {
+			$token = bin2hex( random_bytes( 16 ) );
+		} catch ( Exception $e ) {
+			return '';
+		}
+		set_transient( self::action_token_key( $user_id, $token ), 'open', 12 * 3600 );
+
+		return $token;
+	}
+
+	/**
+	 * @param int    $user_id Customer.
+	 * @param string $token Form token.
+	 * @return bool
+	 */
+	public static function action_token_is_open( $user_id, $token ) {
+		$token = (string) $token;
+		if ( (int) $user_id <= 0 || ! preg_match( '/^[a-f0-9]{32}$/', $token ) ) {
+			return false;
+		}
+
+		return 'open' === get_transient( self::action_token_key( $user_id, $token ) );
+	}
+
+	/**
+	 * @param int    $user_id Customer.
+	 * @param string $token Form token.
+	 * @return bool
+	 */
+	public static function consume_action_token( $user_id, $token ) {
+		if ( ! self::action_token_is_open( $user_id, $token ) ) {
+			return false;
+		}
+		delete_transient( self::action_token_key( $user_id, $token ) );
+
+		return true;
+	}
+
+	/**
+	 * @param int    $user_id Customer.
+	 * @param string $token Form token.
+	 * @return string
+	 */
+	private static function action_token_key( $user_id, $token ) {
+		return 'rw_portal_action_' . (int) $user_id . '_' . $token;
+	}
+
 	private static function handle_actions() {
 		if ( empty( $_POST['rw_portal_action'] ) ) {
 			return;
 		}
 
-		if ( empty( $_POST['rw_portal_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['rw_portal_nonce'] ) ), 'rw_portal_account_action' ) ) {
-			self::add_notice( 'Security check failed.', 'error' );
+		$user_id  = get_current_user_id();
+		$nonce    = isset( $_POST['rw_portal_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['rw_portal_nonce'] ) ) : '';
+		$nonce_ok = function_exists( 'wp_verify_nonce' ) && '' !== $nonce && wp_verify_nonce( $nonce, 'rw_portal_account_action' );
+		$token    = isset( $_POST['rw_action_token'] ) ? sanitize_text_field( wp_unslash( $_POST['rw_action_token'] ) ) : '';
+		$token_ok = $nonce_ok && self::action_token_is_open( $user_id, $token );
+		if ( $token_ok ) {
+			self::consume_action_token( $user_id, $token );
+		}
+
+		$subscription_id = isset( $_POST['subscription_id'] ) ? absint( wp_unslash( $_POST['subscription_id'] ) ) : 0;
+		$site_id         = isset( $_POST['site_id'] ) ? absint( wp_unslash( $_POST['site_id'] ) ) : 0;
+		$site_user_id    = 0;
+		$site_sub_id     = 0;
+		if ( $site_id > 0 && class_exists( 'RW_Sites' ) ) {
+			$site = RW_Sites::get_site( $site_id );
+			if ( is_object( $site ) ) {
+				$site_user_id = isset( $site->user_id ) ? (int) $site->user_id : 0;
+				$site_sub_id  = isset( $site->subscription_id ) ? (int) $site->subscription_id : 0;
+			}
+		}
+		$owns = class_exists( 'RW_Account_Access' ) && RW_Account_Access::target_owned(
+			$subscription_id,
+			self::entitled_subscription_ids( $user_id ),
+			$site_user_id,
+			$site_sub_id,
+			$user_id
+		);
+		$decision = class_exists( 'RW_Account_Access' )
+			? RW_Account_Access::authorize_post(
+				array(
+					'user_id'     => $user_id,
+					'nonce_ok'    => $nonce_ok,
+					'token_ok'    => $token_ok,
+					'entitled'    => self::user_has_maintenance_for_menu( $user_id ),
+					'owns_target' => $owns,
+				)
+			)
+			: array(
+				'allow'   => false,
+				'message' => 'Security check failed.',
+			);
+		if ( empty( $decision['allow'] ) ) {
+			self::add_notice( isset( $decision['message'] ) ? (string) $decision['message'] : 'Security check failed.', 'error' );
 			return;
 		}
 
-		$action  = sanitize_key( wp_unslash( $_POST['rw_portal_action'] ) );
-		$user_id = get_current_user_id();
+		$action = sanitize_key( wp_unslash( $_POST['rw_portal_action'] ) );
 
 		switch ( $action ) {
 			case 'create_site':
@@ -1363,10 +1707,14 @@ class RW_Portal_Account {
 				self::handle_disconnect_site( $user_id );
 				break;
 			case 'check_site':
-				self::handle_maint_action( $user_id, 'check', 'site_check_requested', 'Health check requested.' );
-				break;
 			case 'sync_site':
-				self::handle_maint_action( $user_id, 'sync', 'site_sync_requested', 'Sync requested.' );
+			case 'request_backup':
+			case 'run_updates':
+			case 'security_scan':
+			case 'pause_maintenance':
+			case 'resume_maintenance':
+			case 'download_report':
+				RW_Portal_Customer_Actions::handle( $user_id, $action );
 				break;
 			case 'reconnect_site':
 				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );
@@ -1378,7 +1726,7 @@ class RW_Portal_Account {
 				self::handle_resync_site( $user_id );
 				break;
 			case 'update_reporting':
-				self::handle_update_reporting( $user_id );
+				RW_Portal_Customer_Actions::handle_update_reporting( $user_id );
 				break;
 			case 'request_manual_setup':
 				self::handle_manual_setup( $user_id );

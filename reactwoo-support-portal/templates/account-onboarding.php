@@ -192,8 +192,16 @@ $support_id = 'rw-maint-report-value-' . $block_id;
 				<p class="rw-maint-pill"><?php echo esc_html( $plan_short ); ?> plan</p>
 				<p>This plan does not include technical support minutes.</p>
 			<?php endif; ?>
-			<?php if ( isset( $rw_view['purchased_minutes_remaining'] ) && (int) $rw_view['purchased_minutes_remaining'] > 0 ) : ?>
-				<p class="rw-maint-allowance-note"><?php echo esc_html( (string) (int) $rw_view['purchased_minutes_remaining'] ); ?> purchased minutes remain.</p>
+			<?php
+			$purchased_for_site = isset( $rw_view['purchased_minutes_remaining'] ) ? (int) $rw_view['purchased_minutes_remaining'] : 0;
+			$support_host       = isset( $rw_view['support_site_host'] ) ? (string) $rw_view['support_site_host'] : '';
+			$unassigned_minutes = isset( $rw_view['unassigned_purchased_minutes'] ) ? (int) $rw_view['unassigned_purchased_minutes'] : 0;
+			?>
+			<?php if ( $purchased_for_site > 0 && '' !== $support_host ) : ?>
+				<p class="rw-maint-allowance-note"><?php echo esc_html( (string) $purchased_for_site ); ?> purchased minutes remain for <?php echo esc_html( $support_host ); ?>.</p>
+			<?php endif; ?>
+			<?php if ( $unassigned_minutes > 0 ) : ?>
+				<p class="rw-maint-allowance-note"><?php echo esc_html( (string) $unassigned_minutes ); ?> purchased minutes are not tied to a website yet. They stay on the account until we assign them.</p>
 			<?php endif; ?>
 		</div>
 		<div class="rw-maint-support-copy">

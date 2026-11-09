@@ -16,6 +16,27 @@ class RW_Support_Purchase {
 	const NONCE_ACTION = 'rw_buy_extra_support';
 
 	/**
+	 * Immediate saved-card charges stay off unless the owner turns them on.
+	 * One-click otherwise starts checkout with the stored method selected.
+	 *
+	 * @param bool|null $override Test override. Null reads the option.
+	 * @return bool
+	 */
+	public static function saved_method_charge_authorised( $override = null ) {
+		if ( null !== $override ) {
+			return (bool) $override;
+		}
+		if ( defined( 'RW_SUPPORT_CHARGE_SAVED_METHOD' ) && RW_SUPPORT_CHARGE_SAVED_METHOD ) {
+			return true;
+		}
+		if ( function_exists( 'get_option' ) && 'yes' === (string) get_option( 'rw_support_charge_saved_method', 'no' ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * @var callable|null
 	 */
 	public static $order_factory = null;
@@ -173,6 +194,22 @@ class RW_Support_Purchase {
 		if ( ! RW_Support_Offers::allows_purchase( ! empty( $product['purchasable'] ), $kind, $has_plan ) ) {
 			return self::failure( 'Additional support is available with an active maintenance plan.' );
 		}
+		if ( 'additional' === $kind ) {
+			$pack_domain = isset( $input['service_domain'] ) ? (string) $input['service_domain'] : '';
+			$plan_hosts  = ( isset( $input['plan_hosts'] ) && is_array( $input['plan_hosts'] ) ) ? $input['plan_hosts'] : array();
+			if ( empty( $plan_hosts ) && class_exists( 'RW_Support_Sites' ) ) {
+				$plan_hosts = RW_Support_Sites::resolved_hosts_for_user( $user_id );
+			}
+			$reason = RW_Support_Offers::checkout_site_refusal( $has_plan, $pack_domain, $plan_hosts );
+			if ( '' !== $reason ) {
+				return self::failure( RW_Support_Offers::site_refusal_message( $reason ) );
+			}
+		}
+
+		$charge_override = array_key_exists( 'charge_authorised', $input ) ? $input['charge_authorised'] : null;
+		if ( ! self::saved_method_charge_authorised( $charge_override ) ) {
+			return self::failure( 'Confirm this pack at checkout. A saved card is not charged from this page.' );
+		}
 
 		$token = isset( $input['token'] ) && is_array( $input['token'] ) ? $input['token'] : null;
 		$gateway = isset( $input['gateway'] ) ? $input['gateway'] : null;
@@ -206,7 +243,8 @@ class RW_Support_Purchase {
 		self::stamp_order(
 			$order,
 			isset( $input['subscription_id'] ) ? (int) $input['subscription_id'] : 0,
-			isset( $input['site_id'] ) ? (int) $input['site_id'] : 0
+			isset( $input['site_id'] ) ? (int) $input['site_id'] : 0,
+			isset( $input['service_domain'] ) ? (string) $input['service_domain'] : ''
 		);
 		if ( method_exists( $order, 'set_payment_method' ) ) {
 			$order->set_payment_method( $gateway );
@@ -301,7 +339,7 @@ class RW_Support_Purchase {
 	 * @param int    $subscription_id Subscription.
 	 * @param int    $site_id Managed site.
 	 */
-	public static function stamp_order( $order, $subscription_id, $site_id ) {
+	public static function stamp_order( $order, $subscription_id, $site_id, $service_domain = '' ) {
 		if ( ! is_object( $order ) || ! method_exists( $order, 'update_meta_data' ) ) {
 			return;
 		}
@@ -310,6 +348,17 @@ class RW_Support_Purchase {
 		}
 		if ( $site_id > 0 ) {
 			$order->update_meta_data( '_rw_managed_site_id', (int) $site_id );
+		}
+		$host = class_exists( 'RW_Support_Sites' ) ? RW_Support_Sites::host_key( $service_domain ) : '';
+		if ( '' !== $host ) {
+			$order->update_meta_data( '_rw_service_domain', $host );
+			if ( method_exists( $order, 'get_items' ) ) {
+				foreach ( $order->get_items() as $item ) {
+					if ( is_object( $item ) && method_exists( $item, 'update_meta_data' ) ) {
+						$item->update_meta_data( '_rw_service_domain', $host );
+					}
+				}
+			}
 		}
 	}
 

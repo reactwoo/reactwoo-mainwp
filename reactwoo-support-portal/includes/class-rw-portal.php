@@ -23,10 +23,12 @@ final class RW_Portal {
 		RW_Portal_Admin_Menu::register();
 		RW_Portal_Settings::register();
 		RW_Portal_Account::register();
+		RW_Portal_Customer_Actions::register();
 		RW_Portal_Identity_Sync::register();
 		RW_Portal_Audit_Admin::register();
 		RW_Portal_Dashboard::register();
 		RW_Portal_Sites_Admin::register();
+		RW_Support_Site_Admin::register();
 		RW_Connection_Orchestrator::register();
 		RW_Maintenance_Emails::register();
 		RW_Temporary_Access::register();
@@ -45,11 +47,14 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maintenance-plans.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-balance.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-ledger.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-sites.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-site-admin.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-allowance.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-credits.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-offers.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-purchase.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-subscription-policy.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-account-access.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-redact.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-rest-url.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maintenance-entitlements.php';
@@ -71,6 +76,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-admin-menu.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-settings.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-account.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-customer-actions.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-identity-sync.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-audit-admin.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-dashboard.php';

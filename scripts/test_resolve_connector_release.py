@@ -110,8 +110,8 @@ def main() -> None:
     text = plugin.read_text(encoding="utf-8")
     header, constant = release.read_plugin_versions(text)
     expect(
-        "the connector header and constant are both 0.3.1",
-        header == "0.3.1" and constant == "0.3.1",
+        "the connector header and constant are both 0.5.11",
+        header == "0.5.11" and constant == "0.5.11",
     )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -138,10 +138,10 @@ def main() -> None:
         )
         written = output.read_text(encoding="utf-8") if output.exists() else ""
         expect(
-            "the command publishes 0.3.1 when the catalog is older",
+            "the command publishes 0.5.11 when the catalog is older",
             completed.returncode == 0
             and "publish=true" in written
-            and "version=0.3.1" in written,
+            and "version=0.5.11" in written,
         )
 
         refused = subprocess.run(

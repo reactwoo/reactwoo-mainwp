@@ -65,10 +65,36 @@ class RW_Portal_Sites_Admin {
 				echo '<div class="notice notice-warning"><p>' . esc_html( $assignment ) . '</p></div>';
 			}
 		}
+		if ( class_exists( 'RW_Support_Site_Admin' ) ) {
+			RW_Support_Site_Admin::render_queue( self::unassigned_credit_rows() );
+		}
 		self::render_filters( $filters );
 		self::render_table( $sites );
 		self::render_pagination( $page, $total_pages, $filters );
 		echo '</div>';
+	}
+
+	/**
+	 * Purchased rows that still have no website. Used only to render the queue.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function unassigned_credit_rows() {
+		global $wpdb;
+
+		if ( ! class_exists( 'RW_DB' ) || ! method_exists( 'RW_DB', 'table_exists' ) ) {
+			return array();
+		}
+		$table = RW_DB::table( 'support_ledger' );
+		if ( ! RW_DB::table_exists( $table ) ) {
+			return array();
+		}
+		$loaded = $wpdb->get_results(
+			"SELECT * FROM {$table} WHERE credit_type = 'purchased' AND service_host = '' ORDER BY id ASC",
+			ARRAY_A
+		);
+
+		return is_array( $loaded ) ? $loaded : array();
 	}
 
 	private static function handle_actions() {

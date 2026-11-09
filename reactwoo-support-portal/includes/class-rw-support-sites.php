@@ -26,6 +26,12 @@ class RW_Support_Sites {
 	const ASSIGNMENT_OPTION = 'rw_support_site_needs_assignment';
 
 	/**
+	 * Same host pattern the checkout field accepts, after this plugin's host normalisation.
+	 * A scheme, www, port, path, or trailing dot is removed before this runs.
+	 */
+	const CHECKOUT_HOST_PATTERN = '/^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)*$/';
+
+	/**
 	 * Host only. Lower case, no scheme, no leading www, no port, no path, no trailing dot.
 	 *
 	 * @param mixed $raw URL or domain.
@@ -70,6 +76,22 @@ class RW_Support_Sites {
 	 * @param array<int,mixed>   $hosts
 	 * @return bool
 	 */
+	/**
+	 * Normalise a website the way checkout comparison does, then require the
+	 * checkout host pattern. An empty string is not a valid assignment.
+	 *
+	 * @param mixed $raw URL or domain.
+	 * @return string
+	 */
+	public static function checkout_host( $raw ) {
+		$host = self::host_key( $raw );
+		if ( '' === $host || ! preg_match( self::CHECKOUT_HOST_PATTERN, $host ) ) {
+			return '';
+		}
+
+		return $host;
+	}
+
 	public static function host_matches_any( $raw, array $hosts ) {
 		foreach ( $hosts as $host ) {
 			if ( self::hosts_match( $raw, $host ) ) {
@@ -488,6 +510,108 @@ class RW_Support_Sites {
 	/**
 	 * @return string
 	 */
+	/**
+	 * Decide an admin assignment. Minutes are not part of the change.
+	 *
+	 * @param string $target ledger, order_item, or subscription.
+	 * @param int    $id Target id.
+	 * @param mixed  $raw_host Posted website.
+	 * @param bool   $can manage_woocommerce.
+	 * @param bool   $nonce_ok Nonce matched this target.
+	 * @return array<string,mixed>
+	 */
+	public static function prepare_assignment( $target, $id, $raw_host, $can, $nonce_ok ) {
+		$target = (string) $target;
+		$id     = (int) $id;
+		if ( ! $can ) {
+			return array(
+				'ok'   => false,
+				'code' => 'forbidden',
+			);
+		}
+		if ( ! $nonce_ok ) {
+			return array(
+				'ok'   => false,
+				'code' => 'nonce',
+			);
+		}
+		if ( ! in_array( $target, array( 'ledger', 'order_item', 'subscription' ), true ) || $id <= 0 ) {
+			return array(
+				'ok'   => false,
+				'code' => 'invalid_target',
+			);
+		}
+		$host = self::checkout_host( $raw_host );
+		if ( '' === $host ) {
+			return array(
+				'ok'   => false,
+				'code' => 'invalid_host',
+			);
+		}
+
+		$fields = array();
+		if ( 'ledger' === $target ) {
+			$fields = array(
+				'service_host' => $host,
+			);
+		}
+
+		return array(
+			'ok'             => true,
+			'target'         => $target,
+			'id'             => $id,
+			'host'           => $host,
+			'meta_key'       => self::SERVICE_DOMAIN_META,
+			'fields'         => $fields,
+			'note'           => self::assignment_note( $target, $host ),
+			'customer_note'  => false,
+		);
+	}
+
+	/**
+	 * Copy a purchased row onto a website without changing its minutes.
+	 *
+	 * @param array<string,mixed> $row Ledger row.
+	 * @param mixed               $raw_host Posted website.
+	 * @return array<string,mixed>|null
+	 */
+	public static function with_assigned_host( array $row, $raw_host ) {
+		$host = self::checkout_host( $raw_host );
+		if ( '' === $host ) {
+			return null;
+		}
+		$minutes = isset( $row['minutes_delta'] ) ? (int) $row['minutes_delta'] : 0;
+		$row['service_host']  = $host;
+		$row['minutes_delta'] = $minutes;
+
+		return $row;
+	}
+
+	/**
+	 * Admin-only note. It is not a customer note, so it does not send mail.
+	 *
+	 * @param string $target ledger, order_item, or subscription.
+	 * @param string $host Normalised host.
+	 * @return string
+	 */
+	public static function assignment_note( $target, $host ) {
+		$host = self::checkout_host( $host );
+		if ( 'subscription' === (string) $target ) {
+			return 'Maintenance plan website set to ' . $host . '. Support minute totals were not changed.';
+		}
+
+		return 'Support minutes website set to ' . $host . '. Support minute totals were not changed.';
+	}
+
+	/**
+	 * @param string $target ledger, order_item, or subscription.
+	 * @param int    $id Target id.
+	 * @return string
+	 */
+	public static function assignment_nonce_action( $target, $id ) {
+		return 'rw_assign_support_site_' . sanitize_key( (string) $target ) . '_' . (int) $id;
+	}
+
 	public static function assignment_notice() {
 		$queue  = self::queue();
 		$plans  = count( $queue['plans'] );

@@ -121,6 +121,95 @@ class RW_Support_Ledger {
 		return $result;
 	}
 
+	/**
+	 * Store the website on one purchased row. No other column is written.
+	 *
+	 * @param int    $row_id Ledger id.
+	 * @param string $host Normalised host.
+	 * @return bool
+	 */
+	public static function set_service_host( $row_id, $host ) {
+		global $wpdb;
+
+		$row_id = (int) $row_id;
+		$host   = class_exists( 'RW_Support_Sites' ) ? RW_Support_Sites::checkout_host( $host ) : '';
+		$table  = RW_DB::table( 'support_ledger' );
+		if ( $row_id <= 0 || '' === $host || ! method_exists( 'RW_DB', 'table_exists' ) || ! RW_DB::table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $wpdb->update(
+			$table,
+			array(
+				'service_host' => $host,
+			),
+			array(
+				'id'          => $row_id,
+				'credit_type' => 'purchased',
+			),
+			array( '%s' ),
+			array( '%d', '%s' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
+	 * Point every purchased row for an order line at one website.
+	 * Minutes are not updated.
+	 *
+	 * @param int    $order_item_id Order line.
+	 * @param string $host Normalised host.
+	 * @return int Rows updated, or 0.
+	 */
+	public static function set_service_host_for_order_item( $order_item_id, $host ) {
+		global $wpdb;
+
+		$order_item_id = (int) $order_item_id;
+		$host          = class_exists( 'RW_Support_Sites' ) ? RW_Support_Sites::checkout_host( $host ) : '';
+		$table         = RW_DB::table( 'support_ledger' );
+		if ( $order_item_id <= 0 || '' === $host || ! method_exists( 'RW_DB', 'table_exists' ) || ! RW_DB::table_exists( $table ) ) {
+			return 0;
+		}
+
+		$updated = $wpdb->update(
+			$table,
+			array(
+				'service_host' => $host,
+			),
+			array(
+				'order_item_id' => $order_item_id,
+				'credit_type'   => 'purchased',
+			),
+			array( '%s' ),
+			array( '%d', '%s' )
+		);
+
+		return false === $updated ? 0 : (int) $updated;
+	}
+
+	/**
+	 * @param int $row_id Ledger id.
+	 * @return array<string,mixed>|null
+	 */
+	public static function row( $row_id ) {
+		global $wpdb;
+
+		$table = RW_DB::table( 'support_ledger' );
+		if ( (int) $row_id <= 0 || ! method_exists( 'RW_DB', 'table_exists' ) || ! RW_DB::table_exists( $table ) ) {
+			return null;
+		}
+		$loaded = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT * FROM {$table} WHERE id = %d",
+				(int) $row_id
+			),
+			ARRAY_A
+		);
+
+		return is_array( $loaded ) ? $loaded : null;
+	}
+
 	public static function record_adjustment( $user_id, $subscription_id, $minutes_delta, $actor_id, $reference ) {
 		return self::append(
 			$user_id,

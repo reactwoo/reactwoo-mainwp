@@ -28,6 +28,7 @@ final class RW_Portal {
 		RW_Portal_Audit_Admin::register();
 		RW_Portal_Dashboard::register();
 		RW_Portal_Sites_Admin::register();
+		RW_Support_Site_Admin::register();
 		RW_Connection_Orchestrator::register();
 		RW_Maintenance_Emails::register();
 		RW_Temporary_Access::register();
@@ -47,6 +48,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-balance.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-ledger.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-sites.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-support-site-admin.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-allowance.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-credits.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-support-offers.php';

@@ -328,3 +328,128 @@ rw_test(
 );
 
 delete_option( RW_Support_Sites::ASSIGNMENT_OPTION );
+
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-site-admin.php';
+require_once __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-ledger.php';
+
+class RW_Assign_Subscription {
+	public $id = 77;
+	public $meta = array();
+	public $notes = array();
+	public function get_id() {
+		return $this->id;
+	}
+	public function get_type() {
+		return 'shop_subscription';
+	}
+	public function update_meta_data( $key, $value ) {
+		$this->meta[ $key ] = $value;
+	}
+	public function save() {
+	}
+	public function get_meta( $key, $single = true ) {
+		unset( $single );
+		return isset( $this->meta[ $key ] ) ? $this->meta[ $key ] : '';
+	}
+	public function add_order_note( $note, $is_customer_note = 0, $added_by_user = false ) {
+		$this->notes[] = array( $note, (int) $is_customer_note, $added_by_user );
+	}
+}
+
+rw_test(
+	'an assigned website uses the checkout host check',
+	'example.com' === RW_Support_Sites::checkout_host( 'https://WWW.Example.com:443/shop/' )
+		&& 'example.com' === RW_Support_Sites::checkout_host( 'Example.com.' )
+		&& '' === RW_Support_Sites::checkout_host( '' )
+		&& '' === RW_Support_Sites::checkout_host( 'not a host' )
+		&& '' === RW_Support_Sites::checkout_host( 'javascript:alert(1)' )
+);
+
+$unassigned_row = array(
+	'id'            => 5,
+	'minutes_delta' => 60,
+	'credit_type'   => 'purchased',
+	'order_item_id' => 10,
+	'order_id'      => 90,
+	'reference'     => 'order_item:10',
+	'expires_at'    => '2027-01-01 00:00:00',
+	'service_host'  => '',
+);
+$assigned_row = RW_Support_Sites::with_assigned_host( $unassigned_row, 'https://www.Example.com/path' );
+$before_minutes = RW_Support_Balance::purchased_remainder( array( $unassigned_row ), $site_now );
+$after_minutes = RW_Support_Balance::purchased_remainder( array( $assigned_row ), $site_now );
+$ledger_decision = RW_Support_Sites::prepare_assignment( 'ledger', 5, 'https://WWW.Example.com', true, true );
+$blocked_cap = RW_Support_Sites::prepare_assignment( 'ledger', 5, 'example.com', false, true );
+$blocked_nonce = RW_Support_Sites::prepare_assignment( 'subscription', 77, 'example.com', true, false );
+rw_test(
+	'assigning a site keeps the minutes and only stores the host',
+	is_array( $assigned_row )
+		&& 60 === $assigned_row['minutes_delta']
+		&& 'example.com' === $assigned_row['service_host']
+		&& $before_minutes === $after_minutes
+		&& 60 === RW_Support_Balance::purchased_remainder_for_host( array( $assigned_row ), $site_now, 'example.com' )
+		&& 0 === RW_Support_Balance::unassigned_purchased_remainder( array( $assigned_row ), $site_now )
+		&& ! empty( $ledger_decision['ok'] )
+		&& array( 'service_host' => 'example.com' ) === $ledger_decision['fields']
+		&& ! isset( $ledger_decision['fields']['minutes_delta'] )
+		&& empty( $blocked_cap['ok'] )
+		&& 'forbidden' === $blocked_cap['code']
+		&& 'nonce' === $blocked_nonce['code']
+		&& false === $ledger_decision['customer_note']
+);
+
+$plan_decision = RW_Support_Sites::prepare_assignment( 'subscription', 77, 'https://www.Other.com:8443/a', true, true );
+RW_Support_Sites::flag_plan( 77, 21, 'empty' );
+$plan_doc = new RW_Assign_Subscription();
+$plan_saved = RW_Support_Site_Admin::assign( 'subscription', 77, 'https://www.Other.com/blog', true, true, $plan_doc );
+$plan_queue = RW_Support_Sites::queue();
+rw_test(
+	'a plan website is stored on the subscription with a private note',
+	! empty( $plan_decision['ok'] )
+		&& '_rw_service_domain' === $plan_decision['meta_key']
+		&& 'other.com' === $plan_decision['host']
+		&& ! empty( $plan_saved['ok'] )
+		&& 'other.com' === $plan_doc->meta['_rw_service_domain']
+		&& 1 === count( $plan_doc->notes )
+		&& 0 === $plan_doc->notes[0][1]
+		&& false === $plan_doc->notes[0][2]
+		&& false !== strpos( $plan_doc->notes[0][0], 'other.com' )
+		&& false !== strpos( $plan_doc->notes[0][0], 'not changed' )
+		&& ! isset( $plan_queue['plans']['77'] )
+);
+
+$queue_forms = RW_Support_Site_Admin::queue_form_rows(
+	array(
+		'plans'   => array(
+			'77' => array( 'subscription_id' => 77, 'user_id' => 21, 'reason' => 'empty' ),
+		),
+		'credits' => array(
+			'11' => array( 'order_item_id' => 11, 'user_id' => 21, 'order_id' => 91, 'reason' => 'unassigned', 'minutes' => 30 ),
+		),
+	),
+	array( $unassigned_row )
+);
+$queue_html = '';
+foreach ( $queue_forms as $queue_form ) {
+	$queue_html .= RW_Support_Site_Admin::form_markup( $queue_form );
+}
+$admin_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-support-site-admin.php' );
+$changelog = file_get_contents( __DIR__ . '/../reactwoo-support-portal/readme.txt' );
+rw_test(
+	'the assignment queue edits a host per plan, ledger row, and order line',
+	3 === count( $queue_forms )
+		&& 'subscription' === $queue_forms[0]['target']
+		&& 'ledger' === $queue_forms[1]['target']
+		&& 60 === $queue_forms[1]['minutes']
+		&& 'order_item' === $queue_forms[2]['target']
+		&& false !== strpos( $queue_html, 'name="rw_service_domain"' )
+		&& false !== strpos( $queue_html, 'minutes, unchanged' )
+		&& false === strpos( $queue_html, 'name="minutes' )
+		&& false !== strpos( $admin_src, 'manage_woocommerce' )
+		&& false !== strpos( $admin_src, 'wp_verify_nonce' )
+		&& false !== strpos( $admin_src, 'add_order_note' )
+		&& false !== strpos( $changelog, '= 0.5.10 =' )
+		&& false !== strpos( $changelog, 'Minute totals are not changed' )
+);
+
+delete_option( RW_Support_Sites::ASSIGNMENT_OPTION );

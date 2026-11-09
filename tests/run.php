@@ -3710,6 +3710,8 @@ rw_test(
 		&& false === strpos( $guarded_copy, "\u{2014}" )
 );
 
+require __DIR__ . '/wordfence-onboarding.php';
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

@@ -16,6 +16,7 @@ final class RW_Maint_Bridge {
 		RW_Maint_MainWP::register();
 		RW_Maint_MainWP_Client::register();
 		RW_Maint_Update_Guard::register();
+		RW_Maint_Wordfence_Template::register();
 		RW_Maint_Settings::register();
 		RW_Maint_Audit_Admin::register();
 		RW_Maint_Dashboard::register();
@@ -41,6 +42,7 @@ final class RW_Maint_Bridge {
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-site-snapshot.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-mainwp-status.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-update-guard.php';
+		require_once RW_MAINT_DIR . 'includes/class-rw-maint-wordfence-template.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-settings.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-audit-admin.php';
 		require_once RW_MAINT_DIR . 'includes/class-rw-maint-dashboard.php';

@@ -137,10 +137,30 @@ class RW_Maint_Client {
 	}
 
 	/**
-	 * Test the connection to the maintenance hub (URL + shared secret). Use from Support Portal settings.
+	 * Fetch the hub's Wordfence settings template. It contains no licence key.
 	 *
-	 * @return true|WP_Error True on success, WP_Error on failure.
+	 * @return array<string,mixed>|WP_Error
 	 */
+	public static function wordfence_template() {
+		return self::post( 'wordfence-template', array() );
+	}
+
+	/**
+	 * Ask the hub for a Wordfence Pro key. The hub returns one only when a
+	 * source has been configured. Callers must not log the response.
+	 *
+	 * @param int $portal_site_id
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function wordfence_licence( $portal_site_id ) {
+		return self::post(
+			'wordfence-licence',
+			array(
+				'portal_site_id' => (int) $portal_site_id,
+			)
+		);
+	}
+
 	/**
 	 * Read the synced maintenance snapshot for one enrolled site.
 	 *
@@ -161,6 +181,11 @@ class RW_Maint_Client {
 		);
 	}
 
+	/**
+	 * Test the connection to the maintenance hub (URL + shared secret). Use from Support Portal settings.
+	 *
+	 * @return true|WP_Error True on success, WP_Error on failure.
+	 */
 	public static function test_connection() {
 		$result = self::post( 'test', array() );
 		if ( is_wp_error( $result ) ) {

@@ -11,6 +11,7 @@ class RW_Connector {
 		self::load_dependencies();
 		RW_Connector_Updater::init();
 		RW_Whitelabel::register();
+		RW_Connector_Wordfence_Onboarding::register();
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
 		add_action( self::HEARTBEAT_HOOK, array( __CLASS__, 'send_heartbeat' ) );
 	}
@@ -28,6 +29,9 @@ class RW_Connector {
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-updater.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-security-scan.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-snapshot.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-wordfence-conflicts.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-wordfence-template.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-wordfence-onboarding.php';
 	}
 
 	public static function register_routes() {
@@ -35,6 +39,7 @@ class RW_Connector {
 		RW_Component_Installer::register_routes();
 		RW_Connector_Security_Scan::register_routes();
 		RW_Connector_Snapshot::register_routes();
+		RW_Connector_Wordfence_Onboarding::register_routes();
 
 		register_rest_route(
 			'reactwoo-connector/v1',
@@ -224,6 +229,9 @@ class RW_Connector {
 	public static function persist_enrolment( $portal_url, $site_id, $secret, array $payload ) {
 		self::store_connection( $portal_url, $site_id, $secret, $payload );
 		self::schedule_heartbeat();
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'rw_connector_enrolled' );
+		}
 	}
 
 	public static function clear_enrolment() {

@@ -3424,6 +3424,14 @@ rw_test( 'build_simple_pdf header', 0 === strpos( $pdf, '%PDF-1.4' ) );
 rw_test( 'build_simple_pdf eof', false !== strpos( $pdf, '%%EOF' ) );
 rw_test( 'build_simple_pdf has text', false !== strpos( $pdf, 'Hello' ) );
 
+$publish_workflow = file_get_contents( __DIR__ . '/../.github/workflows/publish-update.yml' );
+rw_test(
+	'connector publish takes its catalog version from the plugin header',
+	false === strpos( $publish_workflow, 'GITHUB_REF_NAME#v' )
+		&& false !== strpos( $publish_workflow, 'resolve_connector_release.py' )
+		&& false !== strpos( $publish_workflow, 'steps.meta.outputs.version' )
+);
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

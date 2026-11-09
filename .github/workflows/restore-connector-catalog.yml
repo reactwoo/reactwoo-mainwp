@@ -1,14 +1,16 @@
 name: Restore connector catalog
 
-# Runs the connector publish workflow when the explicit restore file changes.
-# A portal tag is not required. The publish job still refuses any version
-# other than the connector plugin header.
+# Runs the connector publish workflow without a portal tag.
+# A connector change on main is the release path. The publish job still
+# uses the plugin header, and it publishes only when that header is higher
+# than the catalog.
 
 on:
   push:
     branches:
       - main
     paths:
+      - "reactwoo-support-connector/**"
       - ".github/workflows/publish-update.yml"
       - ".github/workflows/restore-connector-catalog.yml"
       - "scripts/connector-catalog-restore.txt"

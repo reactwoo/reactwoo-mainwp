@@ -1,5 +1,5 @@
 === ReactWoo Support Connector ===
-Stable tag: 0.3.1
+Stable tag: 0.5.11
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 7.4
@@ -8,6 +8,9 @@ License: GPLv2 or later
 Connects a WordPress website to ReactWoo Maintenance. Updates are delivered from the ReactWoo catalog.
 
 == Changelog ==
+
+= 0.5.11 =
+* Version realigned with update catalog; no functional changes.
 
 = 0.3.1 =
 * Recognise the ReactWoo dashboard by host, so sites whose MainWP Child stored the /wp-admin/ server URL re-enrol instead of being blocked.

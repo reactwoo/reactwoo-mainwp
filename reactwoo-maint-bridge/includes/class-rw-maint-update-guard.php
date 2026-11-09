@@ -13,8 +13,34 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_Maint_Update_Guard {
+	/**
+	 * Default age, in seconds, of a snapshot that may still gate an update.
+	 * Override with the option rw_maint_snapshot_fresh_seconds, or the filter
+	 * of the same name. This is the only place the number is defined.
+	 */
 	const FRESH_SECONDS = 1800;
+	const FRESH_OPTION  = 'rw_maint_snapshot_fresh_seconds';
 	const AUDIT_HOOK    = 'rw_maint_audit_auto_updates';
+
+	/**
+	 * Freshness window in seconds. The option and filter replace the default.
+	 *
+	 * @return int
+	 */
+	public static function fresh_seconds() {
+		$window = self::FRESH_SECONDS;
+		if ( function_exists( 'get_option' ) ) {
+			$stored = get_option( self::FRESH_OPTION, '' );
+			if ( is_numeric( $stored ) && (int) $stored > 0 ) {
+				$window = (int) $stored;
+			}
+		}
+		if ( function_exists( 'apply_filters' ) ) {
+			$window = (int) apply_filters( self::FRESH_OPTION, $window );
+		}
+
+		return $window > 0 ? $window : self::FRESH_SECONDS;
+	}
 
 	public static function register() {
 		add_action( self::AUDIT_HOOK, array( __CLASS__, 'audit_auto_updates' ) );
@@ -32,7 +58,7 @@ class RW_Maint_Update_Guard {
 	public static function decide( $backup_ref, $snapshot_at, $now = null ) {
 		$now = null === $now ? time() : (int) $now;
 		$ref = trim( (string) $backup_ref );
-		if ( ! self::valid_reference( $ref ) || ! self::snapshot_is_fresh( $snapshot_at, $now, self::FRESH_SECONDS ) ) {
+		if ( ! self::valid_reference( $ref ) || ! self::snapshot_is_fresh( $snapshot_at, $now, self::fresh_seconds() ) ) {
 			return new WP_Error(
 				'rw_update_unprotected',
 				'Updates were not started because there is no fresh snapshot for this website.',
@@ -106,7 +132,7 @@ class RW_Maint_Update_Guard {
 			);
 		}
 
-		if ( self::valid_reference( $ref ) && self::snapshot_is_fresh( $backup_at, (int) $now, self::FRESH_SECONDS ) ) {
+		if ( self::valid_reference( $ref ) && self::snapshot_is_fresh( $backup_at, (int) $now, self::fresh_seconds() ) ) {
 			return array(
 				'automatic'             => true,
 				'protected'             => true,

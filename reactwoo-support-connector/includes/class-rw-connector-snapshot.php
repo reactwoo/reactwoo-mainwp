@@ -6,8 +6,9 @@
  * ability needs a WordPress application password, which this bridge does not
  * have. This snapshot needs no extra service. It lives on the same site, so a
  * disk failure or a compromised site can remove it with the site. It is a
- * rollback point for a bad update, not an offsite disaster copy. The
- * backup_ref is what a later report or rollback can carry.
+ * rollback point for a bad update. Uploads are left out on purpose. There is
+ * no off-site copy: a destroyed or compromised server removes the snapshot
+ * with the site. The backup_ref is what a later report or rollback can carry.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -205,13 +206,14 @@ class RW_Connector_Snapshot {
 			'created_at'     => $created,
 			'purpose'        => isset( $meta['purpose'] ) ? (string) $meta['purpose'] : 'customer',
 			'includes'       => $includes,
+			'excludes'       => array( 'uploads' ),
 			'location'       => 'onsite',
 			'omitted_tables' => isset( $meta['omitted_tables'] ) && is_array( $meta['omitted_tables'] ) ? array_values( $meta['omitted_tables'] ) : array(),
 			'skipped_count'  => count( $skipped ),
 			'skipped'        => array_slice( $skipped, 0, 50 ),
 			'rollback'       => array(
 				'supported' => false,
-				'note'      => 'This reference identifies an on-site snapshot. Restoring it is a later step.',
+				'note'      => 'Uploads are not included. This snapshot stays on the website and is lost if the server is destroyed or compromised. Restoring it is a later step.',
 			),
 		);
 		$encoded = function_exists( 'wp_json_encode' ) ? wp_json_encode( $manifest ) : json_encode( $manifest );

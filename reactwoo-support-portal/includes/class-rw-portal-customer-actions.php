@@ -494,7 +494,7 @@ class RW_Portal_Customer_Actions {
 	 */
 	public static function outcome_message( $action, array $result = array() ) {
 		if ( 'request_backup' === $action && ! empty( $result['backup_ref'] ) ) {
-			return 'A snapshot of the plugins, themes and database has been saved on this website. Reference: ' . sanitize_text_field( (string) $result['backup_ref'] ) . '.';
+			return 'A snapshot of the plugins, themes and database has been saved on this website. Media uploads are not included. The snapshot is lost if this server is destroyed or compromised. Reference: ' . sanitize_text_field( (string) $result['backup_ref'] ) . '.';
 		}
 		if ( 'security_scan' === $action && isset( $result['state'] ) && 'already_running' === $result['state'] ) {
 			return 'A Wordfence security scan is already running on this website.';
@@ -505,7 +505,7 @@ class RW_Portal_Customer_Actions {
 		if ( 'run_updates' === $action ) {
 			$ref = isset( $result['backup_ref'] ) ? sanitize_text_field( (string) $result['backup_ref'] ) : '';
 			if ( '' !== $ref ) {
-				return 'A snapshot was saved (' . $ref . ') and pending updates have been started. Completion has not been confirmed.';
+				return 'A snapshot was saved (' . $ref . ') and pending updates have been started. Media uploads are not included, and the snapshot is lost if this server is destroyed or compromised. Completion has not been confirmed.';
 			}
 			return 'Pending updates have been started on the maintenance hub. Completion has not been confirmed.';
 		}

@@ -3640,6 +3640,7 @@ rw_test(
 		&& false === strpos( $manifest, $snap_root )
 		&& false !== strpos( $manifest, 'rwsnap_20261109T120000Z_abcd1234' )
 		&& false !== strpos( $manifest, 'wfhits' )
+		&& false !== strpos( $manifest, '"uploads"' )
 		&& is_file( $snap_root . '/out/.htaccess' )
 		&& false !== strpos( (string) file_get_contents( $snap_root . '/out/.htaccess' ), 'Require all denied' )
 );
@@ -3686,6 +3687,20 @@ rw_test(
 		&& 'mainwp_backup_before_upgrade_only' === $exposed_flag['reason'] && false === $exposed_flag['protected']
 		&& true === $exposed_ok['protected'] && 'fresh_snapshot' === $exposed_ok['reason']
 		&& 'automatic_update_not_readable' === $exposed_gap['reason'] && false === $exposed_gap['protected']
+		&& 1800 === RW_Maint_Update_Guard::FRESH_SECONDS
+		&& 1800 === RW_Maint_Update_Guard::fresh_seconds()
+);
+$window_before = RW_Maint_Update_Guard::fresh_seconds();
+update_option( RW_Maint_Update_Guard::FRESH_OPTION, 600 );
+$window_custom = RW_Maint_Update_Guard::fresh_seconds();
+$stale_for_custom = RW_Maint_Update_Guard::decide( 'rwsnap_20261109T100000Z_abcd1234', gmdate( 'c', $guard_now - 900 ), $guard_now );
+delete_option( RW_Maint_Update_Guard::FRESH_OPTION );
+rw_test(
+	'the snapshot freshness window follows rw_maint_snapshot_fresh_seconds',
+	1800 === $window_before
+		&& 600 === $window_custom
+		&& is_wp_error( $stale_for_custom )
+		&& 1800 === RW_Maint_Update_Guard::fresh_seconds()
 );
 $guarded_copy = RW_Portal_Customer_Actions::outcome_message( 'run_updates', array( 'backup_ref' => 'rwsnap_20261109T115900Z_abcd1234' ) );
 rw_test(

@@ -26,7 +26,7 @@ Do not run this against production. Use a staging child site enrolled to the sta
 
 Use the maintenance account for the staging site. Each button still asks for the confirmation tick. After three uses in 15 minutes, the rate-limit message appears on that action card and the action does not run.
 
-1. **Request backup.** Expect a success notice that includes a `rwsnap_...` reference, not a claim that an offsite backup finished. On the child, the zip should contain `manifest.json`, `database.sql`, `plugins/`, and `themes/`. A second request should replace nothing older than the three newest archives.
+1. **Request backup.** Expect a success notice that includes a `rwsnap_...` reference and says the snapshot stays on the website, leaves out media uploads, and is lost if the server is destroyed or compromised. On the child, the zip should contain `manifest.json`, `database.sql`, `plugins/`, and `themes/`. It should not contain an `uploads/` folder. That exclusion is the intended design. A second request should replace nothing older than the three newest archives.
 2. **Security scan, Wordfence inactive.** Expect a failure that says Wordfence is not active and that a scan was not started.
 3. **Security scan, Wordfence active.** Expect a notice that a scan has started, or that one is already running. Do not expect scan results in the same response.
 4. **Run pending updates.** Follow the snapshot gate below. The MainWP call, when the snapshot succeeds, is `POST /mainwp/v2/updates/{site id}/update`. A suspended site should fail with the hub message, and the portal should not say the updates ran.
@@ -37,10 +37,11 @@ Use the maintenance account for the staging site. Each button still asks for the
 2. The notice should name a new `rwsnap_` reference and say completion has not been confirmed.
 3. On the child, that zip's `manifest.json` should say `"purpose": "pre_update"`.
 4. On the hub, the bridge site row should store the same `last_backup_ref`. If the snapshot route is unavailable, the notice must say updates were not started, and MainWP must show no new update job.
-5. The hub's own daily automatic updates are not switched off. Once a day the bridge writes an audit event `hub_auto_updates_unprotected` for each active site that is included in those updates and has no ReactWoo snapshot from the last 30 minutes. That log is the record that those runs are unprotected.
+5. A snapshot older than the freshness window is refused. The default window is 30 minutes. It is defined once as `RW_Maint_Update_Guard::FRESH_SECONDS` and can be changed later with the option `rw_maint_snapshot_fresh_seconds` (seconds) or the filter of the same name. The bridge settings screen states the same limit and the on-site risk.
+6. The hub's daily automatic updates are being switched off separately until snapshots are live. This code does not change that hub setting. The daily `hub_auto_updates_unprotected` log remains, and it records a site when automatic updates are still on and there is no snapshot inside the freshness window.
 
 ## What this does not prove
 
-- The snapshot is on the child disk. It is not an offsite copy, and this plan does not restore it.
+- The snapshot is on the child disk. There is no off-site copy. A destroyed or compromised server loses the snapshot with the site. This plan does not restore it. Media uploads are left out on purpose.
 - Nginx will still serve the snapshot directory unless the server is told to deny it.
 - A Wordfence scan that Wordfence queues can still fail after the connector has returned. Check the scan page on the child if the notice said it started.

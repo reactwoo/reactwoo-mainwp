@@ -159,6 +159,100 @@ class RW_Maint_Settings {
 			'rw-maint-settings',
 			'rw_maint_mainwp_section'
 		);
+
+		register_setting(
+			'rw_maint_settings',
+			RW_Maint_Report_Mail::OPTION_ENABLED,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_report_flag' ),
+				'default'           => 0,
+			)
+		);
+		register_setting(
+			'rw_maint_settings',
+			RW_Maint_Report_Mail::OPTION_SENDER,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_report_sender' ),
+				'default'           => 'portal',
+			)
+		);
+		register_setting(
+			'rw_maint_settings',
+			RW_Maint_Report_Mail::OPTION_NOTICE_HOURS,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_notice_hours' ),
+				'default'           => 24,
+			)
+		);
+
+		add_settings_section(
+			'rw_maint_report_email_section',
+			'Update report emails',
+			array( __CLASS__, 'render_report_email_section' ),
+			'rw-maint-settings'
+		);
+		add_settings_field(
+			RW_Maint_Report_Mail::OPTION_ENABLED,
+			'Send update emails',
+			array( __CLASS__, 'render_report_enabled' ),
+			'rw-maint-settings',
+			'rw_maint_report_email_section'
+		);
+		add_settings_field(
+			RW_Maint_Report_Mail::OPTION_SENDER,
+			'Email sender',
+			array( __CLASS__, 'render_report_sender' ),
+			'rw-maint-settings',
+			'rw_maint_report_email_section'
+		);
+		add_settings_field(
+			RW_Maint_Report_Mail::OPTION_NOTICE_HOURS,
+			'Notice period (hours)',
+			array( __CLASS__, 'render_notice_hours' ),
+			'rw-maint-settings',
+			'rw_maint_report_email_section'
+		);
+	}
+
+	public static function sanitize_report_flag( $value ) {
+		return (int) (bool) $value;
+	}
+
+	public static function sanitize_report_sender( $value ) {
+		return RW_Maint_Report::normalise_settings( 0, $value, 24 )['sender'];
+	}
+
+	public static function sanitize_notice_hours( $value ) {
+		return RW_Maint_Report::normalise_settings( 0, 'portal', $value )['notice_hours'];
+	}
+
+	public static function render_report_email_section() {
+		echo '<p>Scheduled update emails stay off until this is enabled. The sender chooses whether those emails are sent from this hub or from the ReactWoo account site. Only the selected sender sends, and only when that site has emails enabled. The notice period is how long before the suggested patch time the planned email can go out. These are suggestions, not a booked change.</p>';
+	}
+
+	public static function render_report_enabled() {
+		$value = (int) get_option( RW_Maint_Report_Mail::OPTION_ENABLED, 0 );
+		echo '<input type="hidden" name="' . esc_attr( RW_Maint_Report_Mail::OPTION_ENABLED ) . '" value="0" />';
+		echo '<label><input type="checkbox" name="' . esc_attr( RW_Maint_Report_Mail::OPTION_ENABLED ) . '" value="1" ' . checked( 1, $value, false ) . ' /> Enable scheduled update emails from this hub</label>';
+		echo '<p class="description">Leave this off until the sender and notice period are agreed. Nothing is sent while it is off.</p>';
+	}
+
+	public static function render_report_sender() {
+		$value = (string) get_option( RW_Maint_Report_Mail::OPTION_SENDER, 'portal' );
+		echo '<select name="' . esc_attr( RW_Maint_Report_Mail::OPTION_SENDER ) . '">';
+		echo '<option value="portal"' . selected( $value, 'portal', false ) . '>ReactWoo account site (reactwoo.com)</option>';
+		echo '<option value="maint"' . selected( $value, 'maint', false ) . '>This maintenance hub</option>';
+		echo '</select>';
+		echo '<p class="description">Used when a report is stored directly on this hub. Reports forwarded by the account site keep the sender saved with that report.</p>';
+	}
+
+	public static function render_notice_hours() {
+		$value = (int) get_option( RW_Maint_Report_Mail::OPTION_NOTICE_HOURS, 24 );
+		echo '<input type="number" min="1" max="168" class="small-text" name="' . esc_attr( RW_Maint_Report_Mail::OPTION_NOTICE_HOURS ) . '" value="' . esc_attr( (string) $value ) . '" />';
+		echo '<p class="description">Default is 24 hours. Allowed range is 1 to 168.</p>';
 	}
 
 	public static function render() {

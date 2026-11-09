@@ -3695,6 +3695,15 @@ rw_test(
 		&& false === strpos( $guarded_copy, "\u{2014}" )
 );
 
+$report_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/maintenance-reports.php' );
+$report_output = array();
+$report_status = 0;
+exec( $report_cmd, $report_output, $report_status );
+foreach ( $report_output as $report_line ) {
+	echo $report_line . "\n";
+}
+rw_test( 'maintenance report ingest, triage and portal actions', 0 === $report_status );
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

@@ -48,6 +48,16 @@ if ( $flash ) {
 	);
 }
 
+if ( ! $item && isset( $rw_view ) && is_array( $rw_view ) && isset( $rw_view['update_reports']['strip'] ) && is_array( $rw_view['update_reports']['strip'] ) ) {
+	$strip = $rw_view['update_reports']['strip'];
+	$item  = array(
+		'tone'    => isset( $strip['tone'] ) ? (string) $strip['tone'] : 'warning',
+		'label'   => isset( $strip['label'] ) ? (string) $strip['label'] : 'Report',
+		'message' => isset( $strip['message'] ) ? (string) $strip['message'] : '',
+		'cta'     => ( isset( $strip['cta'] ) && is_array( $strip['cta'] ) ) ? $strip['cta'] : null,
+	);
+}
+
 if ( ! $item && isset( $rw_view ) && is_array( $rw_view ) && ! empty( $rw_view['lifecycle_notice'] ) ) {
 	$item = array(
 		'tone'    => 'info',

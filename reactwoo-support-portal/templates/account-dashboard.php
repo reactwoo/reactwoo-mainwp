@@ -10,6 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $site = $rw_view['site'];
+if ( $site && class_exists( 'RW_Portal_Reports' ) ) {
+	$rw_view['update_reports'] = RW_Portal_Reports::for_dashboard( $site );
+}
 $host = $site ? wp_parse_url( (string) $site->site_url, PHP_URL_HOST ) : '';
 $host = $host ? $host : 'your website';
 $granted   = isset( $rw_view['included_minutes_granted'] ) ? (int) $rw_view['included_minutes_granted'] : 0;
@@ -42,7 +45,7 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 				<?php if ( ! empty( $rw_view['support_mailto'] ) ) : ?>
 					<a class="rw-maint-button" href="<?php echo esc_url( $rw_view['support_mailto'] ); ?>">Request support</a>
 				<?php endif; ?>
-				<a class="rw-maint-button-secondary" href="#rw-maint-reports">View latest report</a>
+				<a class="rw-maint-button-secondary" href="#rw-maint-update-reports">View latest report</a>
 			</div>
 		</div>
 		<aside class="rw-maint-plan" aria-label="Plan and support">
@@ -107,6 +110,8 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 		include RW_PORTAL_DIR . 'templates/partials/maintenance-status.php';
 		?>
 	<?php endif; ?>
+
+	<?php include RW_PORTAL_DIR . 'templates/partials/maintenance-reports.php'; ?>
 
 	<section class="rw-maint-reports-band" id="rw-maint-reports" aria-labelledby="rw-maint-reports-title">
 		<h2 id="rw-maint-reports-title">Reports and support</h2>

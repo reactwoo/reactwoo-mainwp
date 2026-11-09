@@ -146,6 +146,151 @@ class RW_Maint_Rest_Controller {
 				'permission_callback' => array( __CLASS__, 'authorize_request' ),
 			)
 		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/maintenance-report',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'maintenance_report' ),
+				'permission_callback' => array( __CLASS__, 'authorize_report' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/maintenance-reports',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'maintenance_reports' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/maintenance-report-action',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'maintenance_report_action' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+
+		register_rest_route(
+			'reactwoo-maint/v1',
+			'/maintenance-report-notices',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'maintenance_report_notices' ),
+				'permission_callback' => array( __CLASS__, 'authorize_request' ),
+			)
+		);
+	}
+
+	/**
+	 * Reject an oversized body before the signature check consumes the nonce.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return true|WP_Error
+	 */
+	public static function authorize_report( WP_REST_Request $request ) {
+		if ( strlen( (string) $request->get_body() ) > RW_Maint_Report::MAX_ENVELOPE ) {
+			return new WP_Error( 'rw_report_too_large', 'The report is too large.', array( 'status' => 413 ) );
+		}
+
+		return self::authorize_request( $request );
+	}
+
+	/**
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function maintenance_report( WP_REST_Request $request ) {
+		$result = RW_Maint_Report_Store::ingest( (string) $request->get_body(), RW_Maint_Report_Mail::settings() );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return rest_ensure_response(
+			array(
+				'report_id'   => (int) $result['report_id'],
+				'criticality' => (string) $result['criticality'],
+				'phase'       => (string) $result['phase'],
+				'duplicate'   => ! empty( $result['duplicate'] ),
+			)
+		);
+	}
+
+	/**
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function maintenance_reports( WP_REST_Request $request ) {
+		$payload = (array) $request->get_json_params();
+		$reports = RW_Maint_Report_Store::list_for_site(
+			isset( $payload['portal_site_id'] ) ? $payload['portal_site_id'] : 0,
+			isset( $payload['subscription_id'] ) ? $payload['subscription_id'] : 0,
+			isset( $payload['limit'] ) ? $payload['limit'] : 20
+		);
+		if ( is_wp_error( $reports ) ) {
+			return $reports;
+		}
+
+		return rest_ensure_response( array( 'reports' => $reports ) );
+	}
+
+	/**
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function maintenance_report_action( WP_REST_Request $request ) {
+		$payload = (array) $request->get_json_params();
+		$result  = RW_Maint_Report_Store::record_action(
+			isset( $payload['portal_site_id'] ) ? $payload['portal_site_id'] : 0,
+			isset( $payload['subscription_id'] ) ? $payload['subscription_id'] : 0,
+			isset( $payload['report_id'] ) ? $payload['report_id'] : 0,
+			isset( $payload['action'] ) ? $payload['action'] : '',
+			isset( $payload['backup_ref'] ) ? $payload['backup_ref'] : '',
+			! empty( $payload['confirmed'] ),
+			isset( $payload['outcome'] ) ? $payload['outcome'] : '',
+			isset( $payload['detail'] ) ? $payload['detail'] : ''
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * Due notices for one sender, or a completion acknowledgement.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function maintenance_report_notices( WP_REST_Request $request ) {
+		$payload = (array) $request->get_json_params();
+		if ( ! empty( $payload['complete'] ) && isset( $payload['ids'] ) && is_array( $payload['ids'] ) ) {
+			$status = isset( $payload['status'] ) ? sanitize_key( $payload['status'] ) : 'sent';
+			$count  = RW_Maint_Report_Store::complete_notices( $payload['ids'], $status );
+
+			return rest_ensure_response(
+				array(
+					'updated' => $count,
+				)
+			);
+		}
+
+		$sender = isset( $payload['sender'] ) ? $payload['sender'] : 'portal';
+		$now    = time();
+		RW_Maint_Report_Store::expire_before( $now );
+
+		return rest_ensure_response(
+			array(
+				'notices' => RW_Maint_Report_Store::due_notices( $sender, $now, isset( $payload['limit'] ) ? $payload['limit'] : 20 ),
+			)
+		);
 	}
 
 	/**

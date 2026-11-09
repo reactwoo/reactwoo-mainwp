@@ -76,6 +76,16 @@ class RW_Rest_Controller {
 
 		register_rest_route(
 			'reactwoo/v1',
+			'/sites/maintenance-report',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( 'RW_Portal_Reports', 'ingest' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'reactwoo/v1',
 			'/sites/(?P<id>\d+)/client-sync',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,

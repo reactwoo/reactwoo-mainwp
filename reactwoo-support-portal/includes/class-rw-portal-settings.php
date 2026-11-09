@@ -9,6 +9,9 @@ class RW_Portal_Settings {
 	const OPTION_SECRET = 'rw_portal_maint_secret';
 	const OPTION_STALE_HOURS = 'rw_portal_stale_hours';
 	const OPTION_ENROLL_STRICT = 'rw_portal_enforce_site_url';
+	const OPTION_REPORT_EMAILS = 'rw_portal_report_emails_enabled';
+	const OPTION_REPORT_SENDER = 'rw_portal_report_email_sender';
+	const OPTION_REPORT_NOTICE = 'rw_portal_report_notice_hours';
 
 	public static function register() {
 		if ( ! is_admin() ) {
@@ -134,6 +137,102 @@ class RW_Portal_Settings {
 			'rw-portal-settings',
 			'rw_portal_maint_section'
 		);
+
+		register_setting(
+			'rw_portal_settings',
+			self::OPTION_REPORT_EMAILS,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_flag' ),
+				'default'           => 0,
+			)
+		);
+		register_setting(
+			'rw_portal_settings',
+			self::OPTION_REPORT_SENDER,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_report_sender' ),
+				'default'           => 'portal',
+			)
+		);
+		register_setting(
+			'rw_portal_settings',
+			self::OPTION_REPORT_NOTICE,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_stale_hours' ),
+				'default'           => 24,
+			)
+		);
+
+		add_settings_section(
+			'rw_portal_report_email_section',
+			'Update report emails',
+			array( __CLASS__, 'render_report_email_section' ),
+			'rw-portal-settings'
+		);
+		add_settings_field(
+			self::OPTION_REPORT_EMAILS,
+			'Send update emails',
+			array( __CLASS__, 'render_report_emails_field' ),
+			'rw-portal-settings',
+			'rw_portal_report_email_section'
+		);
+		add_settings_field(
+			self::OPTION_REPORT_SENDER,
+			'Email sender',
+			array( __CLASS__, 'render_report_sender_field' ),
+			'rw-portal-settings',
+			'rw_portal_report_email_section'
+		);
+		add_settings_field(
+			self::OPTION_REPORT_NOTICE,
+			'Notice period (hours)',
+			array( __CLASS__, 'render_report_notice_field' ),
+			'rw-portal-settings',
+			'rw_portal_report_email_section'
+		);
+	}
+
+	public static function sanitize_report_sender( $value ) {
+		$value = is_string( $value ) ? strtolower( trim( $value ) ) : '';
+
+		return in_array( $value, array( 'portal', 'maint' ), true ) ? $value : 'portal';
+	}
+
+	public static function render_report_email_section() {
+		echo '<p>Scheduled update emails stay off until this is enabled. The sender chooses whether mail goes out from this account site or from the maintenance hub. Only the selected sender sends, and only when that site has emails enabled. The notice period is how long before the suggested patch time the planned email can go out.</p>';
+	}
+
+	public static function render_report_emails_field() {
+		$value = (int) get_option( self::OPTION_REPORT_EMAILS, 0 );
+		echo '<input type="hidden" name="' . esc_attr( self::OPTION_REPORT_EMAILS ) . '" value="0" />';
+		printf(
+			'<label><input type="checkbox" name="%s" value="1" %s /> Enable scheduled update emails from this site</label>',
+			esc_attr( self::OPTION_REPORT_EMAILS ),
+			checked( 1, $value, false )
+		);
+		echo '<p class="description">Leave this off until the sender and notice period are agreed. Nothing is sent while it is off.</p>';
+	}
+
+	public static function render_report_sender_field() {
+		$value = (string) get_option( self::OPTION_REPORT_SENDER, 'portal' );
+		echo '<select name="' . esc_attr( self::OPTION_REPORT_SENDER ) . '">';
+		echo '<option value="portal"' . selected( $value, 'portal', false ) . '>This account site (reactwoo.com)</option>';
+		echo '<option value="maint"' . selected( $value, 'maint', false ) . '>Maintenance hub (maint.reactwoo.com)</option>';
+		echo '</select>';
+		echo '<p class="description">Reports received here are stored with this sender. The hub uses its own sender only when a report is posted directly to the hub.</p>';
+	}
+
+	public static function render_report_notice_field() {
+		$value = (int) get_option( self::OPTION_REPORT_NOTICE, 24 );
+		printf(
+			'<input type="number" name="%s" class="small-text" value="%d" min="1" max="168" />',
+			esc_attr( self::OPTION_REPORT_NOTICE ),
+			(int) $value
+		);
+		echo '<p class="description">Default is 24 hours. Allowed range is 1 to 168. This is a suggestion, not a booked change.</p>';
 	}
 
 	public static function render() {

@@ -3424,6 +3424,56 @@ rw_test( 'build_simple_pdf header', 0 === strpos( $pdf, '%PDF-1.4' ) );
 rw_test( 'build_simple_pdf eof', false !== strpos( $pdf, '%%EOF' ) );
 rw_test( 'build_simple_pdf has text', false !== strpos( $pdf, 'Hello' ) );
 
+$icon_names = array( 'backup', 'security', 'updates', 'sync', 'health', 'connector', 'reports', 'recipients', 'pause', 'resume' );
+$icon_svgs  = array();
+$icons_ok   = $icon_names === RW_Portal_Customer_Actions::icon_names();
+foreach ( $icon_names as $icon_name ) {
+	$icon_svg = RW_Portal_Customer_Actions::icon_svg( $icon_name );
+	$icon_svgs[ $icon_name ] = $icon_svg;
+	if ( '' === $icon_svg || 0 !== strpos( $icon_svg, '<svg ' ) || false === strpos( $icon_svg, 'aria-hidden="true"' ) || false === strpos( $icon_svg, 'focusable="false"' ) || false === strpos( $icon_svg, 'stroke="currentColor"' ) || preg_match( '/[^\x09\x0A\x0D\x20-\x7E]/', $icon_svg ) ) {
+		$icons_ok = false;
+	}
+}
+$icon_unique = count( $icon_svgs ) === count( array_unique( $icon_svgs ) );
+rw_test( 'maintenance card icons are distinct decorative inline svgs', $icons_ok && $icon_unique && '' === RW_Portal_Customer_Actions::icon_svg( 'not-an-icon' ) && '' === RW_Portal_Customer_Actions::icon_svg( 'backup<script>' ) );
+
+$actions_template   = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/customer-actions.php' );
+$connector_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/partials/connector-download-card.php' );
+$dashboard_template = file_get_contents( __DIR__ . '/../reactwoo-support-portal/templates/account-dashboard.php' );
+$icon_css           = file_get_contents( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' );
+$card_icons_present = false !== strpos( $actions_template, "render_icon( 'backup' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'security' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'updates' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'sync' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'health' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'reports' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'pause' )" )
+	&& false !== strpos( $actions_template, "render_icon( 'resume' )" )
+	&& false !== strpos( $connector_template, "render_icon( 'connector' )" )
+	&& false !== strpos( $dashboard_template, "render_icon( 'recipients' )" )
+	&& false !== strpos( $dashboard_template, 'rw-maint-recipients-card' )
+	&& false === strpos( $actions_template, '<svg ' );
+rw_test(
+	'every maintenance action card renders a shared icon',
+	$card_icons_present
+		&& false !== strpos( $actions_template, "render_action_form( \$site, 'request_backup', 'Request backup'" )
+		&& false !== strpos( $actions_template, "render_action_form( \$site, 'run_updates', 'Run pending updates'" )
+		&& false !== strpos( $actions_template, "'rw-maint-button'" )
+);
+rw_test(
+	'card icons keep a fixed size and do not use an icon font',
+	false !== strpos( $icon_css, '.rw-maint-action-card__icon svg' )
+		&& false !== strpos( $icon_css, 'width: 20px;' )
+		&& false !== strpos( $icon_css, 'height: 20px;' )
+		&& false !== strpos( $icon_css, 'flex: 0 0 36px;' )
+		&& false !== strpos( $icon_css, 'overflow: visible;' )
+		&& false === strpos( $icon_css, 'font-awesome' )
+		&& false === strpos( $icon_css, 'dashicons' )
+		&& false !== strpos( $icon_css, '.rw-maint-connector-card .rw-maint-action-card__icon' )
+		&& false !== strpos( $icon_css, '.rw-maint-recipients-card .rw-maint-action-card__icon' )
+		&& false !== strpos( $icon_css, '.rw-maint[data-theme="dark"] .rw-maint-action-card__head h4' )
+);
+
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );
 	exit( 1 );

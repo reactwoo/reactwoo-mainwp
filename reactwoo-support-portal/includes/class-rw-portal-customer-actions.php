@@ -620,4 +620,67 @@ class RW_Portal_Customer_Actions {
 	private static function card_notice_key( $user_id ) {
 		return 'rw_ca_card_' . (int) $user_id;
 	}
+
+	/**
+	 * Icon names used on customer maintenance cards.
+	 *
+	 * @return string[]
+	 */
+	public static function icon_names() {
+		return array_keys( self::icon_paths() );
+	}
+
+	/**
+	 * Decorative inline SVG for a maintenance card. Empty when the name is unknown.
+	 *
+	 * The graphic is aria-hidden: the card heading is the accessible name.
+	 *
+	 * @param string $name Icon key.
+	 * @return string
+	 */
+	public static function icon_svg( $name ) {
+		$name  = sanitize_key( (string) $name );
+		$paths = self::icon_paths();
+		if ( ! isset( $paths[ $name ] ) ) {
+			return '';
+		}
+
+		return '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' . $paths[ $name ] . '</svg>';
+	}
+
+	/**
+	 * Echo the shared card icon badge.
+	 *
+	 * @param string $name Icon key.
+	 * @return void
+	 */
+	public static function render_icon( $name ) {
+		$name = sanitize_key( (string) $name );
+		$svg  = self::icon_svg( $name );
+		if ( '' === $svg ) {
+			return;
+		}
+		$attr = function_exists( 'esc_attr' ) ? esc_attr( $name ) : htmlspecialchars( $name, ENT_QUOTES, 'UTF-8' );
+		echo '<span class="rw-maint-action-card__icon" data-icon="' . $attr . '" aria-hidden="true">' . $svg . '</span>';
+	}
+
+	/**
+	 * Stroke paths, one per card. Drawn to stay inside the 24px viewBox.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function icon_paths() {
+		return array(
+			'backup'     => '<ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"/><path d="M4.5 12v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6"/>',
+			'security'   => '<path d="M12 3.2 5 6.2v5.6c0 4.2 2.9 7.1 7 8.8 4.1-1.7 7-4.6 7-8.8V6.2L12 3.2z"/><path d="M9 12.1 11 14.1 15.2 9.8"/>',
+			'updates'    => '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
+			'sync'       => '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>',
+			'health'     => '<path d="M3 12h3.5l2.2-4.5L12 16.5l2.3-4.5H21"/>',
+			'connector'  => '<path d="M9 2.5v5"/><path d="M15 2.5v5"/><path d="M7 7.5h10v4.2a5 5 0 0 1-10 0V7.5z"/><path d="M12 16.7V21.5"/>',
+			'reports'    => '<path d="M14.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5L14.5 3z"/><path d="M14.5 3v4.5H19"/><path d="M8 13h8"/><path d="M8 17h5"/>',
+			'recipients' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+			'pause'      => '<circle cx="12" cy="12" r="9"/><path d="M10 9v6"/><path d="M14 9v6"/>',
+			'resume'     => '<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5-6-3.5z"/>',
+		);
+	}
 }

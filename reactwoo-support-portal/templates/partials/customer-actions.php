@@ -27,9 +27,7 @@ $paused = ( 'suspended' === $status );
 			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'backup' ); ?>
 						<h4>Request backup</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Queue a full site backup.</p>
@@ -37,9 +35,7 @@ $paused = ( 'suspended' === $status );
 				</article>
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'security' ); ?>
 						<h4>Security scan</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Start a security scan for this website.</p>
@@ -53,9 +49,7 @@ $paused = ( 'suspended' === $status );
 			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary" id="rw-maint-run-updates">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'updates' ); ?>
 						<h4>Run pending updates</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Approve and run WordPress, plugin and theme updates that are waiting.</p>
@@ -63,9 +57,7 @@ $paused = ( 'suspended' === $status );
 				</article>
 				<article class="rw-maint-panel rw-maint-action-card">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'health' ); ?>
 						<h4>Health check</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Run a live health check now.</p>
@@ -73,9 +65,7 @@ $paused = ( 'suspended' === $status );
 				</article>
 				<article class="rw-maint-panel rw-maint-action-card">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'sync' ); ?>
 						<h4>Sync now</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Pull the latest site snapshot.</p>
@@ -89,9 +79,7 @@ $paused = ( 'suspended' === $status );
 			<div class="rw-maint-action-cat__cards">
 				<article class="rw-maint-panel rw-maint-action-card">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'reports' ); ?>
 						<h4>Download report</h4>
 					</div>
 					<p class="rw-maint-panel-copy">PDF maintenance report.</p>
@@ -106,9 +94,7 @@ $paused = ( 'suspended' === $status );
 				<?php if ( $paused ) : ?>
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'resume' ); ?>
 						<h4>Resume maintenance</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Resume monitoring &amp; jobs.</p>
@@ -125,9 +111,7 @@ $paused = ( 'suspended' === $status );
 				<?php else : ?>
 				<article class="rw-maint-panel rw-maint-action-card">
 					<div class="rw-maint-action-card__head">
-						<span class="rw-maint-action-card__icon" aria-hidden="true">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg>
-						</span>
+						<?php RW_Portal_Customer_Actions::render_icon( 'pause' ); ?>
 						<h4>Pause maintenance</h4>
 					</div>
 					<p class="rw-maint-panel-copy">Temporarily pause monitoring.</p>

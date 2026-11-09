@@ -31,10 +31,17 @@ class RW_Security {
 		}
 
 		$body_hash = hash( 'sha256', (string) $request->get_body() );
-		$payload   = strtoupper( $request->get_method() ) . '|' . $request->get_route() . '|' . $timestamp . '|' . $nonce . '|' . $body_hash;
-		$expected  = hash_hmac( 'sha256', $payload, $secret );
+		$matched   = false;
+		foreach ( self::candidate_paths( (string) $request->get_route() ) as $path ) {
+			$payload  = strtoupper( $request->get_method() ) . '|' . $path . '|' . $timestamp . '|' . $nonce . '|' . $body_hash;
+			$expected = hash_hmac( 'sha256', $payload, $secret );
+			if ( hash_equals( $expected, $signature ) ) {
+				$matched = true;
+				break;
+			}
+		}
 
-		if ( ! hash_equals( $expected, $signature ) ) {
+		if ( ! $matched ) {
 			return new WP_Error( 'rw_signature_invalid', 'Signature mismatch.', array( 'status' => 401 ) );
 		}
 
@@ -43,6 +50,40 @@ class RW_Security {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Paths a heartbeat may have been signed with.
+	 *
+	 * Current connectors sign the REST route. Connectors already in the field
+	 * sign the public URL path, which includes /wp-json and any site directory.
+	 *
+	 * @param string $route REST route from the request.
+	 * @return string[]
+	 */
+	public static function candidate_paths( $route ) {
+		$route = '/' . ltrim( (string) $route, '/' );
+		$paths = array( $route, '/wp-json' . $route );
+
+		$home      = function_exists( 'home_url' ) ? (string) home_url() : '';
+		$home_path = (string) wp_parse_url( $home, PHP_URL_PATH );
+		$prefix    = trim( $home_path, '/' );
+		if ( '' !== $prefix ) {
+			$paths[] = '/' . $prefix . '/wp-json' . $route;
+		}
+
+		if ( isset( $_SERVER['REQUEST_URI'] ) ) {
+			$uri_path = (string) wp_parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+			$uri_path = rawurldecode( $uri_path );
+			if ( '' !== $uri_path && strlen( $uri_path ) > strlen( $route ) && substr( $uri_path, -strlen( $route ) ) === $route ) {
+				$extra = rtrim( substr( $uri_path, 0, -strlen( $route ) ), '/' );
+				if ( '/wp-json' === $extra || ( strlen( $extra ) > strlen( '/wp-json' ) && substr( $extra, -strlen( '/wp-json' ) ) === '/wp-json' ) ) {
+					$paths[] = $uri_path;
+				}
+			}
+		}
+
+		return array_values( array_unique( $paths ) );
 	}
 
 	/**

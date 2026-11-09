@@ -253,7 +253,7 @@ class RW_Connector_Bootstrap {
 	 * @param string $portal_url Portal origin.
 	 * @return true|WP_Error
 	 */
-	private static function allowed_portal( $portal_url ) {
+	public static function allowed_portal( $portal_url ) {
 		$parts = wp_parse_url( (string) $portal_url );
 		if ( ! is_array( $parts ) || empty( $parts['host'] ) || empty( $parts['scheme'] ) ) {
 			return new WP_Error( 'rw_connector_portal_invalid', 'Portal address is invalid.', array( 'status' => 400 ) );

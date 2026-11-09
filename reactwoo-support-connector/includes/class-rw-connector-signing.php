@@ -8,7 +8,7 @@ class RW_Connector_Signing {
 	public static function build_headers( $method, $url, $body, $site_id, $secret ) {
 		$timestamp = (string) time();
 		$nonce     = self::random_nonce();
-		$path      = self::extract_path( $url );
+		$path      = self::route_from_url( $url );
 
 		$payload  = strtoupper( $method ) . '|' . $path . '|' . $timestamp . '|' . $nonce . '|' . hash( 'sha256', (string) $body );
 		$signature = hash_hmac( 'sha256', $payload, $secret );
@@ -69,13 +69,35 @@ class RW_Connector_Signing {
 		return true;
 	}
 
-	private static function extract_path( $url ) {
-		$path = wp_parse_url( $url, PHP_URL_PATH );
-		if ( ! $path ) {
-			$path = '/';
+	/**
+	 * REST route used in the HMAC. Pretty URLs and index.php?rest_route= both
+	 * reduce to the route WordPress reports, without a /wp-json prefix.
+	 *
+	 * @param string $url Absolute URL or route.
+	 * @return string
+	 */
+	public static function route_from_url( $url ) {
+		$url   = (string) $url;
+		$query = wp_parse_url( $url, PHP_URL_QUERY );
+		if ( is_string( $query ) && '' !== $query ) {
+			$args = array();
+			parse_str( $query, $args );
+			if ( isset( $args['rest_route'] ) && is_string( $args['rest_route'] ) && '' !== $args['rest_route'] ) {
+				return '/' . ltrim( rawurldecode( $args['rest_route'] ), '/' );
+			}
 		}
 
-		return $path;
+		$path   = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$marker = '/wp-json/';
+		$pos    = strpos( $path, $marker );
+		if ( false !== $pos ) {
+			return '/' . ltrim( substr( $path, $pos + strlen( '/wp-json' ) ), '/' );
+		}
+		if ( '' === $path ) {
+			return '/';
+		}
+
+		return '/' . ltrim( $path, '/' );
 	}
 
 	private static function random_nonce() {

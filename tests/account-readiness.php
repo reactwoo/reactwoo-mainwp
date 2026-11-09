@@ -5,7 +5,8 @@
  */
 
 $now = strtotime( '2026-11-08 12:00:00 UTC' );
-$future = $now + 86400;
+// Entitlement checks use the real clock, so the paid-through date must stay ahead of it.
+$future = max( $now + 86400, time() + 86400 );
 $past = $now - 86400;
 
 rw_test(

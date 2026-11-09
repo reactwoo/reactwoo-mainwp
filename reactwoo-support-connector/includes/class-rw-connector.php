@@ -26,11 +26,15 @@ class RW_Connector {
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-whitelabel.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-bootstrap.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-updater.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-security-scan.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-snapshot.php';
 	}
 
 	public static function register_routes() {
 		RW_Connector_Bootstrap::register_routes();
 		RW_Component_Installer::register_routes();
+		RW_Connector_Security_Scan::register_routes();
+		RW_Connector_Snapshot::register_routes();
 
 		register_rest_route(
 			'reactwoo-connector/v1',
@@ -38,7 +42,7 @@ class RW_Connector {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'connect' ),
-				'permission_callback' => '__return_true',
+				'permission_callback' => array( __CLASS__, 'require_enrolment_admin' ),
 				'args'                => array(
 					'token'      => array(
 						'type'     => 'string',
@@ -63,12 +67,44 @@ class RW_Connector {
 		);
 	}
 
+	/**
+	 * First enrolment only. An administrator and a single-use portal token are
+	 * both required. An enrolled site cannot have its secret replaced here.
+	 *
+	 * @return true|WP_Error
+	 */
+	public static function require_enrolment_admin() {
+		if ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+
+		return new WP_Error( 'rw_connector_forbidden', 'An administrator must approve this connection.', array( 'status' => 403 ) );
+	}
+
+	/**
+	 * @param int    $site_id Stored site id.
+	 * @param string $secret Stored secret.
+	 * @return bool
+	 */
+	public static function blocks_secret_replacement( $site_id, $secret ) {
+		return (int) $site_id > 0 && '' !== (string) $secret;
+	}
+
 	public static function connect( WP_REST_Request $request ) {
 		$token     = (string) $request->get_param( 'token' );
 		$portal_url = esc_url_raw( (string) $request->get_param( 'portal_url' ) );
 
 		if ( '' === $token || '' === $portal_url ) {
 			return new WP_Error( 'rw_connector_missing', 'Token and portal URL are required.', array( 'status' => 400 ) );
+		}
+
+		if ( self::blocks_secret_replacement( self::get_site_id(), self::get_site_secret() ) ) {
+			return new WP_Error( 'rw_connector_already_enrolled', 'This website is already enrolled. The connection secret was not changed.', array( 'status' => 409 ) );
+		}
+
+		$portal_check = RW_Connector_Bootstrap::allowed_portal( $portal_url );
+		if ( is_wp_error( $portal_check ) ) {
+			return $portal_check;
 		}
 
 		$verify_url = rtrim( $portal_url, '/' ) . '/index.php?rest_route=' . rawurlencode( '/reactwoo/v1/tokens/verify' );
@@ -151,7 +187,8 @@ class RW_Connector {
 			return;
 		}
 
-		$endpoint = trailingslashit( $portal_url ) . 'wp-json/reactwoo/v1/sites/heartbeat';
+		$route    = '/reactwoo/v1/sites/heartbeat';
+		$endpoint = rtrim( $portal_url, '/' ) . '/index.php?rest_route=' . rawurlencode( $route );
 		$timezone = function_exists( 'wp_timezone_string' ) ? (string) wp_timezone_string() : (string) get_option( 'timezone_string' );
 		$body     = wp_json_encode(
 			array(

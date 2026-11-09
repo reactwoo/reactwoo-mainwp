@@ -340,6 +340,75 @@ class RW_WordPress_Client {
 		return self::signed_connector_request( $rest_root, '/reactwoo-connector/v2/install-components', 'POST', $body, $site_id, $secret, 90 );
 	}
 
+	/**
+	 * REST roots to try for a signed connector call. Query style first, because
+	 * pretty /wp-json/ is broken on the current staging hosts.
+	 *
+	 * @param string $site_url Public site URL.
+	 * @return string[]
+	 */
+	public static function connector_rest_roots( $site_url ) {
+		$parts = wp_parse_url( (string) $site_url );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return array();
+		}
+
+		$origin = 'https://' . strtolower( (string) $parts['host'] );
+		if ( ! empty( $parts['port'] ) ) {
+			$origin .= ':' . (int) $parts['port'];
+		}
+
+		$path = isset( $parts['path'] ) ? '/' . ltrim( (string) $parts['path'], '/' ) : '/';
+		if ( '/' !== $path ) {
+			$path = untrailingslashit( $path );
+		}
+		$directory = ( '/' === $path ) ? '' : $path;
+		$base      = $origin . $directory;
+
+		return array(
+			$base . '/index.php?rest_route=/',
+			$base . '/wp-json/',
+		);
+	}
+
+	/**
+	 * Signed POST to the connector. Tries the plain REST root, then pretty /wp-json/.
+	 *
+	 * @param string $site_url Public site URL.
+	 * @param string $route REST route beginning with a slash.
+	 * @param string $body Raw JSON body.
+	 * @param int    $site_id Portal site id.
+	 * @param string $secret Site secret.
+	 * @param int    $timeout Seconds.
+	 * @return array|WP_Error
+	 */
+	public static function connector_command( $site_url, $route, $body, $site_id, $secret, $timeout = 60 ) {
+		$last = new WP_Error( 'rw_connector_unreachable', 'The website could not be reached.', array( 'status' => 502 ) );
+		$saw_missing = false;
+		foreach ( self::connector_rest_roots( $site_url ) as $root ) {
+			$result = self::signed_connector_request( $root, $route, 'POST', (string) $body, $site_id, $secret, (int) $timeout );
+			if ( ! is_wp_error( $result ) ) {
+				return $result;
+			}
+			$last   = $result;
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0;
+			if ( 404 === $status ) {
+				$saw_missing = true;
+				continue;
+			}
+			if ( 'rw_wp_request_failed' === $result->get_error_code() ) {
+				continue;
+			}
+			return $result;
+		}
+		if ( $saw_missing ) {
+			return new WP_Error( 'rw_connector_route_missing', 'This website\'s connector does not support that action yet. Update the ReactWoo connector and try again.', array( 'status' => 404 ) );
+		}
+
+		return $last;
+	}
+
 	public static function connector_status( $rest_root, $site_id, $secret ) {
 		return self::signed_connector_request( $rest_root, '/reactwoo-connector/v2/status', 'GET', '', $site_id, $secret, 20 );
 	}

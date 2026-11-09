@@ -642,7 +642,7 @@ class RW_Maint_Rest_Controller {
 	 * @param WP_REST_Request $request Request.
 	 * @param string          $client_method MainWP client method suffix (backup|run_updates|security_scan).
 	 * @param string          $audit_event Audit event name.
-	 * @param string          $hook Action hook fired after a successful MainWP call.
+	 * @param string          $hook Unused. The action is not fired again after the client call.
 	 * @return WP_REST_Response|WP_Error
 	 */
 	private static function customer_mainwp_action( WP_REST_Request $request, $client_method, $audit_event, $hook ) {
@@ -676,14 +676,19 @@ class RW_Maint_Rest_Controller {
 			return $result;
 		}
 
+		$state = RW_Maint_MainWP_Client::update_run_state( is_array( $result ) ? $result : array() );
 		RW_Maint_Audit::log(
 			$audit_event,
 			array(
 				'portal_site_id' => $portal_site_id,
+				'started'        => $state['started'],
+				'finished'       => $state['finished'],
+				'job_id'         => $state['job_id'],
 			)
 		);
 
-		do_action( $hook, $portal_site_id, $site );
+		// The client method already performed the action. Firing $hook here
+		// would run it a second time through RW_Maint_MainWP.
 
 		return rest_ensure_response(
 			array(
@@ -691,6 +696,9 @@ class RW_Maint_Rest_Controller {
 				'status'         => $site->status,
 				'action'         => $client_method,
 				'ok'             => true,
+				'started'        => $state['started'],
+				'finished'       => $state['finished'],
+				'job_id'         => $state['job_id'],
 			)
 		);
 	}

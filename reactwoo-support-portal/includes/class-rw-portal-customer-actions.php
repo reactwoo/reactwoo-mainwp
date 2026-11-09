@@ -88,7 +88,7 @@ class RW_Portal_Customer_Actions {
 				$user_id,
 				$action,
 				'rate_limited',
-				'You can run this action up to ' . (int) self::RATE_MAX . ' times every ' . (int) ( self::RATE_WINDOW / 60 ) . ' minutes for this site. Try again shortly.'
+				self::rate_limit_message()
 			);
 			return true;
 		}
@@ -98,8 +98,12 @@ class RW_Portal_Customer_Actions {
 			return true;
 		}
 
-		$bridge = self::BRIDGE_ACTIONS[ $action ];
-		$result = RW_Maint_Client::update_site_status( $site, $bridge );
+		if ( 'request_backup' === $action || 'security_scan' === $action ) {
+			$result = self::run_connector_action( $site, $action );
+		} else {
+			$bridge = self::BRIDGE_ACTIONS[ $action ];
+			$result = RW_Maint_Client::update_site_status( $site, $bridge );
+		}
 		if ( is_wp_error( $result ) ) {
 			$code = $result->get_error_code();
 			RW_Audit::log(
@@ -123,6 +127,9 @@ class RW_Portal_Customer_Actions {
 		}
 
 		self::bump_rate_limit( $user_id, (int) $site->id, $action );
+		if ( 'request_backup' === $action ) {
+			self::remember_backup_ref( (int) $site->id, $result );
+		}
 
 		$timestamp = current_time( 'mysql', true );
 		if ( 'check_site' === $action ) {
@@ -148,9 +155,76 @@ class RW_Portal_Customer_Actions {
 			$user_id,
 			'success',
 			'Done',
-			self::success_message( $action )
+			self::outcome_message( $action, is_array( $result ) ? $result : array() )
 		);
 		return true;
+	}
+
+	/**
+	 * Signed connector call for actions MainWP 6.4.1 cannot start.
+	 *
+	 * @param object $site Portal site.
+	 * @param string $action request_backup|security_scan.
+	 * @return array|WP_Error
+	 */
+	private static function run_connector_action( $site, $action ) {
+		$secret = class_exists( 'RW_Tokens' ) ? RW_Tokens::get_site_secret( (int) $site->id ) : '';
+		if ( ! is_string( $secret ) || '' === $secret ) {
+			return new WP_Error( 'rw_connector_secret_missing', 'This website has not finished enrolment, so the action could not run.', array( 'status' => 409 ) );
+		}
+
+		if ( 'request_backup' === $action ) {
+			$route   = '/reactwoo-connector/v2/snapshot';
+			$timeout = 120;
+			$body    = wp_json_encode( array( 'purpose' => 'customer' ) );
+		} else {
+			$route   = '/reactwoo-connector/v2/security-scan';
+			$timeout = 90;
+			$body    = wp_json_encode( array( 'purpose' => 'customer' ) );
+		}
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( $timeout + 30 );
+		}
+
+		return RW_WordPress_Client::connector_command( (string) $site->site_url, $route, (string) $body, (int) $site->id, $secret, $timeout );
+	}
+
+	/**
+	 * Keep the latest snapshot reference for a later report or rollback.
+	 *
+	 * @param int                 $site_id Portal site id.
+	 * @param array<string,mixed> $result Connector snapshot body.
+	 * @return void
+	 */
+	public static function remember_backup_ref( $site_id, $result ) {
+		if ( ! is_array( $result ) || empty( $result['backup_ref'] ) ) {
+			return;
+		}
+		$ref = sanitize_text_field( (string) $result['backup_ref'] );
+		if ( ! class_exists( 'RW_Connector_Snapshot' ) || ! RW_Connector_Snapshot::valid_reference( $ref ) ) {
+			if ( ! preg_match( '/^rwsnap_[0-9]{8}T[0-9]{6}Z_[a-f0-9]{8,32}$/', $ref ) ) {
+				return;
+			}
+		}
+		$includes = array();
+		if ( isset( $result['includes'] ) && is_array( $result['includes'] ) ) {
+			foreach ( $result['includes'] as $part ) {
+				$includes[] = sanitize_key( (string) $part );
+			}
+		}
+		update_option(
+			'rw_portal_backup_' . (int) $site_id,
+			array(
+				'backup_ref' => $ref,
+				'created_at' => isset( $result['created_at'] ) ? sanitize_text_field( (string) $result['created_at'] ) : '',
+				'bytes'      => isset( $result['bytes'] ) ? absint( $result['bytes'] ) : 0,
+				'location'   => 'onsite',
+				'includes'   => $includes,
+				'purpose'    => isset( $result['purpose'] ) ? sanitize_key( (string) $result['purpose'] ) : 'customer',
+			),
+			false
+		);
 	}
 
 	/**
@@ -309,6 +383,26 @@ class RW_Portal_Customer_Actions {
 		$code = $error->get_error_code();
 		$data = $error->get_error_data();
 		$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0;
+		$direct = array(
+			'rw_scan_unavailable',
+			'rw_scan_failed',
+			'rw_snapshot_failed',
+			'rw_snapshot_unavailable',
+			'rw_connector_unreachable',
+			'rw_connector_route_missing',
+			'rw_connector_secret_missing',
+			'rw_connector_already_enrolled',
+			'rw_update_unprotected',
+		);
+		if ( in_array( $code, $direct, true ) ) {
+			return self::safe_customer_message( $error->get_error_message() );
+		}
+		if ( 'rw_maint_bad_response' === $code ) {
+			$message = self::safe_customer_message( $error->get_error_message() );
+			if ( 'Maintenance hub responded with an error.' !== $message && 'The action failed.' !== $message ) {
+				return $message;
+			}
+		}
 		if (
 			in_array( $code, array( 'rw_maint_http_404', 'rw_maint_http_error', 'http_request_failed', 'rw_maint_bad_response' ), true )
 			|| in_array( $status, array( 404, 501 ), true )
@@ -324,16 +418,55 @@ class RW_Portal_Customer_Actions {
 	}
 
 	/**
-	 * @param string $action
+	 * @param string $message Candidate customer copy.
 	 * @return string
 	 */
-	private static function success_message( $action ) {
+	private static function safe_customer_message( $message ) {
+		$message = sanitize_text_field( (string) $message );
+		if ( '' === $message || strlen( $message ) > 240 ) {
+			return 'The action failed.';
+		}
+
+		return $message;
+	}
+
+	/**
+	 * Customer copy for a rate limit. Shown on the action card.
+	 *
+	 * @return string
+	 */
+	public static function rate_limit_message() {
+		return 'You can run this action up to ' . (int) self::RATE_MAX . ' times every ' . (int) ( self::RATE_WINDOW / 60 ) . ' minutes for this site. Try again shortly.';
+	}
+
+	/**
+	 * Honest result copy. A started job is not described as finished.
+	 *
+	 * @param string              $action Portal action.
+	 * @param array<string,mixed> $result Action body.
+	 * @return string
+	 */
+	public static function outcome_message( $action, array $result = array() ) {
+		if ( 'request_backup' === $action && ! empty( $result['backup_ref'] ) ) {
+			return 'A snapshot of the plugins, themes and database has been saved on this website. Reference: ' . sanitize_text_field( (string) $result['backup_ref'] ) . '.';
+		}
+		if ( 'security_scan' === $action && isset( $result['state'] ) && 'already_running' === $result['state'] ) {
+			return 'A Wordfence security scan is already running on this website.';
+		}
+		if ( 'security_scan' === $action ) {
+			return 'A Wordfence security scan has been started on this website. Results appear when the scan finishes.';
+		}
+		if ( 'run_updates' === $action ) {
+			$ref = isset( $result['backup_ref'] ) ? sanitize_text_field( (string) $result['backup_ref'] ) : '';
+			if ( '' !== $ref ) {
+				return 'A snapshot was saved (' . $ref . ') and pending updates have been started. Completion has not been confirmed.';
+			}
+			return 'Pending updates have been started on the maintenance hub. Completion has not been confirmed.';
+		}
+
 		$messages = array(
 			'check_site'         => 'Health check requested.',
 			'sync_site'          => 'Sync requested.',
-			'request_backup'     => 'Backup requested.',
-			'run_updates'        => 'Pending updates were approved to run.',
-			'security_scan'      => 'Security scan requested.',
 			'pause_maintenance'  => 'Maintenance paused for this site.',
 			'resume_maintenance' => 'Maintenance resumed for this site.',
 		);

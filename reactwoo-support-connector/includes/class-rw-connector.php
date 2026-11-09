@@ -11,6 +11,7 @@ class RW_Connector {
 		self::load_dependencies();
 		RW_Connector_Updater::init();
 		RW_Whitelabel::register();
+		RW_Connector_Maintenance::register();
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
 		add_action( self::HEARTBEAT_HOOK, array( __CLASS__, 'send_heartbeat' ) );
 	}
@@ -28,6 +29,11 @@ class RW_Connector {
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-updater.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-security-scan.php';
 		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-snapshot.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-maintenance-feed.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-maintenance-scanner.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-maintenance-auditor.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-maintenance-reporter.php';
+		require_once RW_CONNECTOR_DIR . 'includes/class-rw-connector-maintenance.php';
 	}
 
 	public static function register_routes() {

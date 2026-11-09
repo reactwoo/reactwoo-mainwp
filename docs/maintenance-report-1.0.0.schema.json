@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reactwoo.com/schemas/maintenance-report/1.0.0.json",
+  "title": "ReactWoo maintenance report",
+  "description": "Compact report posted by the ReactWoo Support Connector after a scheduled run and after core, plugin, or theme updates. The connector signs POST /reactwoo/v1/sites/maintenance-report with the same site secret and route rules as /reactwoo/v1/sites/heartbeat. Deliver it to {portal}/index.php?rest_route=/reactwoo/v1/sites/maintenance-report. This schema is the contract for the server-side ingest. The connector does not register that portal route.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "site_id", "timestamp", "updates", "audit", "backup_ref", "wordfence"],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Payload contract version. Independent of the connector plugin version."
+    },
+    "site_id": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Portal site id stored by the connector. The same value is sent in the X-RW-Site-ID header."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC time the report was built, for example 2026-11-09T15:04:05Z."
+    },
+    "updates": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "One row for each available core, plugin, or theme update already exposed by WordPress. Security rows are listed first. current and from are the installed version. latest and to are the offered version. At most 100 rows are sent.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "type", "current", "latest", "from", "to", "is_security", "changelog_excerpt", "severity_hint"],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "wordpress.org slug. Core is always wordpress."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["core", "plugin", "theme"]
+          },
+          "current": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "latest": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Same value as current. Kept so a reader of the original example can use from."
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Same value as latest. Kept so a reader of the original example can use to."
+          },
+          "is_security": {
+            "type": "boolean",
+            "description": "True when the installed version falls inside a Wordfence Intelligence affected range for this slug and type. False when the feed is unavailable."
+          },
+          "changelog_excerpt": {
+            "type": "string",
+            "maxLength": 180,
+            "description": "Short plain text. Wordfence remediation or title when this is a security update, otherwise the WordPress upgrade notice. Tags are removed. Empty when neither source has text."
+          },
+          "severity_hint": {
+            "type": "string",
+            "enum": ["", "critical", "high", "medium", "low", "unknown"],
+            "description": "Empty when is_security is false. Otherwise the Wordfence CVSS rating, or unknown when the feed has no rating."
+          }
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pages_checked", "failures"],
+      "properties": {
+        "pages_checked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Pages the auditor finished. The cap is 20. Load time and the content flag stay on the site and are not in this object."
+        },
+        "failures": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["url", "status", "note"],
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Path only, including the leading slash. No host, query, or fragment."
+              },
+              "status": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 599,
+                "description": "Final HTTP status after at most three redirects. Zero means the page did not respond."
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "Fixed short note. empty response, The page timed out., The page did not respond., The page was not found., The page returned an error., or The page redirected without a result."
+              }
+            }
+          }
+        }
+      }
+    },
+    "backup_ref": {
+      "type": "string",
+      "pattern": "^$|^rwsnap_[0-9]{8}T[0-9]{6}Z_[a-f0-9]{8,32}$",
+      "description": "On-site snapshot reference from the connector. A pre_update snapshot from the last six hours is preferred, otherwise the newest valid reference. Empty when the site has no snapshot."
+    },
+    "wordfence": {
+      "description": "Null until the Wordfence onboarding task supplies a block through the rw_connector_maintenance_wordfence filter. A partial object is valid.",
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/wordfence" }
+      ]
+    }
+  },
+  "$defs": {
+    "wordfence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "pro": {
+          "type": "boolean"
+        },
+        "template_applied": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "conflicts_removed": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    }
+  }
+}

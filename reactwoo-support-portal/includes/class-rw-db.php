@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_DB {
-	const DB_VERSION = '1.8';
+	const DB_VERSION = '1.9';
 
 	public static function table( $suffix ) {
 		global $wpdb;
@@ -143,6 +143,7 @@ class RW_DB {
 			minutes_delta INT NOT NULL,
 			credit_type ENUM('plan_allowance','purchased','usage','adjustment','expiry') NOT NULL,
 			reference VARCHAR(190) NOT NULL DEFAULT '',
+			service_host VARCHAR(190) NOT NULL DEFAULT '',
 			expires_at DATETIME DEFAULT NULL,
 			created_at DATETIME NOT NULL,
 			created_by BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,

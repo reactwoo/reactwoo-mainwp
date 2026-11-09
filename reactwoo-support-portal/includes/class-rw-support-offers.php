@@ -96,8 +96,10 @@ class RW_Support_Offers {
 		$id   = ( is_object( $product ) && method_exists( $product, 'get_id' ) ) ? (int) $product->get_id() : 0;
 		$kind = self::kind_of( $slug, $id );
 		$user = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		$has  = self::user_has_active_maintenance( $user );
+		$site = ( class_exists( 'RW_Support_Sites' ) && $has ) ? RW_Support_Sites::customer_has_resolved_plan_site( $user ) : $has;
 
-		return self::allows_purchase( (bool) $purchasable, $kind, self::user_has_active_maintenance( $user ) );
+		return self::purchasable_with_site( (bool) $purchasable, $kind, $has, $site );
 	}
 
 	/**
@@ -111,6 +113,27 @@ class RW_Support_Offers {
 			return false;
 		}
 		if ( 'additional' === $kind && ! $has_maintenance ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Additional Support also needs a maintenance plan that names one website.
+	 * The checkout site is checked separately, against that website.
+	 *
+	 * @param bool   $purchasable Current flag.
+	 * @param string $kind additional, technical, or empty.
+	 * @param bool   $has_maintenance Active or pending-cancel maintenance plan.
+	 * @param bool   $has_resolved_plan_site That plan has one stored website.
+	 * @return bool
+	 */
+	public static function purchasable_with_site( $purchasable, $kind, $has_maintenance, $has_resolved_plan_site ) {
+		if ( ! self::allows_purchase( $purchasable, $kind, $has_maintenance ) ) {
+			return false;
+		}
+		if ( 'additional' === $kind && ! $has_resolved_plan_site ) {
 			return false;
 		}
 
@@ -148,12 +171,121 @@ class RW_Support_Offers {
 			return false;
 		}
 		foreach ( $product_ids as $product_id ) {
-			if ( in_array( (int) $product_id, self::MAINTENANCE_PRODUCT_IDS, true ) ) {
+			if ( self::product_is_maintenance( (int) $product_id, 0 ) ) {
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * Products 3654, 3657 and 3660, a variation of those parents, or a product
+	 * whose `_rw_maintenance_plan_key` is essential, standard or business.
+	 *
+	 * @param int $product_id Product or variation.
+	 * @param int $parent_id Parent product. Zero when the caller does not have it.
+	 * @return bool
+	 */
+	public static function product_is_maintenance( $product_id, $parent_id = 0 ) {
+		$product_id = (int) $product_id;
+		$parent_id  = (int) $parent_id;
+		if ( in_array( $product_id, self::MAINTENANCE_PRODUCT_IDS, true ) || in_array( $parent_id, self::MAINTENANCE_PRODUCT_IDS, true ) ) {
+			return true;
+		}
+		if ( ! function_exists( 'get_post_meta' ) || ! class_exists( 'RW_Maintenance_Plans' ) ) {
+			return false;
+		}
+		$key = RW_Maintenance_Plans::normalize_key( get_post_meta( $product_id, RW_Maintenance_Plans::META_KEY, true ) );
+		if ( 'none' !== $key ) {
+			return true;
+		}
+		if ( $parent_id > 0 ) {
+			$key = RW_Maintenance_Plans::normalize_key( get_post_meta( $parent_id, RW_Maintenance_Plans::META_KEY, true ) );
+			if ( 'none' !== $key ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Why an Additional Support line cannot use the site entered at checkout.
+	 * Empty means the line may proceed. A missing plan is not reported here.
+	 *
+	 * @param bool             $has_plan Entitled maintenance plan.
+	 * @param mixed            $pack_domain Site entered for this pack.
+	 * @param array<int,mixed> $plan_hosts Resolved plan hosts.
+	 * @return string
+	 */
+	public static function checkout_site_refusal( $has_plan, $pack_domain, array $plan_hosts ) {
+		if ( ! $has_plan || ! class_exists( 'RW_Support_Sites' ) ) {
+			return '';
+		}
+		if ( RW_Support_Sites::host_matches_any( $pack_domain, $plan_hosts ) ) {
+			return '';
+		}
+		if ( empty( $plan_hosts ) ) {
+			return 'plan_site';
+		}
+		if ( '' === RW_Support_Sites::host_key( $pack_domain ) ) {
+			return 'missing_pack_site';
+		}
+
+		return 'mismatch';
+	}
+
+	/**
+	 * Additional Support lines whose checkout site is not an entitled plan site.
+	 *
+	 * @param array<int,array<string,mixed>> $lines id, slug, parent_id, service_domain.
+	 * @param bool                           $has_maintenance Active plan already on the account.
+	 * @param array<int,mixed>               $plan_hosts Resolved plan hosts.
+	 * @return int[]
+	 */
+	public static function checkout_site_blocks( array $lines, $has_maintenance, array $plan_hosts ) {
+		$blocked = array();
+		if ( ! $has_maintenance ) {
+			return $blocked;
+		}
+		foreach ( $lines as $line ) {
+			if ( ! is_array( $line ) ) {
+				continue;
+			}
+			$id     = isset( $line['id'] ) ? (int) $line['id'] : 0;
+			$slug   = isset( $line['slug'] ) ? (string) $line['slug'] : '';
+			$parent = isset( $line['parent_id'] ) ? (int) $line['parent_id'] : 0;
+			$kind   = self::kind_of( $slug, $id );
+			if ( '' === $kind && $parent > 0 ) {
+				$kind = self::kind_of( '', $parent );
+			}
+			if ( 'additional' !== $kind ) {
+				continue;
+			}
+			$domain = isset( $line['service_domain'] ) ? $line['service_domain'] : '';
+			if ( '' === self::checkout_site_refusal( true, $domain, $plan_hosts ) ) {
+				continue;
+			}
+			$blocked[] = $id > 0 ? $id : $parent;
+		}
+
+		return array_values( array_unique( array_filter( $blocked ) ) );
+	}
+
+	/**
+	 * @param string $reason plan_site, missing_pack_site, or mismatch.
+	 * @return string
+	 */
+	public static function site_refusal_message( $reason ) {
+		if ( 'plan_site' === $reason ) {
+			return 'Additional support cannot be applied until the maintenance plan website is confirmed.';
+		}
+		if ( 'missing_pack_site' === $reason ) {
+			return 'Enter the website covered by your maintenance plan. Additional support can only be used on that site.';
+		}
+
+		return 'Additional support can only be used on the website covered by your maintenance plan.';
 	}
 
 	/**
@@ -309,15 +441,31 @@ class RW_Support_Offers {
 			}
 		}
 		$user    = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
-		$blocked = self::blocked_cart_product_ids( array( $line ), self::user_has_active_maintenance( $user ) );
-		if ( empty( $blocked ) ) {
-			return true;
+		$has     = self::user_has_active_maintenance( $user );
+		$blocked = self::blocked_cart_product_ids( array( $line ), $has );
+		if ( ! empty( $blocked ) ) {
+			if ( function_exists( 'wc_add_notice' ) ) {
+				wc_add_notice( 'Additional support is available with an active maintenance plan.', 'error' );
+			}
+			return false;
 		}
-		if ( function_exists( 'wc_add_notice' ) ) {
-			wc_add_notice( 'Additional support is available with an active maintenance plan.', 'error' );
+		$kind   = self::kind_of( $line['slug'], (int) $line['id'] );
+		$parent = isset( $line['parent_id'] ) ? (int) $line['parent_id'] : 0;
+		if ( '' === $kind && $parent > 0 ) {
+			$kind = self::kind_of( '', $parent );
+		}
+		$domain = self::posted_service_domain_for_line( '' );
+		if ( 'additional' === $kind && class_exists( 'RW_Support_Sites' ) && '' !== RW_Support_Sites::host_key( $domain ) ) {
+			$reason = self::checkout_site_refusal( $has, $domain, RW_Support_Sites::resolved_hosts_for_user( $user ) );
+			if ( '' !== $reason ) {
+				if ( function_exists( 'wc_add_notice' ) ) {
+					wc_add_notice( self::site_refusal_message( $reason ), 'error' );
+				}
+				return false;
+			}
 		}
 
-		return false;
+		return true;
 	}
 
 	/**
@@ -338,25 +486,86 @@ class RW_Support_Offers {
 			$product = ( is_array( $item ) && isset( $item['data'] ) ) ? $item['data'] : null;
 			$id      = is_object( $product ) && method_exists( $product, 'get_id' ) ? (int) $product->get_id() : (int) ( is_array( $item ) && isset( $item['product_id'] ) ? $item['product_id'] : 0 );
 			$lines[] = array(
-				'key'       => $key,
-				'id'        => $id,
-				'slug'      => is_object( $product ) && method_exists( $product, 'get_slug' ) ? (string) $product->get_slug() : '',
-				'parent_id' => is_object( $product ) && method_exists( $product, 'get_parent_id' ) ? (int) $product->get_parent_id() : 0,
+				'key'            => $key,
+				'id'             => $id,
+				'slug'           => is_object( $product ) && method_exists( $product, 'get_slug' ) ? (string) $product->get_slug() : '',
+				'parent_id'      => is_object( $product ) && method_exists( $product, 'get_parent_id' ) ? (int) $product->get_parent_id() : 0,
+				'service_domain' => self::posted_service_domain_for_line( $key ),
 			);
 		}
 		$user    = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
-		$blocked = self::blocked_cart_product_ids( $lines, self::user_has_active_maintenance( $user ) );
-		if ( empty( $blocked ) ) {
+		$has     = self::user_has_active_maintenance( $user );
+		$blocked = self::blocked_cart_product_ids( $lines, $has );
+		$site_blocked = array();
+		if ( self::checking_out() && class_exists( 'RW_Support_Sites' ) ) {
+			$site_blocked = self::checkout_site_blocks( $lines, $has, RW_Support_Sites::resolved_hosts_for_user( $user ) );
+		}
+		if ( empty( $blocked ) && empty( $site_blocked ) ) {
 			return;
 		}
 		foreach ( $lines as $line ) {
-			if ( in_array( (int) $line['id'], $blocked, true ) && method_exists( $wc->cart, 'remove_cart_item' ) ) {
+			$remove = in_array( (int) $line['id'], $blocked, true ) || in_array( (int) $line['id'], $site_blocked, true );
+			if ( $remove && method_exists( $wc->cart, 'remove_cart_item' ) ) {
 				$wc->cart->remove_cart_item( $line['key'] );
 			}
 		}
-		if ( function_exists( 'wc_add_notice' ) ) {
+		if ( ! empty( $blocked ) && function_exists( 'wc_add_notice' ) ) {
 			wc_add_notice( 'Additional support was removed. It is available with an active maintenance plan.', 'error' );
 		}
+		if ( ! empty( $site_blocked ) && function_exists( 'wc_add_notice' ) ) {
+			$reason = empty( RW_Support_Sites::resolved_hosts_for_user( $user, false ) ) ? 'plan_site' : 'mismatch';
+			wc_add_notice( self::site_refusal_message( $reason ), 'error' );
+		}
+	}
+
+	/**
+	 * Checkout is where the service website is entered. The cart page is not.
+	 *
+	 * @return bool
+	 */
+	public static function checking_out() {
+		if ( null !== self::$force_checkout ) {
+			return (bool) self::$force_checkout;
+		}
+
+		return function_exists( 'is_checkout' ) && is_checkout();
+	}
+
+	/**
+	 * @var bool|null
+	 */
+	public static $force_checkout = null;
+
+	/**
+	 * Website posted for one service line. A licence domain is never read.
+	 *
+	 * @param string $cart_key Cart line key. Empty reads a single posted value.
+	 * @return string
+	 */
+	public static function posted_service_domain_for_line( $cart_key ) {
+		if ( ! isset( $_POST['rw_service_domain'] ) ) {
+			return '';
+		}
+		$posted = $_POST['rw_service_domain'];
+		if ( function_exists( 'wp_unslash' ) ) {
+			$posted = wp_unslash( $posted );
+		}
+		if ( is_string( $posted ) ) {
+			return sanitize_text_field( $posted );
+		}
+		if ( ! is_array( $posted ) ) {
+			return '';
+		}
+		$cart_key = (string) $cart_key;
+		if ( '' !== $cart_key && isset( $posted[ $cart_key ] ) ) {
+			return sanitize_text_field( (string) $posted[ $cart_key ] );
+		}
+		if ( '' === $cart_key && 1 === count( $posted ) ) {
+			$value = reset( $posted );
+			return sanitize_text_field( (string) $value );
+		}
+
+		return '';
 	}
 
 	/**
@@ -434,13 +643,31 @@ class RW_Support_Offers {
 		$subscription_id = ( is_object( $subscription ) && method_exists( $subscription, 'get_id' ) ) ? (int) $subscription->get_id() : 0;
 		$status          = ( is_object( $subscription ) && method_exists( $subscription, 'get_status' ) ) ? (string) $subscription->get_status() : '';
 		$has_plan        = self::subscription_grants_additional( $status, self::product_ids_from_subscription( $subscription ) );
+		$site_host       = '';
+		$plan_host       = '';
+		$offer_plan      = $has_plan;
+		if ( class_exists( 'RW_Support_Sites' ) ) {
+			if ( is_object( $site ) && ! empty( $site->site_url ) ) {
+				$site_host = RW_Support_Sites::host_key( $site->site_url );
+			}
+			$plan      = RW_Support_Sites::plan_site( $subscription );
+			$plan_host = $plan['host'];
+			if ( $has_plan && in_array( $plan['status'], array( 'empty', 'disagree' ), true ) ) {
+				RW_Support_Sites::flag_plan( $subscription_id, (int) $user_id, $plan['status'] );
+				$offer_plan = false;
+			} elseif ( $has_plan ) {
+				$offer_plan = ( '' !== $plan_host && '' !== $site_host && RW_Support_Sites::hosts_match( $plan_host, $site_host ) );
+			}
+		}
 		$base            = function_exists( 'wc_get_checkout_url' ) ? wc_get_checkout_url() : home_url( '/checkout/' );
-		$presented       = self::present( $records, $has_plan, self::saved_card( $user_id ), $base, $subscription_id, $site_id );
+		$presented       = self::present( $records, $offer_plan, self::saved_card( $user_id ), $base, $subscription_id, $site_id );
 		if ( ! is_array( $presented ) ) {
 			return null;
 		}
-		$presented['nonce']    = function_exists( 'wp_create_nonce' ) ? wp_create_nonce( 'rw_buy_extra_support' ) : '';
-		$presented['ajax_url'] = function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : '';
+		$presented['nonce']     = function_exists( 'wp_create_nonce' ) ? wp_create_nonce( 'rw_buy_extra_support' ) : '';
+		$presented['ajax_url']  = function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : '';
+		$presented['site_host'] = $site_host;
+		$presented['plan_host'] = $plan_host;
 
 		return $presented;
 	}
@@ -693,7 +920,7 @@ class RW_Support_Offers {
 			'rw-portal-support-checkout',
 			RW_PORTAL_URL . 'assets/js/account-support-checkout.js',
 			array(),
-			defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.8',
+			defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.9',
 			true
 		);
 		if ( function_exists( 'wp_localize_script' ) ) {

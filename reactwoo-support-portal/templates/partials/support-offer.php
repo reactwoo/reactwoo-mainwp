@@ -21,7 +21,8 @@ $offer_first   = $offer_options[0];
 	<article class="rw-maint-panel">
 		<p class="rw-maint-kicker">Extra support</p>
 		<h3 id="rw-maint-support-offer-title">Buy extra support</h3>
-		<p class="rw-maint-panel-copy">Add support time for this website. The price is the current shop price.</p>
+		<?php $offer_host = isset( $support_offer['site_host'] ) ? (string) $support_offer['site_host'] : ''; ?>
+		<p class="rw-maint-panel-copy"><?php echo '' !== $offer_host ? 'Add support time for ' . esc_html( $offer_host ) . '. Additional support can only be used on the website covered by your maintenance plan.' : 'Add support time for this website. The price is the current shop price.'; ?></p>
 		<label class="rw-maint-offer-label" for="rw-maint-support-pack">Support pack</label>
 		<select id="rw-maint-support-pack" class="rw-maint-offer-select">
 			<?php foreach ( $offer_options as $offer_option ) : ?>

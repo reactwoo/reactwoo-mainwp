@@ -29,11 +29,20 @@ class RW_Support_Credits {
 			if ( ! $product ) {
 				continue;
 			}
-			self::credit_item( $user_id, (int) $order->get_id(), (int) $item_id, $product );
+			$domain = class_exists( 'RW_Support_Sites' ) ? RW_Support_Sites::read_service_domain( $item ) : '';
+			self::credit_item( $user_id, (int) $order->get_id(), (int) $item_id, $product, $domain );
 		}
 	}
 
-	public static function credit_item( $user_id, $order_id, $item_id, $product ) {
+	/**
+	 * @param int         $user_id Customer.
+	 * @param int         $order_id Order.
+	 * @param int         $item_id Order line.
+	 * @param object      $product Product.
+	 * @param string      $service_domain Line-item `_rw_service_domain`. Licence domains are not accepted here.
+	 * @return int Ledger row id, or 0 when nothing was applied.
+	 */
+	public static function credit_item( $user_id, $order_id, $item_id, $product, $service_domain = '' ) {
 		$product_id = $product->get_id();
 		$parent_id  = $product->get_parent_id();
 		$meta       = array(
@@ -49,23 +58,62 @@ class RW_Support_Credits {
 			$meta['_rw_credit_validity_days'] = (string) get_post_meta( $parent_id, '_rw_credit_validity_days', true );
 		}
 
-		$subscription = self::maintenance_subscription_for_user( $user_id );
-		if ( ! RW_Support_Balance::should_credit( $meta, (bool) $subscription ) ) {
+		$kind = '';
+		if ( class_exists( 'RW_Support_Offers' ) ) {
+			$slug = ( is_object( $product ) && method_exists( $product, 'get_slug' ) ) ? (string) $product->get_slug() : '';
+			$kind = RW_Support_Offers::kind_of( $slug, (int) $product_id );
+			if ( '' === $kind && $parent_id ) {
+				$kind = RW_Support_Offers::kind_of( '', (int) $parent_id );
+			}
+		}
+		$plans    = class_exists( 'RW_Support_Sites' ) ? RW_Support_Sites::plans_for_user( $user_id ) : array();
+		$decision = class_exists( 'RW_Support_Sites' )
+			? RW_Support_Sites::credit_decision( $kind, $meta['_rw_requires_maintenance'], $service_domain, $plans )
+			: array(
+				'apply'           => true,
+				'subscription_id' => 0,
+				'host'            => '',
+				'flag'            => '',
+				'has_maintenance' => false,
+			);
+		if ( ! RW_Support_Balance::should_credit( $meta, ! empty( $decision['has_maintenance'] ) ) ) {
 			return 0;
 		}
 
-		$subscription_id = $subscription ? (int) $subscription->get_id() : 0;
-		$existing        = $subscription_id ? RW_Support_Ledger::rows_for_subscription( $subscription_id ) : self::rows_for_order_item( $item_id );
-		$validity        = RW_Support_Balance::configured_validity_days( $meta['_rw_credit_validity_days'] );
+		if ( empty( $decision['apply'] ) ) {
+			if ( class_exists( 'RW_Support_Sites' ) ) {
+				RW_Support_Sites::flag_credit( $item_id, $user_id, $order_id, $decision['flag'], (int) $meta['_rw_support_minutes'] );
+				if ( 'no_plan_site' === $decision['flag'] ) {
+					foreach ( $plans as $plan ) {
+						if ( ! empty( $plan['grants'] ) && in_array( $plan['status'], array( 'empty', 'disagree' ), true ) ) {
+							RW_Support_Sites::flag_plan( $plan['subscription_id'], $user_id, $plan['status'] );
+						}
+					}
+				}
+			}
+			return 0;
+		}
+
+		$validity = RW_Support_Balance::configured_validity_days( $meta['_rw_credit_validity_days'] );
 		if ( null === $validity ) {
 			self::flag_policy_unset( $product_id );
 			return 0;
 		}
-		$row = RW_Support_Balance::purchase_row( $existing, $item_id, (int) $meta['_rw_support_minutes'], $validity, current_time( 'mysql' ) );
+
+		$subscription_id = isset( $decision['subscription_id'] ) ? (int) $decision['subscription_id'] : 0;
+		$existing        = $subscription_id ? RW_Support_Ledger::rows_for_subscription( $subscription_id ) : self::rows_for_order_item( $item_id );
+		$host            = isset( $decision['host'] ) ? (string) $decision['host'] : '';
+		$row             = RW_Support_Balance::purchase_row( $existing, $item_id, (int) $meta['_rw_support_minutes'], $validity, current_time( 'mysql' ), $host );
 		if ( ! $row ) {
 			return 0;
 		}
-		$row['order_id'] = $order_id;
+		$row['order_id']     = $order_id;
+		$row['service_host'] = $host;
+		if ( '' === $host && class_exists( 'RW_Support_Sites' ) ) {
+			RW_Support_Sites::flag_credit( $item_id, $user_id, $order_id, 'unassigned', (int) $meta['_rw_support_minutes'] );
+		} elseif ( class_exists( 'RW_Support_Sites' ) ) {
+			RW_Support_Sites::clear_credit_flag( $item_id );
+		}
 
 		return RW_Support_Ledger::append( $user_id, $subscription_id, $row, 0 );
 	}
@@ -87,24 +135,6 @@ class RW_Support_Credits {
 		}
 		$existing[] = $product_id;
 		update_option( RW_Support_Balance::CREDIT_POLICY_UNSET_OPTION, array_values( array_unique( array_map( 'intval', $existing ) ) ), false );
-	}
-
-	private static function maintenance_subscription_for_user( $user_id ) {
-		if ( ! function_exists( 'wcs_get_users_subscriptions' ) ) {
-			return null;
-		}
-		$subscriptions = wcs_get_users_subscriptions( (int) $user_id );
-		foreach ( $subscriptions as $subscription ) {
-			if ( ! is_object( $subscription ) || ! method_exists( $subscription, 'has_status' ) || ! $subscription->has_status( array( 'active', 'pending-cancel' ) ) ) {
-				continue;
-			}
-			$entitlement = RW_Maintenance_Entitlements::resolve( $subscription );
-			if ( ! is_wp_error( $entitlement ) && ! empty( $entitlement['is_maintenance'] ) ) {
-				return $subscription;
-			}
-		}
-
-		return null;
 	}
 
 	private static function rows_for_order_item( $item_id ) {

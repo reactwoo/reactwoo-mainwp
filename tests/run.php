@@ -1517,7 +1517,7 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.8' === RW_PORTAL_VERSION
+		&& '0.5.9' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -2934,6 +2934,7 @@ $GLOBALS['rw_current_user_id'] = 0;
 unset( $GLOBALS['rw_user_subscriptions'] );
 
 require __DIR__ . '/account-readiness.php';
+require __DIR__ . '/support-sites.php';
 
 if ( ! function_exists( 'get_locale' ) ) {
 	function get_locale() {

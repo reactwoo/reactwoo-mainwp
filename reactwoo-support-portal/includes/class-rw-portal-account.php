@@ -308,7 +308,7 @@ class RW_Portal_Account {
 			$product_ids = RW_Support_Offers::product_ids_from_subscription( $subscription );
 			$maintenance = false;
 			foreach ( $product_ids as $product_id ) {
-				if ( in_array( (int) $product_id, RW_Support_Offers::MAINTENANCE_PRODUCT_IDS, true ) ) {
+				if ( RW_Support_Offers::product_is_maintenance( (int) $product_id, 0 ) ) {
 					$maintenance = true;
 					break;
 				}
@@ -555,6 +555,7 @@ class RW_Portal_Account {
 				'flags'             => $flags,
 				'url'               => self::maintenance_url( isset( $view['subscription_id'] ) ? $view['subscription_id'] : 0 ),
 				'connected'         => $connected,
+				'support_label'     => self::site_support_label( $view ),
 			);
 		}
 
@@ -584,6 +585,22 @@ class RW_Portal_Account {
 		}
 
 		return $others;
+	}
+
+	/**
+	 * Purchased minutes that belong to the website on this card.
+	 *
+	 * @param array<string,mixed> $view Subscription view.
+	 * @return string
+	 */
+	private static function site_support_label( array $view ) {
+		$minutes = isset( $view['purchased_minutes_remaining'] ) ? (int) $view['purchased_minutes_remaining'] : 0;
+		$host    = isset( $view['support_site_host'] ) ? (string) $view['support_site_host'] : '';
+		if ( $minutes <= 0 || '' === $host ) {
+			return '';
+		}
+
+		return $minutes . ' purchased minutes for ' . $host;
 	}
 
 	/**
@@ -1094,15 +1111,49 @@ class RW_Portal_Account {
 		$included_remaining = null;
 		$included_granted   = $minutes;
 		$purchased_remaining = 0;
+		$unassigned_purchased = 0;
+		$support_site_host = '';
+		$plan_site_host    = '';
+		if ( $site && ! empty( $site->site_url ) && class_exists( 'RW_Support_Sites' ) ) {
+			$support_site_host = RW_Support_Sites::host_key( $site->site_url );
+		}
 		$show_included      = $minutes > 0;
+		$included_for_site  = true;
 		if ( ! is_wp_error( $entitlement ) && class_exists( 'RW_Support_Allowance' ) ) {
 			RW_Support_Allowance::grant_subscription( $subscription );
 			$balances            = RW_Support_Ledger::balances( $subscription_id );
-			$period              = RW_Support_Balance::period_containing( (string) $subscription->get_date( 'start' ), current_time( 'mysql' ) );
+			$credit_rows         = $balances['rows'];
+			if ( class_exists( 'RW_Support_Ledger' ) ) {
+				$user_rows = RW_Support_Ledger::rows_for_user( $user_id );
+				if ( ! empty( $user_rows ) ) {
+					$credit_rows = $user_rows;
+				}
+			}
+			$now                 = current_time( 'mysql' );
+			$period              = RW_Support_Balance::period_containing( (string) $subscription->get_date( 'start' ), $now );
 			$included_granted    = $period ? RW_Support_Balance::current_grant( $balances['rows'], $period['start_date'] ) : 0;
 			$included_remaining  = (int) $balances['included'];
-			$purchased_remaining = (int) $balances['purchased'];
 			$show_included       = $included_granted > 0;
+			$plan_host           = '';
+			if ( class_exists( 'RW_Support_Sites' ) ) {
+				$plan_site = RW_Support_Sites::plan_site( $subscription );
+				$plan_host = $plan_site['host'];
+				$plan_site_host = $plan_host;
+				if ( in_array( $plan_site['status'], array( 'empty', 'disagree' ), true ) ) {
+					RW_Support_Sites::flag_plan( $subscription_id, (int) $user_id, $plan_site['status'] );
+				}
+				$context_host = ( $site && ! empty( $site->site_url ) ) ? RW_Support_Sites::host_key( $site->site_url ) : $plan_host;
+				$support_site_host = $context_host;
+				$scoped = RW_Support_Sites::context_balance( $credit_rows, $now, $context_host, $plan_host );
+				$purchased_remaining = (int) $scoped['purchased'];
+				$unassigned_purchased = (int) $scoped['unassigned'];
+				$included_for_site = ! empty( $scoped['included_applies'] ) || '' === $plan_host;
+				if ( $unassigned_purchased > 0 ) {
+					RW_Support_Sites::flag_unassigned_rows( $credit_rows, $now, (int) $user_id );
+				}
+			} else {
+				$purchased_remaining = (int) $balances['purchased'];
+			}
 		}
 
 		return array(
@@ -1112,6 +1163,10 @@ class RW_Portal_Account {
 			'included_minutes_remaining' => $included_remaining,
 			'included_minutes_granted'   => $included_granted,
 			'purchased_minutes_remaining' => $purchased_remaining,
+			'unassigned_purchased_minutes' => $unassigned_purchased,
+			'support_site_host'          => $support_site_host,
+			'plan_site_host'             => $plan_site_host,
+			'included_for_site'          => $included_for_site,
 			'show_included_minutes'      => $show_included,
 			'site'            => $site,
 			'sites'           => self::site_summaries( $sites ),
@@ -1125,7 +1180,7 @@ class RW_Portal_Account {
 			'can_connect'     => $can_connect,
 			'backup_label'    => '' !== $backup ? ucfirst( $backup ) : 'Included on your plan',
 			'last_seen'       => ( $site && ! empty( $site->last_seen ) ) ? self::format_datetime( $site->last_seen ) : '',
-			'support_mailto'  => $support ? 'mailto:' . $support . '?subject=' . rawurlencode( 'Maintenance support' ) : '',
+			'support_mailto'  => $support ? 'mailto:' . $support . '?subject=' . rawurlencode( '' !== $support_site_host ? 'Maintenance support for ' . $support_site_host : 'Maintenance support' ) : '',
 			'progress'        => self::progress_steps( $site ),
 			'plan_points'     => self::plan_points( $plan_name, $show_included, $included_granted ),
 			'benefits'        => self::benefit_cards( $reports_on, $speed_on ),

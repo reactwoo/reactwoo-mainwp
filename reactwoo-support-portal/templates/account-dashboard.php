@@ -14,6 +14,11 @@ $host = $site ? wp_parse_url( (string) $site->site_url, PHP_URL_HOST ) : '';
 $host = $host ? $host : 'your website';
 $granted   = isset( $rw_view['included_minutes_granted'] ) ? (int) $rw_view['included_minutes_granted'] : 0;
 $remaining = isset( $rw_view['included_minutes_remaining'] ) ? (int) $rw_view['included_minutes_remaining'] : 0;
+$purchased_for_site = isset( $rw_view['purchased_minutes_remaining'] ) ? (int) $rw_view['purchased_minutes_remaining'] : 0;
+$unassigned_minutes = isset( $rw_view['unassigned_purchased_minutes'] ) ? (int) $rw_view['unassigned_purchased_minutes'] : 0;
+$support_host = isset( $rw_view['support_site_host'] ) ? (string) $rw_view['support_site_host'] : '';
+$plan_host = isset( $rw_view['plan_site_host'] ) ? (string) $rw_view['plan_site_host'] : '';
+$included_for_site = ! isset( $rw_view['included_for_site'] ) || ! empty( $rw_view['included_for_site'] );
 $used      = $granted > 0 ? max( 0, $granted - $remaining ) : 0;
 $used_pct  = $granted > 0 ? min( 100, (int) round( ( $used / $granted ) * 100 ) ) : 0;
 $switcher  = isset( $rw_view['switcher'] ) && is_array( $rw_view['switcher'] ) ? $rw_view['switcher'] : array();
@@ -43,8 +48,8 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 		<aside class="rw-maint-plan" aria-label="Plan and support">
 			<p class="rw-maint-kicker">Your plan</p>
 			<h3><?php echo esc_html( $rw_view['plan_name'] ); ?></h3>
-			<?php if ( ! empty( $rw_view['show_included_minutes'] ) && $granted > 0 ) : ?>
-				<p class="rw-maint-plan-label">Support minutes this period</p>
+			<?php if ( ! empty( $rw_view['show_included_minutes'] ) && $granted > 0 && $included_for_site ) : ?>
+				<p class="rw-maint-plan-label">Support minutes this period<?php echo '' !== $plan_host ? ' for ' . esc_html( $plan_host ) : ''; ?></p>
 				<div class="rw-maint-meter" role="img" aria-label="<?php echo esc_attr( $used . ' of ' . $granted . ' minutes used' ); ?>">
 					<span style="width: <?php echo esc_attr( (string) $used_pct ); ?>%"></span>
 				</div>
@@ -58,8 +63,14 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 			<?php elseif ( ! empty( $rw_view['renews_on'] ) ) : ?>
 				<p class="rw-maint-plan-label">Renews on <?php echo esc_html( $rw_view['renews_on'] ); ?></p>
 			<?php endif; ?>
-			<?php if ( isset( $rw_view['purchased_minutes_remaining'] ) && (int) $rw_view['purchased_minutes_remaining'] > 0 ) : ?>
-				<p class="rw-maint-plan-note"><?php echo esc_html( (string) (int) $rw_view['purchased_minutes_remaining'] ); ?> purchased minutes remain, separate from the monthly allowance.</p>
+			<?php if ( $purchased_for_site > 0 && '' !== $support_host ) : ?>
+				<p class="rw-maint-plan-note"><?php echo esc_html( (string) $purchased_for_site ); ?> purchased minutes remain for <?php echo esc_html( $support_host ); ?>, separate from the monthly allowance.</p>
+			<?php endif; ?>
+			<?php if ( ! $included_for_site && '' !== $plan_host ) : ?>
+				<p class="rw-maint-plan-note">Included support on this plan is for <?php echo esc_html( $plan_host ); ?>.</p>
+			<?php endif; ?>
+			<?php if ( $unassigned_minutes > 0 ) : ?>
+				<p class="rw-maint-plan-note"><?php echo esc_html( (string) $unassigned_minutes ); ?> purchased minutes are not tied to a website yet. They stay on the account until we assign them, and they are not available on this site.</p>
 			<?php endif; ?>
 		</aside>
 	</section>
@@ -110,10 +121,13 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 			<article class="rw-maint-panel rw-maint-panel--paper">
 				<h3>Need a hand?</h3>
 				<p class="rw-maint-panel-copy">
-					<?php if ( ! empty( $rw_view['show_included_minutes'] ) && $granted > 0 ) : ?>
-						<?php echo esc_html( (string) $remaining ); ?> of <?php echo esc_html( (string) $granted ); ?> included minutes remain in this period.
+					<?php if ( ! empty( $rw_view['show_included_minutes'] ) && $granted > 0 && $included_for_site ) : ?>
+						<?php echo esc_html( (string) $remaining ); ?> of <?php echo esc_html( (string) $granted ); ?> included minutes remain<?php echo '' !== $plan_host ? ' for ' . esc_html( $plan_host ) : ' in this period'; ?>.
 					<?php else : ?>
 						Technical support for this plan is available from your account.
+					<?php endif; ?>
+					<?php if ( $purchased_for_site > 0 && '' !== $support_host ) : ?>
+						<?php echo esc_html( (string) $purchased_for_site ); ?> purchased minutes remain for <?php echo esc_html( $support_host ); ?>.
 					<?php endif; ?>
 				</p>
 				<?php if ( ! empty( $rw_view['support_mailto'] ) ) : ?>

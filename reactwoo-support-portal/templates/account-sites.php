@@ -26,6 +26,9 @@ $count = count( $cards );
 				</div>
 				<h3><?php echo esc_html( $card['host'] ); ?></h3>
 				<p class="rw-maint-site-meta"><?php echo '' !== $card['renews'] ? 'Renews ' . esc_html( $card['renews'] ) : esc_html( $card['plan'] ); ?></p>
+				<?php if ( ! empty( $card['support_label'] ) ) : ?>
+					<p class="rw-maint-site-meta"><?php echo esc_html( $card['support_label'] ); ?></p>
+				<?php endif; ?>
 				<dl class="rw-maint-count-list">
 					<div>
 						<dt>Updates pending</dt>

@@ -1,0 +1,23 @@
+name: Restore connector catalog
+
+# Runs the connector publish workflow when the explicit restore file changes.
+# A portal tag is not required. The publish job still refuses any version
+# other than the connector plugin header.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-update.yml"
+      - ".github/workflows/restore-connector-catalog.yml"
+      - "scripts/connector-catalog-restore.txt"
+      - "scripts/resolve_connector_release.py"
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    uses: ./.github/workflows/publish-update.yml
+    secrets: inherit

@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Override plugin version (optional)"
+        description: "Must match the connector plugin header. The git tag is not used."
         required: false
+      restore:
+        description: "Set true to publish the plugin header even when the catalog is already higher. The value must be the header."
+        required: false
+        default: "false"
       channel:
         description: "Release channel"
         required: false
@@ -14,6 +18,7 @@ on:
         description: "Rollout percentage (0-100)"
         required: false
         default: "100"
+  workflow_call:
   push:
     tags:
       - "v*"
@@ -47,14 +52,54 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -n "${{ github.event.inputs.version || '' }}" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="$(sed -n "s/^ \* Version: //p" "${MAIN_PHP}" | head -n1 | tr -d '\r')"
+          # The catalog version is the connector plugin header. A git tag is not a version.
+          CATALOG="$(
+            python3 - <<'PY'
+          import json
+          import urllib.request
+
+          request = urllib.request.Request(
+              "https://api.reactwoo.com/api/v5/updates/check",
+              data=json.dumps(
+                  {
+                      "slug": "reactwoo-support-connector",
+                      "current_version": "0.0.0",
+                      "channel": "${{ github.event.inputs.channel || 'stable' }}",
+                      "site_host": "github-actions",
+                  }
+              ).encode(),
+              headers={"Content-Type": "application/json", "Accept": "application/json"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.load(response)
+          version = payload.get("version") if isinstance(payload, dict) else ""
+          print(version or "")
+          PY
+          )"
+          echo "Catalog version: ${CATALOG:-none}"
+
+          RESTORE=""
+          if [[ "${{ github.event.inputs.restore || 'false' }}" == "true" ]]; then
+            RESTORE="$(sed -n "s/^ \* Version: //p" "${MAIN_PHP}" | head -n1 | tr -d '\r')"
           fi
 
+          python3 scripts/resolve_connector_release.py \
+            --main "${MAIN_PHP}" \
+            --zip "${PLUGIN_SLUG}.zip" \
+            --requested "${{ github.event.inputs.version || '' }}" \
+            --catalog "${CATALOG}" \
+            --restore "${RESTORE}" \
+            --restore-file scripts/connector-catalog-restore.txt \
+            --github-output "$GITHUB_OUTPUT"
+
+          VERSION="$(python3 - <<'PY'
+          import os
+          import re
+          text = open(os.environ["MAIN_PHP"], encoding="utf-8").read()
+          match = re.search(r"^[ \t]*\*[ \t]*Version:[ \t]*(\S+)", text, re.MULTILINE)
+          print(match.group(1) if match else "")
+          PY
+          )"
           if [[ -z "${VERSION}" ]]; then
             echo "Could not determine plugin version."
             exit 1
@@ -73,7 +118,6 @@ jobs:
           LATEST_META_KEY="plugins/${PLUGIN_SLUG}/latest.json"
           SHA256="$(sha256sum "${PLUGIN_SLUG}.zip" | awk '{print $1}')"
 
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "min_php=${MIN_PHP}" >> "$GITHUB_OUTPUT"
           echo "tested_up_to=${TESTED_UP_TO}" >> "$GITHUB_OUTPUT"
           echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
@@ -84,6 +128,7 @@ jobs:
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS CLI for R2
+        if: steps.meta.outputs.publish == 'true'
         shell: bash
         run: |
           aws configure set aws_access_key_id "${{ secrets.R2_ACCESS_KEY_ID }}"
@@ -91,6 +136,7 @@ jobs:
           aws configure set region auto
 
       - name: Validate and normalize R2 endpoint
+        if: steps.meta.outputs.publish == 'true'
         id: r2
         shell: bash
         run: |
@@ -113,6 +159,7 @@ jobs:
           echo "endpoint=${ENDPOINT}" >> "$GITHUB_OUTPUT"
 
       - name: Upload zip to R2
+        if: steps.meta.outputs.publish == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -121,7 +168,38 @@ jobs:
             --content-type "application/zip" \
             --cache-control "public, max-age=31536000, immutable"
 
+      - name: Publish release metadata to API
+        if: steps.meta.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          payload = {
+              "slug": "${{ env.PLUGIN_SLUG }}",
+              "version": "${{ steps.meta.outputs.version }}",
+              "channel": "${{ steps.meta.outputs.channel }}",
+              "artifact_key": "${{ steps.meta.outputs.artifact_key }}",
+              "sha256": "${{ steps.meta.outputs.sha256 }}",
+              "min_php": "${{ steps.meta.outputs.min_php }}",
+              "tested_up_to": "${{ steps.meta.outputs.tested_up_to }}",
+              "rollout_percentage": int("${{ steps.meta.outputs.rollout }}"),
+          }
+          with open("publish-payload.json", "w", encoding="utf-8") as fh:
+              json.dump(payload, fh, separators=(",", ":"))
+          PY
+          python -m json.tool publish-payload.json >/dev/null
+
+          curl --fail-with-body -sS -X POST "${API_PUBLISH_URL}" \
+            --http1.1 \
+            --retry 8 --retry-delay 15 \
+            -H "Authorization: Bearer ${{ secrets.UPDATES_PUBLISH_TOKEN }}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data-binary @publish-payload.json
+
       - name: Upload latest pointer artifacts to R2
+        if: steps.meta.outputs.publish == 'true'
         shell: bash
         env:
           VERSION: ${{ steps.meta.outputs.version }}
@@ -168,36 +246,8 @@ jobs:
             --content-type "application/json" \
             --cache-control "no-cache, max-age=0, must-revalidate"
 
-      - name: Publish release metadata to API
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          payload = {
-              "slug": "${{ env.PLUGIN_SLUG }}",
-              "version": "${{ steps.meta.outputs.version }}",
-              "channel": "${{ steps.meta.outputs.channel }}",
-              "artifact_key": "${{ steps.meta.outputs.artifact_key }}",
-              "sha256": "${{ steps.meta.outputs.sha256 }}",
-              "min_php": "${{ steps.meta.outputs.min_php }}",
-              "tested_up_to": "${{ steps.meta.outputs.tested_up_to }}",
-              "rollout_percentage": int("${{ steps.meta.outputs.rollout }}"),
-          }
-          with open("publish-payload.json", "w", encoding="utf-8") as fh:
-              json.dump(payload, fh, separators=(",", ":"))
-          PY
-          python -m json.tool publish-payload.json >/dev/null
-
-          curl --fail-with-body -sS -X POST "${API_PUBLISH_URL}" \
-            --http1.1 \
-            --retry 8 --retry-delay 15 \
-            -H "Authorization: Bearer ${{ secrets.UPDATES_PUBLISH_TOKEN }}" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            --data-binary @publish-payload.json
-
       - name: Mirror pinned MainWP components to R2
+        if: steps.meta.outputs.publish == 'true'
         shell: bash
         run: |
           set -euo pipefail

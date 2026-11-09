@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_Maint_DB {
-	const DB_VERSION = '1.1';
+	const DB_VERSION = '1.2';
 
 	/**
 	 * True once this request knows the audit table is present.
@@ -82,6 +82,8 @@ class RW_Maint_DB {
 			client_locale VARCHAR(10) DEFAULT NULL,
 			report_email VARCHAR(190) DEFAULT NULL,
 			report_enabled TINYINT(1) NOT NULL DEFAULT 1,
+			last_backup_ref VARCHAR(64) DEFAULT NULL,
+			last_backup_at DATETIME DEFAULT NULL,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),

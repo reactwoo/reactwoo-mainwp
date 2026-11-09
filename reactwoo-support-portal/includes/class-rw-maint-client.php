@@ -119,7 +119,7 @@ class RW_Maint_Client {
 		return $client;
 	}
 
-	public static function update_site_status( $site, $action ) {
+	public static function update_site_status( $site, $action, array $extra = array() ) {
 		if ( ! $site ) {
 			return new WP_Error( 'rw_maint_missing_site', 'Managed site is required.' );
 		}
@@ -127,6 +127,11 @@ class RW_Maint_Client {
 		$payload = array(
 			'portal_site_id' => (int) $site->id,
 		);
+		foreach ( array( 'backup_ref', 'snapshot_at' ) as $key ) {
+			if ( isset( $extra[ $key ] ) && is_scalar( $extra[ $key ] ) ) {
+				$payload[ $key ] = sanitize_text_field( (string) $extra[ $key ] );
+			}
+		}
 
 		return self::post( $action, $payload );
 	}

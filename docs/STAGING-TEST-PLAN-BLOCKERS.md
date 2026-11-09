@@ -29,10 +29,18 @@ Use the maintenance account for the staging site. Each button still asks for the
 1. **Request backup.** Expect a success notice that includes a `rwsnap_...` reference, not a claim that an offsite backup finished. On the child, the zip should contain `manifest.json`, `database.sql`, `plugins/`, and `themes/`. A second request should replace nothing older than the three newest archives.
 2. **Security scan, Wordfence inactive.** Expect a failure that says Wordfence is not active and that a scan was not started.
 3. **Security scan, Wordfence active.** Expect a notice that a scan has started, or that one is already running. Do not expect scan results in the same response.
-4. **Run pending updates.** Expect a notice that updates have been started and that completion has not been confirmed. In MainWP, the call is `POST /mainwp/v2/updates/{site id}/update`. A suspended site should fail with the hub message, and the portal should not say the updates ran.
+4. **Run pending updates.** Follow the snapshot gate below. The MainWP call, when the snapshot succeeds, is `POST /mainwp/v2/updates/{site id}/update`. A suspended site should fail with the hub message, and the portal should not say the updates ran.
+
+## Updates wait for a snapshot
+
+1. On the updated portal, run **Run pending updates** once.
+2. The notice should name a new `rwsnap_` reference and say completion has not been confirmed.
+3. On the child, that zip's `manifest.json` should say `"purpose": "pre_update"`.
+4. On the hub, the bridge site row should store the same `last_backup_ref`. If the snapshot route is unavailable, the notice must say updates were not started, and MainWP must show no new update job.
+5. The hub's own daily automatic updates are not switched off. Once a day the bridge writes an audit event `hub_auto_updates_unprotected` for each active site that is included in those updates and has no ReactWoo snapshot from the last 30 minutes. That log is the record that those runs are unprotected.
 
 ## What this does not prove
 
 - The snapshot is on the child disk. It is not an offsite copy, and this plan does not restore it.
-- MainWP's own daily automatic updates are not gated by this pull request.
 - Nginx will still serve the snapshot directory unless the server is told to deny it.
+- A Wordfence scan that Wordfence queues can still fail after the connector has returned. Check the scan page on the child if the notice said it started.

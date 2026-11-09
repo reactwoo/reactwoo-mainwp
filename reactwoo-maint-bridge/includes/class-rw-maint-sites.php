@@ -130,6 +130,8 @@ class RW_Maint_Sites {
 			'client_locale'    => '%s',
 			'report_email'     => '%s',
 			'report_enabled'   => '%d',
+			'last_backup_ref'  => '%s',
+			'last_backup_at'   => '%s',
 			'created_at'       => '%s',
 			'updated_at'       => '%s',
 		);

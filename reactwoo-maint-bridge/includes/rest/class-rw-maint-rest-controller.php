@@ -666,6 +666,34 @@ class RW_Maint_Rest_Controller {
 			return new WP_Error( 'rw_mainwp_action_unsupported', 'Maintenance action is not available.', array( 'status' => 501 ) );
 		}
 
+		$guard = null;
+		if ( 'run_updates' === $client_method ) {
+			$payload = (array) $request->get_json_params();
+			$guard   = RW_Maint_Update_Guard::decide(
+				isset( $payload['backup_ref'] ) ? $payload['backup_ref'] : '',
+				isset( $payload['snapshot_at'] ) ? $payload['snapshot_at'] : ''
+			);
+			if ( is_wp_error( $guard ) ) {
+				RW_Maint_Audit::log(
+					'update_blocked_unprotected',
+					array(
+						'portal_site_id'  => $portal_site_id,
+						'subscription_id' => (int) $site->subscription_id,
+						'user_id'         => (int) $site->user_id,
+						'reason'          => 'missing_fresh_snapshot',
+					)
+				);
+				return $guard;
+			}
+			RW_Maint_Sites::update_site(
+				(int) $site->id,
+				array(
+					'last_backup_ref' => $guard['backup_ref'],
+					'last_backup_at'  => $guard['backup_at'],
+				)
+			);
+		}
+
 		$result = call_user_func( array( 'RW_Maint_MainWP_Client', $method ), $site );
 		if ( is_wp_error( $result ) ) {
 			$status = 502;
@@ -699,6 +727,7 @@ class RW_Maint_Rest_Controller {
 				'started'        => $state['started'],
 				'finished'       => $state['finished'],
 				'job_id'         => $state['job_id'],
+				'backup_ref'     => is_array( $guard ) ? $guard['backup_ref'] : '',
 			)
 		);
 	}

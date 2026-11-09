@@ -74,6 +74,18 @@ class RW_Rest_Controller {
 			)
 		);
 
+		// Connector posts to index.php?rest_route=/reactwoo/v1/sites/maintenance-report
+		// and signs the route /reactwoo/v1/sites/maintenance-report, without /wp-json.
+		register_rest_route(
+			'reactwoo/v1',
+			'/sites/maintenance-report',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( 'RW_Portal_Reports', 'ingest' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+
 		register_rest_route(
 			'reactwoo/v1',
 			'/sites/(?P<id>\d+)/client-sync',

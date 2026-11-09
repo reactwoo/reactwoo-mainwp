@@ -186,6 +186,17 @@ class RW_Maint_Client {
 		}
 	}
 
+	/**
+	 * Signed POST to a maintenance hub route.
+	 *
+	 * @param string              $action  Route slug under reactwoo-maint/v1.
+	 * @param array<string,mixed> $payload JSON body.
+	 * @return array<string,mixed>|WP_Error
+	 */
+	public static function post_signed( $action, array $payload ) {
+		return self::post( $action, $payload );
+	}
+
 	private static function post( $action, array $payload, $idempotency_key = '' ) {
 		$endpoint = self::endpoint_url( $action );
 		if ( is_wp_error( $endpoint ) ) {

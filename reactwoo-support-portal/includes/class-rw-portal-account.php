@@ -1716,6 +1716,11 @@ class RW_Portal_Account {
 			case 'download_report':
 				RW_Portal_Customer_Actions::handle( $user_id, $action );
 				break;
+			case 'report_rollback':
+			case 'report_support':
+			case 'report_self_fix':
+				RW_Portal_Reports::handle_action( $user_id, $action );
+				break;
 			case 'reconnect_site':
 				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );
 				break;

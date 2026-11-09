@@ -3018,6 +3018,42 @@
 	overflow-wrap: anywhere;
 }
 
+.rw-maint-report-facts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 12px 20px;
+	margin: 12px 0 4px;
+}
+.rw-maint-report-facts div {
+	min-width: 0;
+}
+.rw-maint-report-facts dt {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	color: var(--rw-muted);
+}
+.rw-maint-report-facts dd {
+	margin: 2px 0 0;
+}
+.rw-maint-report-list {
+	list-style: none;
+	margin: 0 0 12px;
+	padding: 0;
+}
+.rw-maint-report-list li {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 12px;
+	padding: 8px 0;
+	border-top: 1px solid var(--rw-line);
+}
+.rw-maint-report-meta {
+	color: var(--rw-muted);
+	font-size: 13px;
+}
+
 /* Dark-mode surface fixes for hard-coded light panels */
 .rw-maint[data-theme="dark"] .rw-maint-plan-block-heading,
 .rw-maint[data-theme="dark"] .rw-maint-panel--paper,

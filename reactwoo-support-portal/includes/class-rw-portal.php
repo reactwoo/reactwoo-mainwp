@@ -31,6 +31,7 @@ final class RW_Portal {
 		RW_Support_Site_Admin::register();
 		RW_Connection_Orchestrator::register();
 		RW_Maintenance_Emails::register();
+		RW_Portal_Reports::register();
 		RW_Temporary_Access::register();
 		add_action( 'rest_api_init', array( 'RW_Rest_Controller', 'register_routes' ) );
 	}
@@ -63,6 +64,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-connection-attempts.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-credential-vault.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-maintenance-emails.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-reports.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-temporary-access.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-connection-orchestrator.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-sites.php';

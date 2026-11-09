@@ -38,6 +38,26 @@ class RW_Maint_Sites {
 		);
 	}
 
+	/**
+	 * Bridge row for a MainWP site. The client account is user_id on that row.
+	 *
+	 * @param int $mainwp_site_id MainWP site id.
+	 * @return object|null
+	 */
+	public static function get_by_mainwp_site_id( $mainwp_site_id ) {
+		global $wpdb;
+
+		$mainwp_site_id = (int) $mainwp_site_id;
+		if ( $mainwp_site_id <= 0 ) {
+			return null;
+		}
+		$table = RW_Maint_DB::table( 'sites' );
+
+		return $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$table} WHERE mainwp_site_id = %d ORDER BY id ASC LIMIT 1", $mainwp_site_id )
+		);
+	}
+
 	public static function get_site( $site_id ) {
 		global $wpdb;
 

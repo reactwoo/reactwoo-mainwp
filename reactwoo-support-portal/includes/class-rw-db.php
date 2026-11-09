@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class RW_DB {
-	const DB_VERSION = '1.9';
+	const DB_VERSION = '1.10';
 
 	public static function table( $suffix ) {
 		global $wpdb;
@@ -154,11 +154,29 @@ class RW_DB {
 			KEY order_item_id (order_item_id)
 		) {$charset_collate};";
 
+		$requests_table = self::table( 'support_requests' );
+		$requests_sql   = "CREATE TABLE {$requests_table} (
+			id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT(20) UNSIGNED NOT NULL,
+			subscription_id BIGINT(20) UNSIGNED NOT NULL,
+			managed_site_id BIGINT(20) UNSIGNED NOT NULL,
+			report_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+			service_host VARCHAR(190) NOT NULL DEFAULT '',
+			plan_host VARCHAR(190) NOT NULL DEFAULT '',
+			status VARCHAR(20) NOT NULL DEFAULT 'open',
+			summary VARCHAR(255) NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			KEY user_site (user_id, managed_site_id),
+			KEY subscription_id (subscription_id)
+		) {$charset_collate};";
+
 		dbDelta( $managed_sites_sql );
 		dbDelta( $attempts_sql );
 		dbDelta( $tokens_sql );
 		dbDelta( $audit_sql );
 		dbDelta( $ledger_sql );
+		dbDelta( $requests_sql );
 
 		update_option( 'rw_portal_db_version', self::DB_VERSION );
 	}

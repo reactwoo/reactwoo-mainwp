@@ -211,7 +211,7 @@ rw_reset_upgrade_cache();
 RW_Maint_DB::maybe_upgrade();
 rw_test(
 	'a missing audit table is created when the schema version already matches',
-	1 === $wpdb->shows && 3 === (int) $GLOBALS['rw_dbdelta']
+	1 === $wpdb->shows && 6 === (int) $GLOBALS['rw_dbdelta']
 );
 $shows_after_create = $wpdb->shows;
 $delta_after_create = (int) $GLOBALS['rw_dbdelta'];
@@ -250,7 +250,7 @@ $GLOBALS['rw_dbdelta'] = 0;
 RW_Maint_DB::maybe_upgrade();
 rw_test(
 	'a schema version change still creates the tables',
-	3 === (int) $GLOBALS['rw_dbdelta'] && RW_Maint_DB::DB_VERSION === get_option( 'rw_maint_db_version' )
+	6 === (int) $GLOBALS['rw_dbdelta'] && RW_Maint_DB::DB_VERSION === get_option( 'rw_maint_db_version' )
 );
 
 if ( $failures > 0 ) {

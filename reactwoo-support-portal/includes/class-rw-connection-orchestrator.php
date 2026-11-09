@@ -494,6 +494,11 @@ class RW_Connection_Orchestrator {
 			)
 		);
 
+		$connected_site = class_exists( 'RW_Sites' ) ? RW_Sites::get_site( (int) $site->id ) : $site;
+		if ( function_exists( 'do_action' ) && $connected_site ) {
+			do_action( 'rw_portal_site_connected', $connected_site );
+		}
+
 		self::finish_redirect( 'Your website is protected.', 'success' );
 	}
 

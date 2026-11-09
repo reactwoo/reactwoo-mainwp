@@ -75,6 +75,13 @@ $needs_attention = ! empty( $rw_view['maintenance'] ) && is_array( $rw_view['mai
 		</aside>
 	</section>
 
+	<?php
+	if ( ! empty( $rw_view['wordfence'] ) && is_array( $rw_view['wordfence'] ) ) {
+		$wordfence = $rw_view['wordfence'];
+		include RW_PORTAL_DIR . 'templates/partials/wordfence-onboarding.php';
+	}
+	?>
+
 	<?php if ( ! empty( $rw_view['support_offer'] ) && is_array( $rw_view['support_offer'] ) ) : ?>
 		<?php
 		$support_offer = $rw_view['support_offer'];

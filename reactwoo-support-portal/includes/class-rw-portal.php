@@ -32,6 +32,7 @@ final class RW_Portal {
 		RW_Connection_Orchestrator::register();
 		RW_Maintenance_Emails::register();
 		RW_Temporary_Access::register();
+		RW_Portal_Wordfence::register();
 		add_action( 'rest_api_init', array( 'RW_Rest_Controller', 'register_routes' ) );
 	}
 
@@ -77,6 +78,7 @@ final class RW_Portal {
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-settings.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-account.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-customer-actions.php';
+		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-wordfence.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-identity-sync.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-audit-admin.php';
 		require_once RW_PORTAL_DIR . 'includes/class-rw-portal-dashboard.php';

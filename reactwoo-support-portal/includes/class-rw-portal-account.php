@@ -1188,6 +1188,7 @@ class RW_Portal_Account {
 			'manual_pending'  => $site && class_exists( 'RW_Temporary_Access' ) && RW_Temporary_Access::is_pending( $site ),
 			'replace_connection' => $site && isset( $site->connection_error_code ) && 'existing_connection' === $site->connection_error_code,
 			'maintenance'     => ( 'connected' === $state && $site && class_exists( 'RW_Portal_Maintenance_Status' ) ) ? RW_Portal_Maintenance_Status::view_for_site( $site ) : null,
+			'wordfence'       => ( 'connected' === $state && $site && class_exists( 'RW_Portal_Wordfence' ) ) ? RW_Portal_Wordfence::view_for_site( $site ) : null,
 			'renews_on'       => self::renews_label( $subscription ),
 			'support_offer'   => ( 'connected' === $state && class_exists( 'RW_Support_Offers' ) ) ? RW_Support_Offers::card_for_subscription( $subscription, $user_id, $site ) : null,
 		);
@@ -1715,6 +1716,10 @@ class RW_Portal_Account {
 			case 'resume_maintenance':
 			case 'download_report':
 				RW_Portal_Customer_Actions::handle( $user_id, $action );
+				break;
+			case 'wordfence_setup':
+			case 'wordfence_remove_conflicts':
+				RW_Portal_Wordfence::handle( $user_id, $action );
 				break;
 			case 'reconnect_site':
 				self::handle_maint_action( $user_id, 'reconnect', 'site_reconnect_requested', 'Reconnect requested.' );

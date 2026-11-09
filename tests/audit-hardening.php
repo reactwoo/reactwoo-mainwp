@@ -143,8 +143,8 @@ function rw_reset_upgrade_cache() {
 
 $bridge = file_get_contents( dirname( __DIR__ ) . '/reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.8',
-	false !== strpos( $bridge, 'Version: 0.3.8' ) && false !== strpos( $bridge, "define( 'RW_MAINT_VERSION', '0.3.8' )" ) && false === strpos( $bridge, '0.3.7' )
+	'bridge version is 0.3.9',
+	false !== strpos( $bridge, 'Version: 0.3.9' ) && false !== strpos( $bridge, "define( 'RW_MAINT_VERSION', '0.3.9' )" ) && false === strpos( $bridge, '0.3.8' )
 );
 
 rw_reset_log();

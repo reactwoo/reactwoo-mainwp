@@ -170,6 +170,10 @@ class RW_Maint_Settings {
 		<div class="wrap">
 			<style>.rw-maint-tooltip { cursor: help; }</style>
 			<h1><?php echo esc_html( RW_MAINT_MENU_NAME ); ?> Settings</h1>
+			<div class="notice notice-info">
+				<p>Snapshots taken for a customer contain plugins, themes and the database. Media uploads are left out on purpose. The snapshot stays on the customer website. If that server is destroyed or compromised, the snapshot is lost with it. There is no off-site copy.</p>
+				<p>Customer updates accept a snapshot only while it is still fresh. The default is 30 minutes. Change it with the option <code>rw_maint_snapshot_fresh_seconds</code> (a number of seconds). This screen does not change the hub's automatic updates. Those are switched off separately. The <code>hub_auto_updates_unprotected</code> log still records a site when automatic updates are on and there is no fresh snapshot.</p>
+			</div>
 			<form method="post" action="options.php">
 				<?php
 				settings_fields( 'rw_maint_settings' );

@@ -1,5 +1,5 @@
 === ReactWoo Support Portal ===
-Stable tag: 0.5.11
+Stable tag: 0.5.12
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 7.4
@@ -8,6 +8,10 @@ License: GPLv2 or later
 Customer maintenance account, support minutes, and the website each plan or pack covers.
 
 == Changelog ==
+
+= 0.5.12 =
+* Run pending updates saves a fresh snapshot first and does not start when that snapshot fails.
+* The success notice includes the snapshot reference. Completion is still not confirmed.
 
 = 0.5.11 =
 * Backup now and Security scan run on the website through the connector. Run pending updates uses the MainWP 6.4.1 updates route.

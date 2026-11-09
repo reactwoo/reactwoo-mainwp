@@ -98,7 +98,9 @@ class RW_Portal_Customer_Actions {
 			return true;
 		}
 
-		if ( 'request_backup' === $action || 'security_scan' === $action ) {
+		if ( 'run_updates' === $action ) {
+			$result = self::run_updates_with_snapshot( $site );
+		} elseif ( 'request_backup' === $action || 'security_scan' === $action ) {
 			$result = self::run_connector_action( $site, $action );
 		} else {
 			$bridge = self::BRIDGE_ACTIONS[ $action ];
@@ -188,6 +190,50 @@ class RW_Portal_Customer_Actions {
 		}
 
 		return RW_WordPress_Client::connector_command( (string) $site->site_url, $route, (string) $body, (int) $site->id, $secret, $timeout );
+	}
+
+	/**
+	 * Take a fresh snapshot, then ask the hub to start updates only if that snapshot exists.
+	 *
+	 * @param object $site Portal site.
+	 * @return array|WP_Error
+	 */
+	private static function run_updates_with_snapshot( $site ) {
+		$secret = class_exists( 'RW_Tokens' ) ? RW_Tokens::get_site_secret( (int) $site->id ) : '';
+		if ( ! is_string( $secret ) || '' === $secret ) {
+			return new WP_Error( 'rw_update_unprotected', 'Updates were not started because this website has not finished enrolment.', array( 'status' => 409 ) );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			set_time_limit( 180 );
+		}
+
+		$snap = RW_WordPress_Client::connector_command(
+			(string) $site->site_url,
+			'/reactwoo-connector/v2/snapshot',
+			(string) wp_json_encode( array( 'purpose' => 'pre_update' ) ),
+			(int) $site->id,
+			$secret,
+			120
+		);
+		if ( is_wp_error( $snap ) || empty( $snap['backup_ref'] ) ) {
+			$detail  = is_wp_error( $snap ) ? sanitize_text_field( $snap->get_error_message() ) : '';
+			$message = 'Updates were not started because a fresh snapshot could not be saved.';
+			if ( '' !== $detail && strlen( $message . ' ' . $detail ) <= 240 ) {
+				$message .= ' ' . $detail;
+			}
+			return new WP_Error( 'rw_update_unprotected', $message, array( 'status' => 409 ) );
+		}
+
+		self::remember_backup_ref( (int) $site->id, $snap );
+
+		return RW_Maint_Client::update_site_status(
+			$site,
+			'run-updates',
+			array(
+				'backup_ref'  => (string) $snap['backup_ref'],
+				'snapshot_at' => isset( $snap['created_at'] ) ? (string) $snap['created_at'] : '',
+			)
+		);
 	}
 
 	/**
@@ -448,7 +494,7 @@ class RW_Portal_Customer_Actions {
 	 */
 	public static function outcome_message( $action, array $result = array() ) {
 		if ( 'request_backup' === $action && ! empty( $result['backup_ref'] ) ) {
-			return 'A snapshot of the plugins, themes and database has been saved on this website. Reference: ' . sanitize_text_field( (string) $result['backup_ref'] ) . '.';
+			return 'A snapshot of the plugins, themes and database has been saved on this website. Media uploads are not included. The snapshot is lost if this server is destroyed or compromised. Reference: ' . sanitize_text_field( (string) $result['backup_ref'] ) . '.';
 		}
 		if ( 'security_scan' === $action && isset( $result['state'] ) && 'already_running' === $result['state'] ) {
 			return 'A Wordfence security scan is already running on this website.';
@@ -459,7 +505,7 @@ class RW_Portal_Customer_Actions {
 		if ( 'run_updates' === $action ) {
 			$ref = isset( $result['backup_ref'] ) ? sanitize_text_field( (string) $result['backup_ref'] ) : '';
 			if ( '' !== $ref ) {
-				return 'A snapshot was saved (' . $ref . ') and pending updates have been started. Completion has not been confirmed.';
+				return 'A snapshot was saved (' . $ref . ') and pending updates have been started. Media uploads are not included, and the snapshot is lost if this server is destroyed or compromised. Completion has not been confirmed.';
 			}
 			return 'Pending updates have been started on the maintenance hub. Completion has not been confirmed.';
 		}

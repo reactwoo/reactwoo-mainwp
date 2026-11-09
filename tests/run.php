@@ -1523,7 +1523,7 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.11' === RW_PORTAL_VERSION
+		&& '0.5.12' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -3394,8 +3394,8 @@ RW_Maint_MainWP_Clients::use_directory( null );
 
 $bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.8',
-	false !== strpos( $bridge_php, 'Version: 0.3.8' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.8' )" )
+	'bridge version is 0.3.9',
+	false !== strpos( $bridge_php, 'Version: 0.3.9' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.9' )" )
 );
 $hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
 $hardening_output = array();
@@ -3640,6 +3640,7 @@ rw_test(
 		&& false === strpos( $manifest, $snap_root )
 		&& false !== strpos( $manifest, 'rwsnap_20261109T120000Z_abcd1234' )
 		&& false !== strpos( $manifest, 'wfhits' )
+		&& false !== strpos( $manifest, '"uploads"' )
 		&& is_file( $snap_root . '/out/.htaccess' )
 		&& false !== strpos( (string) file_get_contents( $snap_root . '/out/.htaccess' ), 'Require all denied' )
 );
@@ -3663,6 +3664,51 @@ rw_test( 'old snapshots are pruned', is_array( $kept ) && 2 === count( $kept ) )
 
 $missing_engine = RW_Connector_Snapshot::build_archive( $snap_root . '/no-sql', array(), $snap_root . '/missing.sql', array() );
 rw_test( 'an empty database export is not reported as a snapshot', is_wp_error( $missing_engine ) && 'rw_snapshot_failed' === $missing_engine->get_error_code() );
+
+require_once __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-update-guard.php';
+$guard_now   = strtotime( '2026-11-09 12:00:00 UTC' );
+$guard_fresh = gmdate( 'c', $guard_now - 60 );
+$guard_ok    = RW_Maint_Update_Guard::decide( 'rwsnap_20261109T115900Z_abcd1234', $guard_fresh, $guard_now );
+$guard_stale = RW_Maint_Update_Guard::decide( 'rwsnap_20261109T100000Z_abcd1234', gmdate( 'c', $guard_now - 3600 ), $guard_now );
+$guard_bad   = RW_Maint_Update_Guard::decide( '../etc/passwd', $guard_fresh, $guard_now );
+$guard_ahead = RW_Maint_Update_Guard::decide( 'rwsnap_20261109T130000Z_abcd1234', gmdate( 'c', $guard_now + 600 ), $guard_now );
+$exposed_off = RW_Maint_Update_Guard::hub_update_exposure( 0, true, 0, '', '', $guard_now );
+$exposed_raw = RW_Maint_Update_Guard::hub_update_exposure( 1, true, 0, '', '', $guard_now );
+$exposed_flag = RW_Maint_Update_Guard::hub_update_exposure( 1, true, 1, '', '', $guard_now );
+$exposed_ok  = RW_Maint_Update_Guard::hub_update_exposure( 1, true, 0, 'rwsnap_20261109T115900Z_abcd1234', $guard_fresh, $guard_now );
+$exposed_gap = RW_Maint_Update_Guard::hub_update_exposure( 0, false, 0, '', '', $guard_now );
+rw_test(
+	'updates start only with a fresh snapshot reference',
+	is_array( $guard_ok ) && 'rwsnap_20261109T115900Z_abcd1234' === $guard_ok['backup_ref']
+		&& is_wp_error( $guard_stale ) && 'rw_update_unprotected' === $guard_stale->get_error_code()
+		&& is_wp_error( $guard_bad ) && is_wp_error( $guard_ahead )
+		&& false === $exposed_off['automatic']
+		&& true === $exposed_raw['automatic'] && false === $exposed_raw['protected'] && 'unprotected' === $exposed_raw['reason']
+		&& 'mainwp_backup_before_upgrade_only' === $exposed_flag['reason'] && false === $exposed_flag['protected']
+		&& true === $exposed_ok['protected'] && 'fresh_snapshot' === $exposed_ok['reason']
+		&& 'automatic_update_not_readable' === $exposed_gap['reason'] && false === $exposed_gap['protected']
+		&& 1800 === RW_Maint_Update_Guard::FRESH_SECONDS
+		&& 1800 === RW_Maint_Update_Guard::fresh_seconds()
+);
+$window_before = RW_Maint_Update_Guard::fresh_seconds();
+update_option( RW_Maint_Update_Guard::FRESH_OPTION, 600 );
+$window_custom = RW_Maint_Update_Guard::fresh_seconds();
+$stale_for_custom = RW_Maint_Update_Guard::decide( 'rwsnap_20261109T100000Z_abcd1234', gmdate( 'c', $guard_now - 900 ), $guard_now );
+delete_option( RW_Maint_Update_Guard::FRESH_OPTION );
+rw_test(
+	'the snapshot freshness window follows rw_maint_snapshot_fresh_seconds',
+	1800 === $window_before
+		&& 600 === $window_custom
+		&& is_wp_error( $stale_for_custom )
+		&& 1800 === RW_Maint_Update_Guard::fresh_seconds()
+);
+$guarded_copy = RW_Portal_Customer_Actions::outcome_message( 'run_updates', array( 'backup_ref' => 'rwsnap_20261109T115900Z_abcd1234' ) );
+rw_test(
+	'an update that followed a snapshot names the reference and does not claim it finished',
+	false !== strpos( $guarded_copy, 'rwsnap_20261109T115900Z_abcd1234' )
+		&& false !== strpos( $guarded_copy, 'Completion has not been confirmed' )
+		&& false === strpos( $guarded_copy, "\u{2014}" )
+);
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

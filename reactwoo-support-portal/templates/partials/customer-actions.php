@@ -32,8 +32,8 @@ $paused = ( 'suspended' === $status );
 						</span>
 						<h4>Request backup</h4>
 					</div>
-					<p class="rw-maint-panel-copy">Save a snapshot of the plugins, themes and database on this website.</p>
-					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'request_backup', 'Request backup', 'I confirm I want a snapshot of this website\'s plugins, themes and database.', 'rw-maint-button' ); ?>
+					<p class="rw-maint-panel-copy">Save a snapshot of the plugins, themes and database on this website. Media uploads are left out. The snapshot stays on this website, so it is lost if the server is destroyed or compromised.</p>
+					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'request_backup', 'Request backup', 'I understand this snapshot stays on this website, leaves out media uploads, and is lost if the server is destroyed or compromised.', 'rw-maint-button' ); ?>
 				</article>
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
@@ -58,8 +58,8 @@ $paused = ( 'suspended' === $status );
 						</span>
 						<h4>Run pending updates</h4>
 					</div>
-					<p class="rw-maint-panel-copy">Approve and run WordPress, plugin and theme updates that are waiting.</p>
-					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'run_updates', 'Run pending updates', 'I understand updates will be applied to this site now.', 'rw-maint-button' ); ?>
+					<p class="rw-maint-panel-copy">Approve and run WordPress, plugin and theme updates that are waiting. A snapshot of the plugins, themes and database is saved on this website first. Media uploads are left out. That snapshot is lost if the server is destroyed or compromised.</p>
+					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'run_updates', 'Run pending updates', 'I understand updates run after an on-site snapshot that leaves out media uploads, and that the snapshot is lost if the server is destroyed or compromised.', 'rw-maint-button' ); ?>
 				</article>
 				<article class="rw-maint-panel rw-maint-action-card">
 					<div class="rw-maint-action-card__head">

@@ -920,7 +920,7 @@ class RW_Support_Offers {
 			'rw-portal-support-checkout',
 			RW_PORTAL_URL . 'assets/js/account-support-checkout.js',
 			array(),
-			defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.11',
+			defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.12',
 			true
 		);
 		if ( function_exists( 'wp_localize_script' ) ) {

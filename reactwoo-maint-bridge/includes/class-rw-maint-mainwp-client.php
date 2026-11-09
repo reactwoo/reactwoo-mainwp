@@ -898,16 +898,51 @@ class RW_Maint_MainWP_Client {
 				return sprintf( 'sites/%d/reconnect/', (int) $site->mainwp_site_id );
 			case 'purge':
 				return sprintf( 'sites/%d/remove/', (int) $site->mainwp_site_id );
-			case 'backup':
-				// Overridable via rw_maint_mainwp_action_path; default MainWP Dashboard REST shape.
-				return sprintf( 'sites/%d/backup/', (int) $site->mainwp_site_id );
 			case 'run_updates':
-				return sprintf( 'sites/%d/updateplugins/', (int) $site->mainwp_site_id );
+				// MainWP 6.4.1 runs every pending core, plugin, theme and translation update here.
+				return sprintf( 'updates/%d/update', (int) $site->mainwp_site_id );
+			case 'backup':
 			case 'security_scan':
-				return sprintf( 'sites/%d/security/', (int) $site->mainwp_site_id );
+				// No MainWP 6.4.1 REST route starts a backup or a security scan.
+				// Backup is an on-site connector snapshot. A scan is a Wordfence
+				// start on the connector. An empty path is an honest refusal.
+				return '';
 			default:
 				return '';
 		}
+	}
+
+	/**
+	 * Method and path for one lifecycle action. An empty path is unsupported.
+	 *
+	 * @param string $action Action name.
+	 * @param int    $mainwp_site_id MainWP site id.
+	 * @return array{method:string,path:string}
+	 */
+	public static function lifecycle_route( $action, $mainwp_site_id ) {
+		$site = (object) array( 'mainwp_site_id' => (int) $mainwp_site_id );
+
+		return array(
+			'method' => self::default_action_method( $action ),
+			'path'   => self::default_action_path( $action, $site ),
+		);
+	}
+
+	/**
+	 * An accepted update call has started work. It has not confirmed completion.
+	 *
+	 * @param array $response MainWP body.
+	 * @return array{started:bool,finished:bool,job_id:string}
+	 */
+	public static function update_run_state( array $response ) {
+		$summary = self::extract_action_result_summary( $response );
+		$job_id  = isset( $summary['job_id'] ) ? sanitize_text_field( (string) $summary['job_id'] ) : '';
+
+		return array(
+			'started'  => true,
+			'finished' => false,
+			'job_id'   => $job_id,
+		);
 	}
 
 	private static function default_action_method( $action ) {

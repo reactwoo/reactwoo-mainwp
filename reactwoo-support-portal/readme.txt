@@ -1,5 +1,5 @@
 === ReactWoo Support Portal ===
-Stable tag: 0.5.10
+Stable tag: 0.5.11
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 7.4
@@ -8,6 +8,11 @@ License: GPLv2 or later
 Customer maintenance account, support minutes, and the website each plan or pack covers.
 
 == Changelog ==
+
+= 0.5.11 =
+* Backup now and Security scan run on the website through the connector. Run pending updates uses the MainWP 6.4.1 updates route.
+* Success messages say when work has started, and they do not claim it has finished.
+* Heartbeats from connectors already installed are accepted while those connectors still sign the old path.
 
 = 0.5.10 =
 * An admin who can manage WooCommerce can assign or change the website for purchased support minutes that have no site, from the Managed Sites queue.

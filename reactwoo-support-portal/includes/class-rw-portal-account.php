@@ -96,7 +96,7 @@ class RW_Portal_Account {
 			return (string) $mtime;
 		}
 
-		return defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.10';
+		return defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.11';
 	}
 
 	public static function enqueue_maintenance_style() {
@@ -113,7 +113,7 @@ class RW_Portal_Account {
 
 		$js_handle = 'rw-portal-maintenance-theme';
 		$js_path   = ( defined( 'RW_PORTAL_DIR' ) ? RW_PORTAL_DIR : dirname( __DIR__ ) . '/' ) . 'assets/js/account-maintenance-theme.js';
-		$js_ver    = file_exists( $js_path ) ? (string) filemtime( $js_path ) : ( defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.10' );
+		$js_ver    = file_exists( $js_path ) ? (string) filemtime( $js_path ) : ( defined( 'RW_PORTAL_VERSION' ) ? RW_PORTAL_VERSION : '0.5.11' );
 		if ( function_exists( 'wp_enqueue_script' ) && ( ! function_exists( 'wp_script_is' ) || ! wp_script_is( $js_handle, 'enqueued' ) ) ) {
 			wp_enqueue_script(
 				$js_handle,

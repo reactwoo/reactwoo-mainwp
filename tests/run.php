@@ -311,7 +311,7 @@ function current_time( $type, $gmt = false ) {
 	return gmdate( 'Y-m-d H:i:s' );
 }
 function home_url() {
-	return 'https://portal.example';
+	return isset( $GLOBALS['rw_home_url'] ) ? (string) $GLOBALS['rw_home_url'] : 'https://portal.example';
 }
 function rest_url() {
 	return 'https://portal.example/wp-json/';
@@ -1490,6 +1490,12 @@ if ( ! function_exists( 'get_current_user_id' ) ) {
 		return isset( $GLOBALS['rw_current_user_id'] ) ? (int) $GLOBALS['rw_current_user_id'] : 0;
 	}
 }
+if ( ! function_exists( 'current_user_can' ) ) {
+	function current_user_can( $capability ) {
+		$caps = isset( $GLOBALS['rw_user_caps'] ) ? (array) $GLOBALS['rw_user_caps'] : array();
+		return in_array( (string) $capability, $caps, true );
+	}
+}
 
 $account_src = file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-account.php' );
 $query_vars  = RW_Portal_Account::add_query_var( array( 'orders' => 'orders' ) );
@@ -1517,7 +1523,7 @@ rw_test(
 	is_array( $maintenance_style )
 		&& false !== strpos( (string) $maintenance_style['src'], 'assets/css/account-maintenance.css' )
 		&& (string) filemtime( __DIR__ . '/../reactwoo-support-portal/assets/css/account-maintenance.css' ) === (string) $maintenance_style['ver']
-		&& '0.5.10' === RW_PORTAL_VERSION
+		&& '0.5.11' === RW_PORTAL_VERSION
 		&& false !== strpos( $portal_main, 'Version: ' . RW_PORTAL_VERSION )
 );
 
@@ -3388,8 +3394,8 @@ RW_Maint_MainWP_Clients::use_directory( null );
 
 $bridge_php = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/reactwoo-maint-bridge.php' );
 rw_test(
-	'bridge version is 0.3.7',
-	false !== strpos( $bridge_php, 'Version: 0.3.7' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.7' )" )
+	'bridge version is 0.3.8',
+	false !== strpos( $bridge_php, 'Version: 0.3.8' ) && false !== strpos( $bridge_php, "define( 'RW_MAINT_VERSION', '0.3.8' )" )
 );
 $hardening_cmd    = escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/audit-hardening.php' );
 $hardening_output = array();
@@ -3431,6 +3437,232 @@ rw_test(
 		&& false !== strpos( $publish_workflow, 'resolve_connector_release.py' )
 		&& false !== strpos( $publish_workflow, 'steps.meta.outputs.version' )
 );
+
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector-security-scan.php';
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector-snapshot.php';
+require_once __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector-bootstrap.php';
+
+$heartbeat_body = '{"connector_version":"0.5.11"}';
+$heartbeat_url  = 'https://reactwoo.com/staging/wp-json/reactwoo/v1/sites/heartbeat';
+$signed_headers = RW_Connector_Signing::build_headers( 'POST', $heartbeat_url, $heartbeat_body, 9, 'site-secret' );
+$signed_payload = 'POST|/reactwoo/v1/sites/heartbeat|' . $signed_headers['X-RW-Timestamp'] . '|' . $signed_headers['X-RW-Nonce'] . '|' . hash( 'sha256', $heartbeat_body );
+$legacy_payload = 'POST|/staging/wp-json/reactwoo/v1/sites/heartbeat|' . $signed_headers['X-RW-Timestamp'] . '|' . $signed_headers['X-RW-Nonce'] . '|' . hash( 'sha256', $heartbeat_body );
+rw_test(
+	'a heartbeat signs the REST route and not the wp-json path',
+	hash_hmac( 'sha256', $signed_payload, 'site-secret' ) === $signed_headers['X-RW-Signature']
+		&& hash_hmac( 'sha256', $legacy_payload, 'site-secret' ) !== $signed_headers['X-RW-Signature']
+		&& '/reactwoo/v1/sites/heartbeat' === RW_Connector_Signing::route_from_url( 'https://reactwoo.com/index.php?rest_route=' . rawurlencode( '/reactwoo/v1/sites/heartbeat' ) )
+		&& '/reactwoo/v1/sites/heartbeat' === RW_Connector_Signing::route_from_url( $heartbeat_url )
+);
+$connector_src = file_get_contents( __DIR__ . '/../reactwoo-support-connector/includes/class-rw-connector.php' );
+rw_test(
+	'heartbeats use the plain REST route',
+	false !== strpos( $connector_src, "rawurlencode( \$route )" )
+		&& false !== strpos( $connector_src, "'/reactwoo/v1/sites/heartbeat'" )
+		&& false === strpos( $connector_src, "wp-json/reactwoo/v1/sites/heartbeat" )
+);
+
+function rw_heartbeat_request( $secret, $path, $nonce, $body ) {
+	$timestamp = (string) time();
+	$payload   = 'POST|' . $path . '|' . $timestamp . '|' . $nonce . '|' . hash( 'sha256', $body );
+	return new WP_REST_Request(
+		$body,
+		array(
+			'x-rw-signature' => hash_hmac( 'sha256', $payload, $secret ),
+			'x-rw-timestamp' => $timestamp,
+			'x-rw-nonce'     => $nonce,
+		),
+		'POST',
+		'/reactwoo/v1/sites/heartbeat'
+	);
+}
+
+$route_body = '{"connector_version":"0.5.12"}';
+$by_route   = RW_Security::verify_signed_request( rw_heartbeat_request( 'site-secret', '/reactwoo/v1/sites/heartbeat', 'hb-route', $route_body ), 4 );
+$by_prefix  = RW_Security::verify_signed_request( rw_heartbeat_request( 'site-secret', '/wp-json/reactwoo/v1/sites/heartbeat', 'hb-prefix', $route_body ), 4 );
+$GLOBALS['rw_home_url'] = 'https://reactwoo.com/staging';
+$by_subdir  = RW_Security::verify_signed_request( rw_heartbeat_request( 'site-secret', '/staging/wp-json/reactwoo/v1/sites/heartbeat', 'hb-subdir', $route_body ), 4 );
+$_SERVER['REQUEST_URI'] = '/blog/wp-json/reactwoo/v1/sites/heartbeat';
+$by_uri     = RW_Security::verify_signed_request( rw_heartbeat_request( 'site-secret', '/blog/wp-json/reactwoo/v1/sites/heartbeat', 'hb-uri', $route_body ), 4 );
+$by_other   = RW_Security::verify_signed_request( rw_heartbeat_request( 'site-secret', '/evil/reactwoo/v1/sites/heartbeat', 'hb-evil', $route_body ), 4 );
+$replay_hb  = RW_Security::verify_signed_request( rw_heartbeat_request( 'site-secret', '/reactwoo/v1/sites/heartbeat', 'hb-route', $route_body ), 4 );
+unset( $GLOBALS['rw_home_url'], $_SERVER['REQUEST_URI'] );
+rw_test(
+	'the portal accepts current and field heartbeat signatures',
+	true === $by_route && true === $by_prefix && true === $by_subdir && true === $by_uri
+		&& is_wp_error( $by_other ) && 'rw_signature_invalid' === $by_other->get_error_code()
+		&& is_wp_error( $replay_hb ) && 'rw_signature_replay' === $replay_hb->get_error_code()
+);
+
+$GLOBALS['rw_user_caps'] = array();
+$connect_denied          = RW_Connector::require_enrolment_admin();
+$GLOBALS['rw_user_caps'] = array( 'manage_options' );
+$connect_allowed         = RW_Connector::require_enrolment_admin();
+$evil_portal             = RW_Connector_Bootstrap::allowed_portal( 'https://evil.example' );
+$reactwoo_portal         = RW_Connector_Bootstrap::allowed_portal( 'https://www.reactwoo.com/account' );
+$plain_portal            = RW_Connector_Bootstrap::allowed_portal( 'http://reactwoo.com' );
+rw_test(
+	'connect needs an administrator and an allowed portal, and will not replace a secret',
+	is_wp_error( $connect_denied ) && 403 === (int) $connect_denied->get_error_data()['status']
+		&& true === $connect_allowed
+		&& RW_Connector::blocks_secret_replacement( 4, 'already-set' )
+		&& ! RW_Connector::blocks_secret_replacement( 0, '' )
+		&& ! RW_Connector::blocks_secret_replacement( 4, '' )
+		&& is_wp_error( $evil_portal )
+		&& true === $reactwoo_portal
+		&& is_wp_error( $plain_portal )
+		&& false !== strpos( $connector_src, "'permission_callback' => array( __CLASS__, 'require_enrolment_admin' )" )
+		&& false !== strpos( $connector_src, 'blocks_secret_replacement' )
+);
+
+$update_route = RW_Maint_MainWP_Client::lifecycle_route( 'run_updates', 12 );
+$backup_route = RW_Maint_MainWP_Client::lifecycle_route( 'backup', 12 );
+$scan_route   = RW_Maint_MainWP_Client::lifecycle_route( 'security_scan', 12 );
+$sync_route   = RW_Maint_MainWP_Client::lifecycle_route( 'sync', 12 );
+$update_state = RW_Maint_MainWP_Client::update_run_state( array( 'success' => 1, 'job_id' => 'job-15' ) );
+$client_src   = file_get_contents( __DIR__ . '/../reactwoo-maint-bridge/includes/class-rw-maint-mainwp-client.php' );
+rw_test(
+	'customer actions use a real MainWP 6.4.1 update route and no invented backup or scan route',
+	'POST' === $update_route['method'] && 'updates/12/update' === $update_route['path']
+		&& '' === $backup_route['path']
+		&& '' === $scan_route['path']
+		&& 'sites/12/sync/' === $sync_route['path']
+		&& true === $update_state['started'] && false === $update_state['finished'] && 'job-15' === $update_state['job_id']
+		&& false === strpos( $client_src, 'updateplugins' )
+		&& false === strpos( $client_src, 'sites/%d/backup' )
+		&& false === strpos( $client_src, 'sites/%d/security' )
+);
+
+$roots = RW_WordPress_Client::connector_rest_roots( 'https://Example.com/staging/blog/' );
+rw_test(
+	'connector actions try the plain REST root before pretty wp-json',
+	array(
+		'https://example.com/staging/blog/index.php?rest_route=/',
+		'https://example.com/staging/blog/wp-json/',
+	) === $roots
+);
+
+$backup_message = RW_Portal_Customer_Actions::outcome_message(
+	'request_backup',
+	array( 'backup_ref' => 'rwsnap_20261109T120000Z_abcd1234' )
+);
+$scan_message = RW_Portal_Customer_Actions::outcome_message( 'security_scan', array( 'state' => 'started' ) );
+$scan_running = RW_Portal_Customer_Actions::outcome_message( 'security_scan', array( 'state' => 'already_running' ) );
+$update_message = RW_Portal_Customer_Actions::outcome_message( 'run_updates', array( 'started' => true ) );
+$customer_copy  = $backup_message . $scan_message . $scan_running . $update_message . RW_Portal_Customer_Actions::rate_limit_message();
+rw_test(
+	'action copy is honest and the rate limit message is unchanged',
+	false !== strpos( $backup_message, 'rwsnap_20261109T120000Z_abcd1234' )
+		&& false !== strpos( $scan_message, 'has been started' )
+		&& false !== strpos( $scan_running, 'already running' )
+		&& false !== strpos( $update_message, 'Completion has not been confirmed' )
+		&& 'You can run this action up to 3 times every 15 minutes for this site. Try again shortly.' === RW_Portal_Customer_Actions::rate_limit_message()
+		&& false === strpos( $customer_copy, "\u{2014}" )
+		&& false !== strpos( file_get_contents( __DIR__ . '/../reactwoo-support-portal/includes/class-rw-portal-customer-actions.php' ), 'set_card_notice' )
+);
+
+$scan_missing = RW_Connector_Security_Scan::interpret( false, false, false );
+$scan_busy    = RW_Connector_Security_Scan::interpret( true, true, false );
+$scan_ok      = RW_Connector_Security_Scan::interpret( true, false, true );
+$scan_failed  = RW_Connector_Security_Scan::interpret( true, false, false, true );
+rw_test(
+	'a security scan starts only when Wordfence is available',
+	is_wp_error( $scan_missing ) && 'rw_scan_unavailable' === $scan_missing->get_error_code()
+		&& 'already_running' === $scan_busy['state'] && false === $scan_busy['started']
+		&& 'started' === $scan_ok['state'] && true === $scan_ok['started']
+		&& is_wp_error( $scan_failed ) && 'rw_scan_failed' === $scan_failed->get_error_code()
+		&& 'already_running' === RW_Connector_Security_Scan::result_from_engine( 'A scan is already running.' )['state']
+		&& is_wp_error( RW_Connector_Security_Scan::result_from_engine( false ) )
+		&& 'started' === RW_Connector_Security_Scan::result_from_engine( null )['state']
+		&& 'wfhits' === RW_Connector_Snapshot::omitted_suffix( 'wfhits' )
+		&& '' === RW_Connector_Snapshot::omitted_suffix( 'posts' )
+);
+
+$snap_root = sys_get_temp_dir() . '/rw-snap-' . getmypid();
+$plugin_dir = $snap_root . '/plugins/hello';
+$theme_dir  = $snap_root . '/themes/twentytwenty';
+$outside    = $snap_root . '/secret.txt';
+mkdir( $plugin_dir, 0777, true );
+mkdir( $theme_dir, 0777, true );
+mkdir( $plugin_dir . '/cache', 0777, true );
+file_put_contents( $plugin_dir . '/hello.php', '<?php // hello' );
+file_put_contents( $plugin_dir . '/cache/cached.php', '<?php // cached' );
+file_put_contents( $plugin_dir . '/big.php', str_repeat( 'B', 80 ) );
+file_put_contents( $theme_dir . '/style.css', '/* theme */' );
+file_put_contents( $outside, 'TOP-SECRET-BYTES' );
+symlink( $outside, $plugin_dir . '/escape.txt' );
+file_put_contents( $snap_root . '/database.sql', "SET NAMES utf8mb4;\nDROP TABLE IF EXISTS `wp_options`;\n" );
+$snap = RW_Connector_Snapshot::build_archive(
+	$snap_root . '/out',
+	array(
+		array( 'name' => 'plugins', 'path' => $snap_root . '/plugins' ),
+		array( 'name' => 'themes', 'path' => $snap_root . '/themes' ),
+	),
+	$snap_root . '/database.sql',
+	array(
+		'purpose'        => 'customer',
+		'backup_ref'     => 'rwsnap_20261109T120000Z_abcd1234',
+		'omitted_tables' => array( 'wfhits' ),
+	),
+	array(
+		'max_file_bytes'    => 40,
+		'max_archive_bytes' => 268435456,
+	)
+);
+$snap_zip = ( ! is_wp_error( $snap ) && ! empty( $snap['backup_ref'] ) ) ? $snap_root . '/out/' . $snap['backup_ref'] . '.zip' : '';
+$zip_names = array();
+$manifest  = '';
+if ( '' !== $snap_zip && is_file( $snap_zip ) && class_exists( 'ZipArchive' ) ) {
+	$zip = new ZipArchive();
+	if ( true === $zip->open( $snap_zip ) ) {
+		for ( $i = 0; $i < $zip->numFiles; $i++ ) {
+			$zip_names[] = $zip->getNameIndex( $i );
+		}
+		$manifest = (string) $zip->getFromName( 'manifest.json' );
+		$zip->close();
+	}
+}
+$zip_blob = ( '' !== $snap_zip && is_file( $snap_zip ) ) ? (string) file_get_contents( $snap_zip ) : '';
+rw_test(
+	'a snapshot stores plugins, themes and the database under a backup reference',
+	! is_wp_error( $snap )
+		&& 'rwsnap_20261109T120000Z_abcd1234' === $snap['backup_ref']
+		&& 'onsite' === $snap['location']
+		&& in_array( 'database', $snap['includes'], true )
+		&& in_array( 'plugins/hello/hello.php', $zip_names, true )
+		&& in_array( 'themes/twentytwenty/style.css', $zip_names, true )
+		&& in_array( 'database.sql', $zip_names, true )
+		&& in_array( 'manifest.json', $zip_names, true )
+		&& ! in_array( 'plugins/hello/escape.txt', $zip_names, true )
+		&& ! in_array( 'plugins/hello/cache/cached.php', $zip_names, true )
+		&& ! in_array( 'plugins/hello/big.php', $zip_names, true )
+		&& false === strpos( $zip_blob, 'TOP-SECRET-BYTES' )
+		&& false === strpos( $manifest, $snap_root )
+		&& false !== strpos( $manifest, 'rwsnap_20261109T120000Z_abcd1234' )
+		&& false !== strpos( $manifest, 'wfhits' )
+		&& is_file( $snap_root . '/out/.htaccess' )
+		&& false !== strpos( (string) file_get_contents( $snap_root . '/out/.htaccess' ), 'Require all denied' )
+);
+RW_Portal_Customer_Actions::remember_backup_ref( 9, is_array( $snap ) ? $snap : array() );
+RW_Portal_Customer_Actions::remember_backup_ref( 9, array( 'backup_ref' => '../etc/passwd' ) );
+$stored_backup = get_option( 'rw_portal_backup_9' );
+rw_test(
+	'the portal keeps a valid backup reference and rejects a path',
+	is_array( $stored_backup ) && 'rwsnap_20261109T120000Z_abcd1234' === $stored_backup['backup_ref'] && 'onsite' === $stored_backup['location']
+);
+$keep_dir = $snap_root . '/keep';
+mkdir( $keep_dir, 0777, true );
+foreach ( array( 10, 20, 30, 40 ) as $age ) {
+	$file = $keep_dir . '/rwsnap_20261109T12000' . (int) ( $age / 10 ) . 'Z_aaaaaaa' . (int) ( $age / 10 ) . '.zip';
+	file_put_contents( $file, 'zip' );
+	touch( $file, time() - $age );
+}
+RW_Connector_Snapshot::prune( $keep_dir, 2 );
+$kept = glob( $keep_dir . '/rwsnap_*.zip' );
+rw_test( 'old snapshots are pruned', is_array( $kept ) && 2 === count( $kept ) );
+
+$missing_engine = RW_Connector_Snapshot::build_archive( $snap_root . '/no-sql', array(), $snap_root . '/missing.sql', array() );
+rw_test( 'an empty database export is not reported as a snapshot', is_wp_error( $missing_engine ) && 'rw_snapshot_failed' === $missing_engine->get_error_code() );
 
 if ( $failures > 0 ) {
 	fwrite( STDERR, "\n{$failures} failed\n" );

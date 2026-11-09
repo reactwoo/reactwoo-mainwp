@@ -220,9 +220,16 @@ class RW_Maint_Client {
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		if ( $code < 200 || $code >= 300 ) {
+			$message = 'Maintenance hub responded with an error.';
+			if ( is_array( $data ) && ! empty( $data['code'] ) && 0 === strpos( (string) $data['code'], 'rw_' ) && ! empty( $data['message'] ) ) {
+				$candidate = sanitize_text_field( (string) $data['message'] );
+				if ( '' !== $candidate && strlen( $candidate ) <= 240 ) {
+					$message = $candidate;
+				}
+			}
 			return new WP_Error(
 				'rw_maint_bad_response',
-				'Maintenance hub responded with an error.',
+				$message,
 				array(
 					'status' => $code,
 					'body'   => RW_Redact::scrub( is_array( $data ) ? $data : array() ),

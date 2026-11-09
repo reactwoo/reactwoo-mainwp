@@ -19,7 +19,7 @@ $paused = ( 'suspended' === $status );
 ?>
 <section class="rw-maint-actions-band" id="rw-maint-actions" aria-labelledby="rw-maint-actions-title">
 	<h2 id="rw-maint-actions-title">Site actions</h2>
-	<p class="rw-maint-panel-copy">Request a check, sync, backup or update for this website. Each action needs confirmation and is rate-limited.</p>
+	<p class="rw-maint-panel-copy">Request a check, sync, snapshot or update for this website. Each action needs confirmation and is rate-limited.</p>
 
 	<div class="rw-maint-action-categories">
 		<section class="rw-maint-action-cat rw-maint-action-cat--protect" aria-labelledby="rw-maint-cat-protect">
@@ -32,8 +32,8 @@ $paused = ( 'suspended' === $status );
 						</span>
 						<h4>Request backup</h4>
 					</div>
-					<p class="rw-maint-panel-copy">Queue a full site backup.</p>
-					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'request_backup', 'Request backup', 'I confirm I want a backup of this site.', 'rw-maint-button' ); ?>
+					<p class="rw-maint-panel-copy">Save a snapshot of the plugins, themes and database on this website.</p>
+					<?php RW_Portal_Customer_Actions::render_action_form( $site, 'request_backup', 'Request backup', 'I confirm I want a snapshot of this website\'s plugins, themes and database.', 'rw-maint-button' ); ?>
 				</article>
 				<article class="rw-maint-panel rw-maint-action-card rw-maint-action-card--primary">
 					<div class="rw-maint-action-card__head">
